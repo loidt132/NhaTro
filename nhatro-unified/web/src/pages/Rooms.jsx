@@ -103,7 +103,7 @@ export default function Rooms(){
 
   // ===== Render helpers =====
   const { sumPaid, sumDebt } = calcTotals(invoices, payments, month);
-  const [view, setView] = useState('table'); // 'table' or 'cards'
+  const [view, setView] = useState('cards'); // 'table' or 'cards'
 
   // compute month-scoped top stats: rooms occupied in month, tenants active in month, invoices for month, unpaid for month
   const getMonthBounds = (ym) => {
