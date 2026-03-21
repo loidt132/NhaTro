@@ -12,7 +12,7 @@ function applyDefaults(s) {
     readings: s.readings || [],
     invoices: s.invoices || [],
     payments: s.payments || [],
-    settings: s.settings || { bankCode: 'VCB', accountNo: '', accountName: '', qrNoteTemplate: 'Tien phong {room} {month}' }
+    settings: s.settings||{ bankCode:'VCB', accountNo:'', accountName:'', qrNoteTemplate:'Tien phong {room} {month}', landlordName:'', landlordPhone:'', landlordAddress:'' }
   };
 }
 
@@ -61,7 +61,7 @@ function seed(){
   const r2={ id:uid(), name:'P102', baseRent:2700000, electricRate:3500, waterRate:12000 };
   const t1={ id:uid(), name:'Nguyễn Văn A', cccd:'012345678901', phone:'0901234567', roomId:r1.id };
   const readings=[{ id:uid(), roomId:r1.id, month:monthKey(), electricStart:100, electricEnd:120, waterStart:30, waterEnd:32, createdAt:new Date().toISOString() }];
-  const s={ rooms:[r1,r2], tenants:[t1], readings, invoices:[], payments:[], settings:{ bankCode:'VCB', accountNo:'', accountName:'', qrNoteTemplate:'Tien phong {room} {month}' }, __meta: { lastModified: new Date().toISOString() } };
+  const s={ rooms:[r1,r2], tenants:[t1], readings, invoices:[], payments:[], settings:{ bankCode:'VCB', accountNo:'', accountName:'', qrNoteTemplate:'Tien phong {room} {month}', landlordName:'', landlordPhone:'', landlordAddress:'' }, __meta: { lastModified: new Date().toISOString() } };
   return s;
 }
 export function saveState(next){ 

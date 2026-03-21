@@ -6,6 +6,7 @@ import Rooms from './pages/Rooms';
 import Meter from './pages/Meter';
 import Payments from './pages/Payments';
 import Settings from './pages/Settings';
+import ReportsHub from './pages/ReportsHub';
 
 export default function App(){
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -34,6 +35,7 @@ export default function App(){
               <Route path="/rooms" element={<Rooms/>} />
               <Route path="/meter" element={<Meter/>} />
               <Route path="/payments" element={<Payments/>} />
+              <Route path="/reports" element={<ReportsHub/>} />
               <Route path="/settings" element={<Settings/>} />
               <Route path="*" element={<Navigate to="/rooms" replace />} />
             </Routes>

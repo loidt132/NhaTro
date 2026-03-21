@@ -1,8 +1,8 @@
 
 import React, { useMemo, useState } from 'react';
-import MonthYearPicker from '../../../src/components/MonthYearPicker';
-import { loadState, isInMonth, isInYear, paidAmount, debtAmount } from './shared';
-import { exportReportPdf } from '../../../src/utils/pdf';
+import MonthYearPicker from '../../components/MonthYearPicker';
+import { loadState, isInMonth, isInYear, paidAmount } from './shared';
+import { exportReportPdf } from '../../utils/pdf/exportInvoiceJspdf';
 
 export default function DebtReport(){
   const now = new Date();

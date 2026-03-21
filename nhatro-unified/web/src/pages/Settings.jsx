@@ -78,14 +78,24 @@ export default function Settings() {
       </div>
 
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
-        <h3 className="text-lg font-semibold">Cấu hình ghi điện / nước</h3>
-        <label className="text-xs text-slate-500">Danh sách phòng khi ghi chỉ số</label>
-        <select className="w-full rounded-xl border px-3 py-2"
-          value={s.meterRoomScope || 'occupied'}
-          onChange={e=>setS({ ...s, meterRoomScope: e.target.value })}>
-          <option value="occupied">Chỉ phòng có người ở theo tháng</option>
-          <option value="all">Toàn bộ phòng</option>
-        </select>
+        <h3 className="text-lg font-semibold">Thông tin chủ trọ</h3>
+        <div className="grid md:grid-cols-2 gap-3 mt-3">
+          <div>
+            <label className="text-xs text-slate-500">Tên chủ trọ</label>
+            <input className="w-full rounded-xl border px-3 py-2" value={s.landlordName || ''}
+              onChange={e=>setS({ ...s, landlordName: e.target.value })}/>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500">Số điện thoại</label>
+            <input className="w-full rounded-xl border px-3 py-2" value={s.landlordPhone || ''}
+              onChange={e=>setS({ ...s, landlordPhone: e.target.value })}/>
+          </div>
+          <div className="md:col-span-2">
+            <label className="text-xs text-slate-500">Địa chỉ</label>
+            <input className="w-full rounded-xl border px-3 py-2" value={s.landlordAddress || ''}
+              onChange={e=>setS({ ...s, landlordAddress: e.target.value })}/>
+          </div>
+        </div>
       </div>
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
         <h3 className="text-lg font-semibold">Quản lý dữ liệu</h3>

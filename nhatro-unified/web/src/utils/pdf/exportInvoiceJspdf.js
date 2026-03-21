@@ -126,3 +126,51 @@ export async function exportInvoicePdfByJsPDF(inv, settings) {
   const fileName = `HoaDon_${inv.roomCode}_${inv.monthLabel}.pdf`;
   doc.save(fileName);
 }
+
+export async function exportReportPdf({ title, subtitle, columns, rows, summary, fileName }) {
+  const doc = new jsPDF({ unit: 'pt', format: 'a4', compress: true });
+  await ensureVietnameseFonts(doc);
+  doc.setFont('NotoSans', 'normal');
+  doc.setFontSize(11);
+
+  const margin = { l: 40, t: 40, r: 40, b: 40 };
+  let cursorY = margin.t;
+
+  // Title
+  doc.setFont('NotoSans', 'bold');
+  doc.setFontSize(18);
+  doc.text(title, margin.l, cursorY);
+  cursorY += 30;
+
+  // Subtitle
+  doc.setFont('NotoSans', 'normal');
+  doc.setFontSize(12);
+  doc.text(subtitle, margin.l, cursorY);
+  cursorY += 20;
+
+  // Table
+  const tableData = rows.map(row => row.map(cell => String(cell)));
+  doc.autoTable({
+    startY: cursorY,
+    head: [columns],
+    body: tableData,
+    theme: 'grid',
+    styles: { font: 'NotoSans', fontSize: 10 },
+    headStyles: { fillColor: [0, 128, 0] },
+    margin: margin,
+  });
+
+  cursorY = doc.lastAutoTable.finalY + 20;
+
+  // Summary
+  if (summary && summary.length) {
+    doc.setFont('NotoSans', 'bold');
+    doc.setFontSize(12);
+    summary.forEach(line => {
+      doc.text(line, margin.l, cursorY);
+      cursorY += 15;
+    });
+  }
+
+  doc.save(fileName);
+}

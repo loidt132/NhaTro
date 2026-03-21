@@ -1,13 +1,9 @@
 
+import { loadState as loadAppState } from '../../utils/state';
+
 export function loadState() {
-  try {
-    const raw = localStorage.getItem('boarding_state_v1');
-    if (!raw) return { rooms: [], tenants: [], invoices: [], payments: [] };
-    const s = JSON.parse(raw);
-    return { rooms: s.rooms||[], tenants: s.tenants||[], invoices: s.invoices||[], payments: s.payments||[] };
-  } catch {
-    return { rooms: [], tenants: [], invoices: [], payments: [] };
-  }
+  const s = loadAppState();
+  return { rooms: s.rooms||[], tenants: s.tenants||[], invoices: s.invoices||[], payments: s.payments||[], readings: s.readings||[] };
 }
 export function isInMonth(inv, ym) { return ym ? inv.month === ym : true; }
 export function isInYear(inv, year) { return year ? (inv.month||'').startsWith(year + '-') : true; }

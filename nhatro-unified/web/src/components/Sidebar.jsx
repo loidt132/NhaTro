@@ -16,6 +16,7 @@ export default function Sidebar({ isOpen=false, onClose=()=>{} }){
       <LinkItem to="/rooms" icon="🏠">Phòng trọ</LinkItem>
       <LinkItem to="/meter" icon="⚡">Ghi điện nước</LinkItem>
       <LinkItem to="/payments" icon="💵">Thu tiền</LinkItem>
+      <LinkItem to="/reports" icon="📊">Báo cáo</LinkItem>
       <LinkItem to="/settings" icon="⚙️">Cài đặt</LinkItem>
     </aside>
   );
@@ -33,6 +34,7 @@ export default function Sidebar({ isOpen=false, onClose=()=>{} }){
           <LinkItem to="/rooms" icon="🏠" onClick={onClose}>Phòng trọ</LinkItem>
           <LinkItem to="/meter" icon="⚡" onClick={onClose}>Ghi điện nước</LinkItem>
           <LinkItem to="/payments" icon="💵" onClick={onClose}>Thu tiền</LinkItem>
+          <LinkItem to="/reports" icon="📊" onClick={onClose}>Báo cáo</LinkItem>
           <LinkItem to="/settings" icon="⚙️" onClick={onClose}>Cài đặt</LinkItem>
         </nav>
       </div>
