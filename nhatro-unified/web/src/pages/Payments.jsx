@@ -1,5 +1,5 @@
 // src/pages/Payments.jsx
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { loadState, saveState, currency, monthKey, calcTotals, uid } from '../utils/state';
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
@@ -15,6 +15,12 @@ const makeAddInfo = (inv, rooms, settings) => {
 
 export default function Payments() {
   const [state, setState] = useState(loadState());
+  // Keep in-sync with other parts of the app that call saveState()
+  useEffect(() => {
+    const handler = () => setState(loadState());
+    window.addEventListener('boarding_state_updated', handler);
+    return () => window.removeEventListener('boarding_state_updated', handler);
+  }, []);
   const { invoices, rooms, tenants, settings, payments, readings } = state;
   const [month, setMonth] = useState(monthKey());
   const [view, setView] = useState('cards');

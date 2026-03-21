@@ -17,7 +17,15 @@ function seed(){
   localStorage.setItem(KEY, JSON.stringify(s));
   return s;
 }
-export function saveState(next){ localStorage.setItem(KEY, JSON.stringify(next)); }
+export function saveState(next){ 
+  try{
+    localStorage.setItem(KEY, JSON.stringify(next));
+    // notify same-tab listeners that state changed
+    if(typeof window !== 'undefined' && window.dispatchEvent){
+      try{ window.dispatchEvent(new Event('boarding_state_updated')); }catch(e){ /* ignore */ }
+    }
+  }catch(e){ /* ignore write errors */ }
+}
 export const monthKey = (d=new Date())=>{ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); return `${y}-${m}`; };
 export const currency = v => new Intl.NumberFormat('vi-VN').format(v||0);
 export const uid = ()=> Math.random().toString(36).slice(2);

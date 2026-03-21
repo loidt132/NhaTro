@@ -35,7 +35,19 @@ export default function Rooms(){
     if(!n) return alert('Nhập tên phòng');
     const payload = { id: roomModal.roomId || uid(), name:n, baseRent:+f.baseRent||0, electricRate:+f.electricRate||0, waterRate:+f.waterRate||0, primaryTenantId: roomMap[roomModal.roomId]?.primaryTenantId };
     const nextRooms = roomModal.mode==='edit' ? rooms.map(r=> r.id===roomModal.roomId? payload : r) : [...rooms, payload];
-    const s2 = { ...state, rooms: nextRooms };
+    // If editing an existing room, update unpaid invoices for this room so Payments view shows new rent
+    let nextInvoices = invoices;
+    if(roomModal.mode === 'edit'){
+      nextInvoices = (invoices||[]).map(inv => {
+        if(inv.roomId !== payload.id) return inv;
+        // update only unpaid invoices to preserve historical paid records
+        if(inv.status === 'Đã thanh toán') return inv;
+        const newRent = +payload.baseRent || 0;
+        const newTotal = newRent + (inv.electricAmount || 0) + (inv.waterAmount || 0) + (inv.other || 0);
+        return { ...inv, rent: newRent, total: newTotal };
+      });
+    }
+    const s2 = { ...state, rooms: nextRooms, invoices: nextInvoices };
     setState(s2); saveState(s2);
     setRoomModal({ open:false, mode:'create', roomId:null, form:{ name:'', baseRent:2500000, electricRate:3500, waterRate:12000 }});
   };
@@ -48,21 +60,21 @@ export default function Rooms(){
   };
 
   // ===== Tenant CRUD (multi-tenant per room) =====
-  const [tenantModal, setTenantModal] = useState({ open:false, roomId:null, form:{ id:null, name:'', cccd:'', phone:'' } });
-  const openTenantManager = (roomId)=> setTenantModal({ open:true, roomId, form:{ id:null, name:'', cccd:'', phone:'' } });
+  const [tenantModal, setTenantModal] = useState({ open:false, roomId:null, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' } });
+  const openTenantManager = (roomId)=> setTenantModal({ open:true, roomId, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' } });
 
   const submitTenant = (e)=>{
     e.preventDefault();
     const f = tenantModal.form; const name=(f.name||'').trim(); const cccd=(f.cccd||'').trim();
     if(!name || !cccd) return alert('Nhập đủ Họ tên và CCCD');
-    const payload = { id: f.id || uid(), name, cccd, phone:(f.phone||'').trim(), roomId: tenantModal.roomId };
+    const payload = { id: f.id || uid(), name, cccd, phone:(f.phone||'').trim(), roomId: tenantModal.roomId, startDate: f.startDate, endDate: f.endDate };
     const nextTenants = f.id ? tenants.map(t=> t.id===f.id? payload : t) : [...tenants, payload];
     const s2 = { ...state, tenants: nextTenants };
     setState(s2); saveState(s2);
-    setTenantModal(tm=> ({ ...tm, form:{ id:null, name:'', cccd:'', phone:'' } }));
+    setTenantModal(tm=> ({ ...tm, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' } }));
   };
 
-  const editTenant = (t)=> setTenantModal(tm=> ({ ...tm, form:{ id:t.id, name:t.name, cccd:t.cccd, phone:t.phone||'' } }));
+  const editTenant = (t)=> setTenantModal(tm=> ({ ...tm, form:{ id:t.id, name:t.name, cccd:t.cccd, phone:t.phone||'', startDate:t.startDate, endDate:t.endDate } }));
   const removeTenant = (id)=>{
     if(!confirm('Xóa khách thuê này?')) return;
     const nextTenants = tenants.filter(t=> t.id!==id);
@@ -82,6 +94,28 @@ export default function Rooms(){
 
   // ===== Render helpers =====
   const { sumPaid, sumDebt } = calcTotals(invoices, payments, month);
+
+  // items for room table (used to display payments-style table on Rooms page)
+  const roomItems = useMemo(() =>
+    rooms.map(room => {
+      const inv = invoices.find(i=> i.roomId===room.id && i.month===month);
+      const occupants = tenantByRoom[room.id] || [];
+      const occActive = occupants.filter(t=>{
+        const s = (t.startDate||'').slice(0,10); const e = (t.endDate||'').slice(0,10);
+        const { first, last } = (function(ym){ const y=+ym.slice(0,4); const m=+ym.slice(5,7); const d=new Date(y,m,0).getDate(); return { first:`${ym}-01`, last:`${ym}-${String(d).padStart(2,'0')}` }; })(month);
+        const ss = s||'0000-01-01'; const ee = e||'9999-12-31'; return ss<= last && ee>= first;
+      });
+      const tenantId = room.primaryTenantId ?? occActive[0]?.id ?? occupants[0]?.id;
+      const tenant = occupants.find(t=> t.id===tenantId);
+      const reading = latestReadingOf(room.id, month);
+      const eUse = Math.max(0, (reading?.electricEnd||0) - (reading?.electricStart||0));
+      const wUse = Math.max(0, (reading?.waterEnd||0) - (reading?.waterStart||0));
+      const eAmt = eUse * (room.electricRate||0);
+      const wAmt = wUse * (room.waterRate||0);
+      const totalDraft = (room.baseRent||0) + eAmt + wAmt;
+      return { room, occupants, tenant, reading, invoice: inv, draft: { eUse, wUse, eAmt, wAmt, totalDraft } };
+    })
+  , [rooms, invoices, tenantByRoom, readings, month]);
 
   const Card = ({ room })=>{
     const occupants = tenantByRoom[room.id] || [];
@@ -133,6 +167,62 @@ export default function Rooms(){
       <SearchBar month={month} onMonthChange={setMonth} />
       <div className="text-slate-600 text-sm font-medium">Các lần ghi trước:</div>
       <TotalsBar sumPaid={sumPaid} sumDebt={sumDebt} />
+
+      {/* Payments-style table (rooms) */}
+      <div className="rounded-2xl border bg-white p-4 shadow-sm">
+        <div className="overflow-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left text-slate-500">
+                <th className="p-2">Phòng</th>
+                <th className="p-2">Khách</th>
+                <th className="p-2">Tháng</th>
+                <th className="p-2">Tiền phòng</th>
+                <th className="p-2">Điện</th>
+                <th className="p-2">Nước</th>
+                <th className="p-2">Tổng</th>
+                <th className="p-2">Trạng thái</th>
+                <th className="p-2">Tác vụ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {roomItems.map(({ room, occupants, tenant, reading, invoice, draft })=> (
+                <tr key={room.id} className="border-t">
+                  <td className="p-2 font-medium">{room.name}</td>
+                  <td className="p-2">{(occupants.length? occupants.map(t=>t.name).join(', ') : <i className="text-slate-400">(chưa có)</i>)}</td>
+                  <td className="p-2">{month}</td>
+                  <td className="p-2">{currency(room.baseRent)}</td>
+                  <td className="p-2">{currency(draft.eAmt)} <span className="text-slate-400">({draft.eUse} kWh)</span></td>
+                  <td className="p-2">{currency(draft.wAmt)} <span className="text-slate-400">({draft.wUse} m³)</span></td>
+                  <td className="p-2 font-semibold">{currency(invoice? invoice.total : draft.totalDraft)}</td>
+                  <td className="p-2">{invoice ? <span className={'rounded-full px-2 py-1 text-xs ' + (invoice.status === 'Đã thanh toán' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700')}>{invoice.status}</span> : <span className="rounded-full px-2 py-1 text-xs bg-amber-100 text-amber-700">Chưa tạo HĐ</span>}</td>
+                  <td className="p-2 space-x-2">
+                    {!invoice && (<button onClick={()=>{
+                      if(!reading) return alert('Chưa có chỉ số');
+                      if(!tenant) return alert('Phòng chưa có khách');
+                      const eUse = Math.max(0, (reading.electricEnd||0)-(reading.electricStart||0));
+                      const wUse = Math.max(0, (reading.waterEnd||0)-(reading.waterStart||0));
+                      const invObj = { id: uid(), roomId: room.id, tenantId: tenant.id, month,
+                        rent: room.baseRent||0,
+                        electricUsage: eUse, electricEnd: reading.electricEnd, electricStart: reading.electricStart,
+                        waterUsage: wUse, waterEnd: reading.waterEnd, waterStart: reading.waterStart,
+                        electricAmount: eUse*(room.electricRate||0), waterAmount: wUse*(room.waterRate||0), other:0,
+                        total: (room.baseRent||0) + eUse*(room.electricRate||0) + wUse*(room.waterRate||0), status:'Còn nợ', createdAt: new Date().toISOString() };
+                      const s2 = { ...state, invoices: [invObj, ...(invoices||[])] };
+                      setState(s2); saveState(s2);
+                    }} className="rounded-lg border px-3 py-1">Tạo hóa đơn</button>)}
+                    {invoice && (<button onClick={()=>{
+                      const next = invoices.map(i=> i.id===invoice.id? ({ ...i, status: i.status==='Đã thanh toán'? 'Còn nợ':'Đã thanh toán', paidAt: i.status==='Đã thanh toán'? undefined : new Date().toISOString() }) : i);
+                      const s2 = { ...state, invoices: next };
+                      setState(s2); saveState(s2);
+                    }} className="rounded-lg border px-3 py-1">{invoice.status==='Đã thanh toán'? 'Đánh dấu còn nợ':'Đánh dấu đã trả'}</button>)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       <div className="flex items-center justify-between">
         <div className="text-sm text-slate-500">Quản trị phòng và khách thuê từ giao diện thẻ bên dưới.</div>
@@ -191,6 +281,8 @@ export default function Rooms(){
                     <th className="p-2 text-left">Họ tên</th>
                     <th className="p-2 text-left">CCCD</th>
                     <th className="p-2 text-left">SĐT</th>
+                    <th className="p-2 text-left">Từ ngày</th>
+                    <th className="p-2 text-left">Đến ngày</th>
                     <th className="p-2 text-left">Đại diện TT</th>
                     <th className="p-2 text-left">Tác vụ</th>
                   </tr>
@@ -198,11 +290,13 @@ export default function Rooms(){
                 <tbody>
                   {(tenantByRoom[tenantModal.roomId]||[]).map(t=> (
                     <tr key={t.id} className="border-t">
-                      <td className="p-2">{t.name}</td>
-                      <td className="p-2 font-mono">{t.cccd}</td>
-                      <td className="p-2">{t.phone||''}</td>
-                      <td className="p-2">{roomMap[tenantModal.roomId]?.primaryTenantId===t.id? '★' : ''}</td>
-                      <td className="p-2 space-x-2">
+                        <td className="p-2">{t.name}</td>
+                        <td className="p-2 font-mono">{t.cccd}</td>
+                        <td className="p-2">{t.phone||''}</td>
+                        <td className="p-2">{t.startDate? (new Date(t.startDate)).toLocaleDateString() : ''}</td>
+                        <td className="p-2">{t.endDate? (new Date(t.endDate)).toLocaleDateString() : ''}</td>
+                        <td className="p-2">{roomMap[tenantModal.roomId]?.primaryTenantId===t.id? '★' : ''}</td>
+                        <td className="p-2 space-x-2">
                         <button onClick={()=>editTenant(t)} className="rounded border px-3 py-1">Sửa</button>
                         <button onClick={()=>removeTenant(t.id)} className="rounded border px-3 py-1">Xóa</button>
                         <button onClick={()=>setPrimaryTenant(tenantModal.roomId, t.id)} className="rounded border px-3 py-1">Đặt đại diện</button>
@@ -217,9 +311,15 @@ export default function Rooms(){
               <input className="rounded-xl border px-3 py-2" placeholder="Họ tên" value={tenantModal.form.name} onChange={e=>setTenantModal(m=>({...m, form:{...m.form, name:e.target.value}}))} />
               <input className="rounded-xl border px-3 py-2" placeholder="SĐT" value={tenantModal.form.phone} onChange={e=>setTenantModal(m=>({...m, form:{...m.form, phone:e.target.value}}))} />
               <input className="col-span-3 rounded-xl border px-3 py-2" placeholder="CCCD" value={tenantModal.form.cccd} onChange={e=>setTenantModal(m=>({...m, form:{...m.form, cccd:e.target.value}}))} />
+
+              <div className="col-span-3 grid grid-cols-2 gap-3">
+                <input type="date" className="rounded-xl border px-3 py-2" placeholder="Ngày bắt đầu" value={tenantModal.form.startDate} onChange={e=>setTenantModal(m=>({...m, form:{...m.form, startDate:e.target.value}}))} />
+                <input type="date" className="rounded-xl border px-3 py-2" placeholder="Ngày kết thúc" value={tenantModal.form.endDate} onChange={e=>setTenantModal(m=>({...m, form:{...m.form, endDate:e.target.value}}))} />
+              </div>
+
               <div className="col-span-3 flex items-center gap-2">
                 <button className="rounded-xl bg-emerald-600 text-white px-4 py-2">{tenantModal.form.id? 'Cập nhật khách':'Thêm khách'}</button>
-                {tenantModal.form.id && (<button type="button" className="rounded-xl border px-4 py-2" onClick={()=>setTenantModal(m=>({...m, form:{ id:null, name:'', cccd:'', phone:'' }}))}>Hủy sửa</button>)}
+                {tenantModal.form.id && (<button type="button" className="rounded-xl border px-4 py-2" onClick={()=>setTenantModal(m=>({...m, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' }}))}>Hủy sửa</button>)}
               </div>
             </form>
 
