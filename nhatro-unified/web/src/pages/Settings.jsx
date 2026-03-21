@@ -15,6 +15,39 @@ export default function Settings() {
     alert('Đã lưu cấu hình');
   };
 
+  const handleExport = () => {
+    const data = loadState();
+    const dataStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'nhatro-data.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        // Basic validation
+        if (!data.rooms || !data.tenants || !data.readings || !data.invoices || !data.payments) {
+          throw new Error('Dữ liệu không hợp lệ: thiếu các trường cần thiết');
+        }
+        saveState(data);
+        setState(data);
+        alert('Đã nhập dữ liệu thành công');
+      } catch (err) {
+        alert('Lỗi nhập dữ liệu: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <Page className="space-y-6">
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
@@ -54,6 +87,17 @@ export default function Settings() {
           <option value="all">Toàn bộ phòng</option>
         </select>
       </div>
+      <div className="rounded-2xl border bg-white p-4 shadow-sm">
+        <h3 className="text-lg font-semibold">Quản lý dữ liệu</h3>
+        <div className="mt-3 space-y-3">
+          <button onClick={handleExport} className="rounded-xl bg-blue-600 text-white px-4 py-2">Xuất dữ liệu</button>
+          <div>
+            <label className="block text-sm text-slate-500">Nhập dữ liệu từ file JSON</label>
+            <input type="file" accept=".json" onChange={handleImport} className="mt-1" />
+          </div>
+        </div>
+      </div>
+
       <div className="flex gap-2">
         <button onClick={onSave} className="rounded-xl bg-emerald-600 text-white px-4 py-2">Lưu cấu hình</button>
       </div>
