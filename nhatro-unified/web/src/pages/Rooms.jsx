@@ -4,6 +4,7 @@ import React, { useMemo, useState } from 'react';
 import TopStats from '../components/TopStats';
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
+import ViewSwitch from '../components/ViewSwitch';
 import { loadState, saveState, monthKey, currency, uid, calcTotals } from '../utils/state';
 import Footer from '../components/Footer';
 
@@ -94,6 +95,7 @@ export default function Rooms(){
 
   // ===== Render helpers =====
   const { sumPaid, sumDebt } = calcTotals(invoices, payments, month);
+  const [view, setView] = useState('table'); // 'table' or 'cards'
 
   // items for room table (used to display payments-style table on Rooms page)
   const roomItems = useMemo(() =>
@@ -117,37 +119,7 @@ export default function Rooms(){
     })
   , [rooms, invoices, tenantByRoom, readings, month]);
 
-  // Reading form state for add/edit in Rooms page
-  const [readingForm, setReadingForm] = useState({ id:'', roomId:'', month, electricStart:'', electricEnd:'', waterStart:'', waterEnd:'' });
-
-  const readingsOfMonth = (readings||[]).filter(r=> r.month===month);
-
-  const saveReadingFromRooms = (e)=>{
-    e.preventDefault();
-    if(!readingForm.roomId) return alert('Chọn phòng');
-    const now = new Date().toISOString();
-    if(readingForm.id){
-      const next = (readings||[]).map(r=> r.id===readingForm.id? ({ ...r,
-        roomId: readingForm.roomId, month: readingForm.month||month,
-        electricStart: +readingForm.electricStart, electricEnd: +readingForm.electricEnd,
-        waterStart: +readingForm.waterStart, waterEnd: +readingForm.waterEnd, updatedAt: now
-      }) : r);
-      const s2 = { ...state, readings: next };
-      setState(s2); saveState(s2);
-      setReadingForm({ id:'', roomId:'', month, electricStart:'', electricEnd:'', waterStart:'', waterEnd:'' });
-      return;
-    }
-    const r = { id: uid(), roomId: readingForm.roomId, month: readingForm.month||month,
-      electricStart: +readingForm.electricStart, electricEnd: +readingForm.electricEnd,
-      waterStart: +readingForm.waterStart, waterEnd: +readingForm.waterEnd,
-      createdAt: now };
-    const s2 = { ...state, readings: [r, ...(readings||[])] };
-    setState(s2); saveState(s2);
-    setReadingForm({ id:'', roomId:'', month, electricStart:'', electricEnd:'', waterStart:'', waterEnd:'' });
-  };
-
-  const onEditReading = (r)=> setReadingForm({ id:r.id, roomId:r.roomId, month:r.month, electricStart:String(r.electricStart||''), electricEnd:String(r.electricEnd||''), waterStart:String(r.waterStart||''), waterEnd:String(r.waterEnd||'') });
-  const onDeleteReading = (id)=>{ if(!confirm('Xóa chỉ số này?')) return; const next = (readings||[]).filter(x=> x.id!==id); const s2={ ...state, readings: next }; setState(s2); saveState(s2); };
+  // readings are managed on the Meter page; Rooms shows room/payment info only
 
   const Card = ({ room })=>{
     const occupants = tenantByRoom[room.id] || [];
@@ -200,10 +172,19 @@ export default function Rooms(){
       <div className="text-slate-600 text-sm font-medium">Các lần ghi trước:</div>
       <TotalsBar sumPaid={sumPaid} sumDebt={sumDebt} />
 
+      <div className="flex items-center justify-between">
+        <div></div>
+        <div className="flex items-center gap-3">
+          <ViewSwitch value={view} onChange={setView} />
+          <button onClick={openCreateRoom} className="rounded-xl bg-emerald-600 text-white px-4 py-2">Thêm phòng</button>
+        </div>
+      </div>
+
       {/* Payments-style table (rooms) */}
-      <div className="rounded-2xl border bg-white p-4 shadow-sm">
-        <div className="overflow-auto">
-          <table className="min-w-full text-sm">
+      {view === 'table' && (
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="overflow-auto">
+            <table className="min-w-full text-sm">
             <thead>
               <tr className="text-left text-slate-500">
                 <th className="p-2">Phòng</th>
@@ -229,100 +210,26 @@ export default function Rooms(){
                   <td className="p-2 font-semibold">{currency(invoice? invoice.total : draft.totalDraft)}</td>
                   <td className="p-2">{invoice ? <span className={'rounded-full px-2 py-1 text-xs ' + (invoice.status === 'Đã thanh toán' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700')}>{invoice.status}</span> : <span className="rounded-full px-2 py-1 text-xs bg-amber-100 text-amber-700">Chưa tạo HĐ</span>}</td>
                   <td className="p-2 space-x-2">
-                    {!invoice && (<button onClick={()=>{
-                      if(!reading) return alert('Chưa có chỉ số');
-                      if(!tenant) return alert('Phòng chưa có khách');
-                      const eUse = Math.max(0, (reading.electricEnd||0)-(reading.electricStart||0));
-                      const wUse = Math.max(0, (reading.waterEnd||0)-(reading.waterStart||0));
-                      const invObj = { id: uid(), roomId: room.id, tenantId: tenant.id, month,
-                        rent: room.baseRent||0,
-                        electricUsage: eUse, electricEnd: reading.electricEnd, electricStart: reading.electricStart,
-                        waterUsage: wUse, waterEnd: reading.waterEnd, waterStart: reading.waterStart,
-                        electricAmount: eUse*(room.electricRate||0), waterAmount: wUse*(room.waterRate||0), other:0,
-                        total: (room.baseRent||0) + eUse*(room.electricRate||0) + wUse*(room.waterRate||0), status:'Còn nợ', createdAt: new Date().toISOString() };
-                      const s2 = { ...state, invoices: [invObj, ...(invoices||[])] };
-                      setState(s2); saveState(s2);
-                    }} className="rounded-lg border px-3 py-1">Tạo hóa đơn</button>)}
-                    {invoice && (<button onClick={()=>{
-                      const next = invoices.map(i=> i.id===invoice.id? ({ ...i, status: i.status==='Đã thanh toán'? 'Còn nợ':'Đã thanh toán', paidAt: i.status==='Đã thanh toán'? undefined : new Date().toISOString() }) : i);
-                      const s2 = { ...state, invoices: next };
-                      setState(s2); saveState(s2);
-                    }} className="rounded-lg border px-3 py-1">{invoice.status==='Đã thanh toán'? 'Đánh dấu còn nợ':'Đánh dấu đã trả'}</button>)}
+                    <button onClick={()=>openEditRoom(room)} className="rounded-lg border px-3 py-1 text-sm">Sửa phòng</button>
+                    <button onClick={()=>openTenantManager(room.id)} className="rounded-lg border px-3 py-1 text-sm">Quản lý khách</button>
+                    <button onClick={()=>removeRoom(room.id)} className="rounded-lg border px-3 py-1 text-sm">Xóa</button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </div>
-
-      {/* ===== Readings management (Rooms page) ===== */}
-      <div className="rounded-2xl border bg-white p-4 shadow-sm">
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-lg font-semibold">Ghi chỉ số — {month}</div>
         </div>
-        <div className="grid md:grid-cols-2 gap-4">
-          <div>
-            <div className="overflow-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="text-left text-slate-500">
-                    <th className="p-2">Phòng</th>
-                    <th className="p-2">Điện đầu</th>
-                    <th className="p-2">Điện cuối</th>
-                    <th className="p-2">Nước đầu</th>
-                    <th className="p-2">Nước cuối</th>
-                    <th className="p-2">Tác vụ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {readingsOfMonth.map(r=> (
-                    <tr key={r.id} className="border-t">
-                      <td className="p-2 font-medium">{roomMap[r.roomId]?.name || r.roomId}</td>
-                      <td className="p-2">{r.electricStart ?? ''}</td>
-                      <td className="p-2">{r.electricEnd ?? ''}</td>
-                      <td className="p-2">{r.waterStart ?? ''}</td>
-                      <td className="p-2">{r.waterEnd ?? ''}</td>
-                      <td className="p-2 space-x-2">
-                        <button onClick={()=>onEditReading(r)} className="rounded border px-3 py-1 text-sm">Sửa</button>
-                        <button onClick={()=>onDeleteReading(r.id)} className="rounded border px-3 py-1 text-sm">Xóa</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+      )}
 
-          <form onSubmit={saveReadingFromRooms} className="border rounded-xl bg-white p-4 space-y-3">
-            <select className="w-full border rounded px-3 py-2" value={readingForm.roomId} onChange={e=>setReadingForm({...readingForm, roomId: e.target.value})}>
-              <option value="">— Chọn phòng —</option>
-              {rooms.map(r=> <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-            <div className="grid grid-cols-2 gap-2">
-              <input placeholder="Điện đầu (kWh)" className="input" value={readingForm.electricStart} onChange={e=>setReadingForm({...readingForm, electricStart: e.target.value})} />
-              <input placeholder="Điện cuối (kWh)" className="input" value={readingForm.electricEnd} onChange={e=>setReadingForm({...readingForm, electricEnd: e.target.value})} />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <input placeholder="Nước đầu (m³)" className="input" value={readingForm.waterStart} onChange={e=>setReadingForm({...readingForm, waterStart: e.target.value})} />
-              <input placeholder="Nước cuối (m³)" className="input" value={readingForm.waterEnd} onChange={e=>setReadingForm({...readingForm, waterEnd: e.target.value})} />
-            </div>
-            <div className="flex items-center gap-2">
-              <button className="rounded-xl bg-emerald-600 text-white px-4 py-2">{readingForm.id? 'Cập nhật chỉ số':'Lưu chỉ số'}</button>
-              {readingForm.id && (<button type="button" onClick={()=>setReadingForm({ id:'', roomId:'', month, electricStart:'', electricEnd:'', waterStart:'', waterEnd:'' })} className="rounded border px-3 py-2">Hủy sửa</button>)}
-            </div>
-          </form>
+      {/* Readings moved to Meter page - removed from Rooms UI */}
+
+
+      {view === 'cards' && (
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {rooms.map(r=> <Card key={r.id} room={r} />)}
         </div>
-      </div>
-
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-slate-500">Quản trị phòng và khách thuê từ giao diện thẻ bên dưới.</div>
-        <button onClick={openCreateRoom} className="rounded-xl bg-emerald-600 text-white px-4 py-2">Thêm phòng</button>
-      </div>
-
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {rooms.map(r=> <Card key={r.id} room={r} />)}
-      </div>
+      )}
 
       {/* ===== Room Modal ===== */}
       {roomModal.open && (

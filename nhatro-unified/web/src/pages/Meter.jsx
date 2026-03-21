@@ -13,7 +13,6 @@ export default function Meter() {
 
   const [form, setForm] = useState({
     roomId: '',
-    month,
     electricStart: '',
     electricEnd: '',
     waterStart: '',
@@ -50,21 +49,48 @@ export default function Meter() {
     return m;
   }, [tenants]);
 
+  const roomMap = useMemo(() => {
+    const m = {};
+    rooms.forEach(r => { m[r.id] = r; });
+    return m;
+  }, [rooms]);
+
+  const readingsOfMonth = useMemo(() => (readings || []).filter(r => r.month === month), [readings, month]);
+
+  const onEditReading = (r) => {
+    // load reading into form; month is always the currently selected month
+    setForm({
+      id: r.id,
+      roomId: r.roomId,
+      electricStart: r.electricStart?.toString() ?? '',
+      electricEnd: r.electricEnd?.toString() ?? '',
+      waterStart: r.waterStart?.toString() ?? '',
+      waterEnd: r.waterEnd?.toString() ?? ''
+    });
+  };
+
+  const onDeleteReading = (id) => {
+    if (!window.confirm('Xóa chỉ số này?')) return;
+    const nextReadings = (state.readings || []).filter(x => x.id !== id);
+    const s2 = { ...state, readings: nextReadings };
+    setState(s2); saveState(s2);
+  };
+
   const filteredRooms = useMemo(() => {
     const scope = settings?.meterRoomScope || 'occupied';
-    let base = rooms;
+    let base = rooms || [];
 
     if (scope === 'occupied') {
-      base = rooms.filter(r => (tenantsByRoom[r.id] || []).some(isActiveTenant));
+      // build a set of roomIds that have at least one tenant active for the selected month
+      const occ = new Set((tenants || []).filter(isActiveTenant).map(t => t.roomId));
+      base = (rooms || []).filter(r => occ.has(r.id));
     }
 
-    const q = query.toLowerCase();
+    const q = (query || '').toLowerCase();
     if (!q) return base;
 
-    return base.filter(r =>
-      r.name.toLowerCase().includes(q)
-    );
-  }, [rooms, tenantsByRoom, query, settings?.meterRoomScope, settings?.occupancyMode, month]);
+    return base.filter(r => r.name && r.name.toLowerCase().includes(q));
+  }, [rooms, tenants, query, settings?.meterRoomScope, settings?.occupancyMode, month]);
 
   // rooms that already have a reading for the selected month
   const recordedRooms = useMemo(() => {
@@ -87,7 +113,7 @@ export default function Meter() {
       const nextReadings = (state.readings || []).map(r => r.id === form.id ? ({
         ...r,
         roomId: form.roomId,
-        month: form.month || month,
+        month: month,
         electricStart: +form.electricStart,
         electricEnd: +form.electricEnd,
         waterStart: +form.waterStart,
@@ -101,7 +127,7 @@ export default function Meter() {
       const reading = {
         id: uid(),
         roomId: form.roomId,
-        month: form.month || month,
+        month: month,
         electricStart: +form.electricStart,
         electricEnd: +form.electricEnd,
         waterStart: +form.waterStart,
@@ -114,7 +140,7 @@ export default function Meter() {
     }
 
     // reset form
-    setForm({ roomId: '', month, electricStart: '', electricEnd: '', waterStart: '', waterEnd: '' });
+    setForm({ roomId: '', electricStart: '', electricEnd: '', waterStart: '', waterEnd: '' });
   };
 
   const { sumPaid, sumDebt } = calcTotals(invoices, payments, month);
@@ -129,83 +155,7 @@ export default function Meter() {
       />
 
       <div className="grid gap-3">
-        {recordedRooms.length > 0 && (
-          <div className="border rounded-xl bg-white p-3">
-            <div className="font-semibold mb-2">Phòng đã ghi chỉ số — {month}</div>
-            <div className="overflow-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="text-left text-slate-500">
-                    <th className="p-2">Phòng</th>
-                    <th className="p-2">Khách</th>
-                    <th className="p-2">Tháng</th>
-                    <th className="p-2">Tiền phòng</th>
-                    <th className="p-2">Điện</th>
-                    <th className="p-2">Nước</th>
-                    <th className="p-2">Tổng</th>
-                    <th className="p-2">Trạng thái</th>
-                    <th className="p-2">Tác vụ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recordedRooms.map(r => {
-                    const reading = (readings || []).find(x => x.roomId === r.id && x.month === month);
-                    const occupants = (tenants || []).filter(t => t.roomId === r.id);
-                    const occActive = occupants.filter(isActiveTenant);
-                    const tenantId = r.primaryTenantId ?? occActive[0]?.id ?? occupants[0]?.id;
-                    const tenantNames = (occActive.length ? occActive : occupants).map(t => t.name).join(', ');
-                    const inv = (state.invoices || []).find(i => i.roomId === r.id && i.month === month);
-                    const eUse = reading ? Math.max(0, (reading.electricEnd || 0) - (reading.electricStart || 0)) : 0;
-                    const wUse = reading ? Math.max(0, (reading.waterEnd || 0) - (reading.waterStart || 0)) : 0;
-                    const eAmt = eUse * (r.electricRate ?? 0);
-                    const wAmt = wUse * (r.waterRate ?? 0);
-                    const totalDraft = (r.baseRent ?? 0) + eAmt + wAmt;
-                    return (
-                      <tr key={r.id} className="border-t">
-                        <td className="p-2 font-medium">{r.name}</td>
-                        <td className="p-2">{tenantNames || <i className="text-slate-400">(chưa có)</i>}</td>
-                        <td className="p-2">{month}</td>
-                        <td className="p-2">{(r.baseRent||0).toLocaleString('vi-VN')}</td>
-                        <td className="p-2">{eAmt.toLocaleString('vi-VN')} <span className="text-slate-400">({eUse} kWh)</span></td>
-                        <td className="p-2">{wAmt.toLocaleString('vi-VN')} <span className="text-slate-400">({wUse} m³)</span></td>
-                        <td className="p-2 font-semibold">{(inv ? inv.total : totalDraft).toLocaleString('vi-VN')}</td>
-                        <td className="p-2">{inv ? <span className={'rounded-full px-2 py-1 text-xs ' + (inv.status === 'Đã thanh toán' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700')}>{inv.status}</span> : <span className="rounded-full px-2 py-1 text-xs bg-amber-100 text-amber-700">Chưa tạo HĐ</span>}</td>
-                        <td className="p-2 space-x-2">
-                          {!inv && (<button onClick={() => {
-                            // create invoice from reading
-                            const t = (tenants || []).find(x => x.id === tenantId) || occupants[0];
-                            if (!reading) return alert('Không có chỉ số để tạo hóa đơn');
-                            if (!t) return alert('Phòng chưa có khách');
-                            const eUse2 = Math.max(0, (reading.electricEnd || 0) - (reading.electricStart || 0));
-                            const wUse2 = Math.max(0, (reading.waterEnd || 0) - (reading.waterStart || 0));
-                            const invObj = {
-                              id: uid(), roomId: r.id, tenantId: t.id, month,
-                              rent: r.baseRent || 0,
-                              electricUsage: eUse2, electricEnd: reading.electricEnd, electricStart: reading.electricStart,
-                              waterUsage: wUse2, waterEnd: reading.waterEnd, waterStart: reading.waterStart,
-                              electricAmount: eUse2 * (r.electricRate || 0),
-                              waterAmount: wUse2 * (r.waterRate || 0),
-                              other: 0,
-                              total: (r.baseRent || 0) + eUse2 * (r.electricRate || 0) + wUse2 * (r.waterRate || 0),
-                              status: 'Còn nợ', createdAt: new Date().toISOString()
-                            };
-                            const s2 = { ...state, invoices: [invObj, ...(state.invoices || [])] };
-                            setState(s2); saveState(s2);
-                          }} className="rounded-lg border px-3 py-1 text-sm">Tạo hóa đơn</button>)}
-                          {inv && (<button onClick={() => {
-                            const next = (state.invoices || []).map(i => i.id === inv.id ? ({ ...i, status: i.status === 'Đã thanh toán' ? 'Còn nợ' : 'Đã thanh toán', paidAt: i.status === 'Đã thanh toán' ? undefined : new Date().toISOString() }) : i);
-                            const s2 = { ...state, invoices: next };
-                            setState(s2); saveState(s2);
-                          }} className="rounded-lg border px-3 py-1 text-sm">{inv?.status === 'Đã thanh toán' ? 'Đánh dấu còn nợ' : 'Đánh dấu đã trả'}</button>)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+        
 
         <form onSubmit={submit} className="border rounded-xl bg-white p-4 space-y-3">
           <select
@@ -242,6 +192,40 @@ export default function Meter() {
             {form.id && (<button type="button" onClick={()=>setForm({ roomId:'', month, electricStart:'', electricEnd:'', waterStart:'', waterEnd:'' })} className="rounded border px-3 py-2">Hủy sửa</button>)}
           </div>
         </form>
+        {readingsOfMonth.length > 0 && (
+          <div className="border rounded-xl bg-white p-3">
+            <div className="font-semibold mb-2">Danh sách chỉ số — {month}</div>
+            <div className="overflow-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-slate-500">
+                    <th className="p-2">Phòng</th>
+                    <th className="p-2">Điện</th>
+                    <th className="p-2">Nước</th>
+                    <th className="p-2">Tác vụ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {readingsOfMonth.map(r => {
+                    const eUse = Math.max(0, (r.electricEnd || 0) - (r.electricStart || 0));
+                    const wUse = Math.max(0, (r.waterEnd || 0) - (r.waterStart || 0));
+                    return (
+                      <tr key={r.id} className="border-t">
+                        <td className="p-2 font-medium">{roomMap[r.roomId]?.name || r.roomId}</td>
+                        <td className="p-2">{(r.electricStart ?? '') + ' — ' + (r.electricEnd ?? '')} <span className="text-slate-400">({eUse} kWh)</span></td>
+                        <td className="p-2">{(r.waterStart ?? '') + ' — ' + (r.waterEnd ?? '')} <span className="text-slate-400">({wUse} m³)</span></td>
+                        <td className="p-2 space-x-2">
+                          <button onClick={() => onEditReading(r)} className="rounded border px-3 py-1 text-sm">Sửa</button>
+                          <button onClick={() => onDeleteReading(r.id)} className="rounded border px-3 py-1 text-sm">Xóa</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
       <TotalsBar sumPaid={sumPaid} sumDebt={sumDebt} />
       <Footer />
