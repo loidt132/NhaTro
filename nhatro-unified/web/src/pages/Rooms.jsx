@@ -12,6 +12,7 @@ export default function Rooms(){
   const [state, setState] = useState(loadState());
   const [month, setMonth] = useState(monthKey());
   const { rooms, tenants, readings, invoices, payments } = state;
+  const [query, setQuery] = useState('');
 
   // ===== Derived =====
   const roomMap = useMemo(()=> Object.fromEntries(rooms.map(r=>[r.id, r])), [rooms]);
@@ -68,6 +69,12 @@ export default function Rooms(){
     e.preventDefault();
     const f = tenantModal.form; const name=(f.name||'').trim(); const cccd=(f.cccd||'').trim();
     if(!name || !cccd) return alert('Nhập đủ Họ tên và CCCD');
+    // Validate date range: if both provided, startDate must be <= endDate
+    const sd = f.startDate ? new Date(f.startDate) : null;
+    const ed = f.endDate ? new Date(f.endDate) : null;
+    if (sd && isNaN(sd.getTime())) return alert('Ngày bắt đầu không hợp lệ');
+    if (ed && isNaN(ed.getTime())) return alert('Ngày kết thúc không hợp lệ');
+    if (sd && ed && sd > ed) return alert('Ngày bắt đầu phải nhỏ hơn hoặc bằng Ngày kết thúc');
     const payload = { id: f.id || uid(), name, cccd, phone:(f.phone||'').trim(), roomId: tenantModal.roomId, startDate: f.startDate, endDate: f.endDate };
     const nextTenants = f.id ? tenants.map(t=> t.id===f.id? payload : t) : [...tenants, payload];
     const s2 = { ...state, tenants: nextTenants };
@@ -97,9 +104,16 @@ export default function Rooms(){
   const { sumPaid, sumDebt } = calcTotals(invoices, payments, month);
   const [view, setView] = useState('table'); // 'table' or 'cards'
 
+  // visible rooms (filtered by search and ordered by name)
+  const visibleRooms = useMemo(() => {
+    const q = (query || '').toLowerCase();
+    const base = (rooms || []).filter(r => !q || (r.name || '').toLowerCase().includes(q));
+    return base.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [rooms, query]);
+
   // items for room table (used to display payments-style table on Rooms page)
   const roomItems = useMemo(() =>
-    rooms.map(room => {
+    visibleRooms.map(room => {
       const inv = invoices.find(i=> i.roomId===room.id && i.month===month);
       const occupants = tenantByRoom[room.id] || [];
       const occActive = occupants.filter(t=>{
@@ -117,7 +131,7 @@ export default function Rooms(){
       const totalDraft = (room.baseRent||0) + eAmt + wAmt;
       return { room, occupants, tenant, reading, invoice: inv, draft: { eUse, wUse, eAmt, wAmt, totalDraft } };
     })
-  , [rooms, invoices, tenantByRoom, readings, month]);
+  , [visibleRooms, invoices, tenantByRoom, readings, month]);
 
   // readings are managed on the Meter page; Rooms shows room/payment info only
 
@@ -168,7 +182,7 @@ export default function Rooms(){
   return (
     <div className="space-y-4">
       <TopStats rooms={rooms.length} tenants={tenants.length} invoices={invoices.length} debts={unpaidCount} />
-      <SearchBar month={month} onMonthChange={setMonth} />
+  <SearchBar month={month} onMonthChange={setMonth} query={query} onQueryChange={setQuery} />
       <div className="text-slate-600 text-sm font-medium">Các lần ghi trước:</div>
       <TotalsBar sumPaid={sumPaid} sumDebt={sumDebt} />
 
@@ -227,7 +241,7 @@ export default function Rooms(){
 
       {view === 'cards' && (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {rooms.map(r=> <Card key={r.id} room={r} />)}
+          {visibleRooms.map(r=> <Card key={r.id} room={r} />)}
         </div>
       )}
 

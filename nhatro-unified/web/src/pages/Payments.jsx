@@ -61,7 +61,8 @@ export default function Payments() {
 
   const items = useMemo(
     () =>
-      rooms.map(room => {
+      {
+        const list = rooms.map(room => {
         const inv = invoices.find(i => i.roomId === room.id && i.month === month);
         const occupants = tenantsByRoom[room.id] ?? [];
         const occActive = occupants.filter(isActiveTenant);
@@ -75,7 +76,10 @@ export default function Payments() {
         const totalDraft = (room.baseRent ?? 0) + eAmt + wAmt;
         const names = (occActive.length ? occActive : occupants).map(t => t.name).join(', ');
         return { room, occupants, names, tenant, reading, invoice: inv, draft: { eUse, wUse, eAmt, wAmt, totalDraft } };
-      }),
+      });
+      // sort items by room name for consistent ordering across pages
+      return list.slice().sort((a, b) => (a.room.name || '').localeCompare(b.room.name || ''));
+    },
     [rooms, invoices, tenantsByRoom, readings, month, settings?.occupancyMode]
   );
 

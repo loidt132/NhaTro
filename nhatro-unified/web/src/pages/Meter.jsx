@@ -55,7 +55,11 @@ export default function Meter() {
     return m;
   }, [rooms]);
 
-  const readingsOfMonth = useMemo(() => (readings || []).filter(r => r.month === month), [readings, month]);
+  const readingsOfMonth = useMemo(() => {
+    const list = (readings || []).filter(r => r.month === month);
+    // sort readings by room name for consistent order
+    return list.slice().sort((a, b) => (roomMap[a.roomId]?.name || '').localeCompare(roomMap[b.roomId]?.name || ''));
+  }, [readings, month, roomMap]);
 
   const onEditReading = (r) => {
     // load reading into form; month is always the currently selected month
@@ -87,15 +91,15 @@ export default function Meter() {
     }
 
     const q = (query || '').toLowerCase();
-    if (!q) return base;
-
-    return base.filter(r => r.name && r.name.toLowerCase().includes(q));
+    let filtered = q ? base.filter(r => r.name && r.name.toLowerCase().includes(q)) : base;
+    // sort by room name
+    return filtered.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [rooms, tenants, query, settings?.meterRoomScope, settings?.occupancyMode, month]);
 
   // rooms that already have a reading for the selected month
   const recordedRooms = useMemo(() => {
     const seen = new Set((readings || []).filter(r => r.month === month).map(r => r.roomId));
-    return rooms.filter(r => seen.has(r.id));
+    return (rooms || []).filter(r => seen.has(r.id)).slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [rooms, readings, month]);
 
   // unrecorded rooms (respecting filteredRooms scope and search)
@@ -104,9 +108,39 @@ export default function Meter() {
     return filteredRooms.filter(r => !recIds.has(r.id));
   }, [filteredRooms, recordedRooms]);
 
+  // readings for the selected month, filtered by search query
+  const readingsVisible = useMemo(() => {
+    const q = (query || '').toLowerCase();
+    if (!q) return readingsOfMonth;
+    return readingsOfMonth.filter(r => (roomMap[r.roomId]?.name || '').toLowerCase().includes(q));
+  }, [readingsOfMonth, query, roomMap]);
+
   const submit = (e) => {
     e.preventDefault();
     if (!form.roomId) return alert('Chọn phòng');
+
+    // Validation: ensure starts/ends are numeric when provided and end >= start
+    const errors = [];
+    const parseOrNull = (v) => (v === '' || v === null || v === undefined) ? null : Number(v);
+    const es = parseOrNull(form.electricStart);
+    const ee = parseOrNull(form.electricEnd);
+    const ws = parseOrNull(form.waterStart);
+    const we = parseOrNull(form.waterEnd);
+
+    if ((es === null) !== (ee === null)) {
+      errors.push('Nếu nhập chỉ số điện thì phải nhập cả Điện đầu và Điện cuối.');
+    }
+    if ((ws === null) !== (we === null)) {
+      errors.push('Nếu nhập chỉ số nước thì phải nhập cả Nước đầu và Nước cuối.');
+    }
+    if (es !== null && ee !== null && Number.isFinite(es) && Number.isFinite(ee) && ee < es) {
+      errors.push('Chỉ số Điện: Điện cuối phải lớn hơn hoặc bằng Điện đầu.');
+    }
+    if (ws !== null && we !== null && Number.isFinite(ws) && Number.isFinite(we) && we < ws) {
+      errors.push('Chỉ số Nước: Nước cuối phải lớn hơn hoặc bằng Nước đầu.');
+    }
+    if (errors.length) return alert(errors.join('\n'));
+
     const nowIso = new Date().toISOString();
     if (form.id) {
       // update existing reading
@@ -192,7 +226,7 @@ export default function Meter() {
             {form.id && (<button type="button" onClick={()=>setForm({ roomId:'', month, electricStart:'', electricEnd:'', waterStart:'', waterEnd:'' })} className="rounded border px-3 py-2">Hủy sửa</button>)}
           </div>
         </form>
-        {readingsOfMonth.length > 0 && (
+        {readingsVisible.length > 0 && (
           <div className="border rounded-xl bg-white p-3">
             <div className="font-semibold mb-2">Danh sách chỉ số — {month}</div>
             <div className="overflow-auto">
@@ -206,7 +240,7 @@ export default function Meter() {
                   </tr>
                 </thead>
                 <tbody>
-                  {readingsOfMonth.map(r => {
+                  {readingsVisible.map(r => {
                     const eUse = Math.max(0, (r.electricEnd || 0) - (r.electricStart || 0));
                     const wUse = Math.max(0, (r.waterEnd || 0) - (r.waterStart || 0));
                     return (
