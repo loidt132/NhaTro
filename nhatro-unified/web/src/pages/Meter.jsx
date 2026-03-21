@@ -4,6 +4,7 @@ import { loadState, saveState, monthKey, uid, calcTotals } from '../utils/state'
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
 import Footer from '../components/Footer';
+import Page from '../components/Page';
 
 export default function Meter() {
   const [state, setState] = useState(loadState());
@@ -180,7 +181,7 @@ export default function Meter() {
   const { sumPaid, sumDebt } = calcTotals(invoices, payments, month);
 
   return (
-    <div className="space-y-4">
+    <Page className="space-y-4">
       <SearchBar
         month={month}
         onMonthChange={setMonth}
@@ -263,6 +264,6 @@ export default function Meter() {
       </div>
       <TotalsBar sumPaid={sumPaid} sumDebt={sumDebt} />
       <Footer />
-    </div>
+    </Page>
   );
 }

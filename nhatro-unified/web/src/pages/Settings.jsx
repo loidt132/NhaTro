@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { loadState, saveState } from '../utils/state';
 import Footer from '../components/Footer';
+import Page from '../components/Page';
 
 export default function Settings() {
   const [state, setState] = useState(loadState());
@@ -15,7 +16,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="space-y-6">
+    <Page className="space-y-6">
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
         <h3 className="text-lg font-semibold">Cài đặt thanh toán</h3>
         <div className="grid md:grid-cols-2 gap-3 mt-3">
@@ -57,6 +58,6 @@ export default function Settings() {
         <button onClick={onSave} className="rounded-xl bg-emerald-600 text-white px-4 py-2">Lưu cấu hình</button>
       </div>
       <Footer />
-    </div>
+    </Page>
   );
 }

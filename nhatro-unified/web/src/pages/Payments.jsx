@@ -5,6 +5,7 @@ import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
 import ViewSwitch from '../components/ViewSwitch';
 import Footer from '../components/Footer';
+import Page from '../components/Page';
 import { exportInvoicePdfByJsPDF } from '../utils/pdf/exportInvoiceJspdf';
 
 const makeAddInfo = (inv, rooms, settings) => {
@@ -277,7 +278,7 @@ export default function Payments() {
   );
 
   return (
-    <div className="space-y-4">
+    <Page className="space-y-4">
       <SearchBar month={month} onMonthChange={setMonth} query={query} onQueryChange={setQuery} />
       <TotalsBar sumPaid={sumPaid} sumDebt={sumDebt} />
       <div className="flex items-center justify-between">
@@ -293,6 +294,6 @@ export default function Payments() {
         </ol>
       </div>
       <Footer></Footer>
-    </div>
+    </Page>
   );
 }

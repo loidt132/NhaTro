@@ -5,6 +5,7 @@ import TopStats from '../components/TopStats';
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
 import ViewSwitch from '../components/ViewSwitch';
+import Page from '../components/Page';
 import { loadState, saveState, monthKey, currency, uid, calcTotals } from '../utils/state';
 import Footer from '../components/Footer';
 
@@ -219,7 +220,7 @@ export default function Rooms(){
   };
 
   return (
-    <div className="space-y-4">
+    <Page className="space-y-4">
       <TopStats rooms={roomsOccupiedCount} tenants={tenantsActiveCount} invoices={invoicesForMonth} debts={unpaidForMonth} />
   <SearchBar month={month} onMonthChange={setMonth} query={query} onQueryChange={setQuery} />
       <div className="text-slate-600 text-sm font-medium">Các lần ghi trước:</div>
@@ -378,7 +379,7 @@ export default function Rooms(){
           </div>
         </div>
       )}
-<Footer></Footer>
-    </div>
+      <Footer></Footer>
+    </Page>
   );
 }
