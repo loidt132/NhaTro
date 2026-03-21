@@ -104,12 +104,51 @@ export default function Rooms(){
   const { sumPaid, sumDebt } = calcTotals(invoices, payments, month);
   const [view, setView] = useState('table'); // 'table' or 'cards'
 
+  // compute month-scoped top stats: rooms occupied in month, tenants active in month, invoices for month, unpaid for month
+  const getMonthBounds = (ym) => {
+    const y = +ym.slice(0,4); const m = +ym.slice(5,7);
+    const lastDay = new Date(y, m, 0).getDate();
+    const first = `${ym}-01`;
+    const last = `${ym}-${String(lastDay).padStart(2,'0')}`;
+    return { first, last };
+  };
+
+  const isTenantActiveForMonth = (t, ym) => {
+    const s = (t.startDate||'').slice(0,10); const e = (t.endDate||'').slice(0,10);
+    const { first, last } = getMonthBounds(ym);
+    const ss = s || '0000-01-01'; const ee = e || '9999-12-31';
+    return ss <= last && ee >= first;
+  };
+
+  const roomsOccupiedCount = useMemo(() => {
+    const { first, last } = getMonthBounds(month);
+    const roomIds = new Set((tenants||[]).filter(t => isTenantActiveForMonth(t, month)).map(t => t.roomId));
+    return (rooms||[]).filter(r => roomIds.has(r.id)).length;
+  }, [rooms, tenants, month]);
+
+  const tenantsActiveCount = useMemo(() => (tenants||[]).filter(t => isTenantActiveForMonth(t, month)).length, [tenants, month]);
+
+  const invoicesForMonth = useMemo(() => (invoices||[]).filter(i => i.month === month).length, [invoices, month]);
+
+  const unpaidForMonth = useMemo(() => (invoices||[]).filter(i => i.month === month && i.status !== 'Đã thanh toán').length, [invoices, month]);
+
   // visible rooms (filtered by search and ordered by name)
   const visibleRooms = useMemo(() => {
     const q = (query || '').toLowerCase();
-    const base = (rooms || []).filter(r => !q || (r.name || '').toLowerCase().includes(q));
+    const base = (rooms || []).filter(r => {
+      if (!q) return true;
+      const nameHit = (r.name || '').toLowerCase().includes(q);
+      const tenantsForRoom = tenantByRoom[r.id] || [];
+      const tenantHit = tenantsForRoom.some(t => {
+        const tn = (t.name || '').toLowerCase();
+        const tc = (t.cccd || '').toLowerCase();
+        const tp = (t.phone || '').toLowerCase();
+        return tn.includes(q) || tc.includes(q) || tp.includes(q);
+      });
+      return nameHit || tenantHit;
+    });
     return base.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  }, [rooms, query]);
+  }, [rooms, query, tenantByRoom]);
 
   // items for room table (used to display payments-style table on Rooms page)
   const roomItems = useMemo(() =>
@@ -181,7 +220,7 @@ export default function Rooms(){
 
   return (
     <div className="space-y-4">
-      <TopStats rooms={rooms.length} tenants={tenants.length} invoices={invoices.length} debts={unpaidCount} />
+      <TopStats rooms={roomsOccupiedCount} tenants={tenantsActiveCount} invoices={invoicesForMonth} debts={unpaidForMonth} />
   <SearchBar month={month} onMonthChange={setMonth} query={query} onQueryChange={setQuery} />
       <div className="text-slate-600 text-sm font-medium">Các lần ghi trước:</div>
       <TotalsBar sumPaid={sumPaid} sumDebt={sumDebt} />
