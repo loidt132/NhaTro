@@ -94,3 +94,9 @@ app.on("window-all-closed", () => {
 
 
 --- electron/package.json
+
+
+--- commit code ----
+git add .
+git commit -m "add report"
+git push

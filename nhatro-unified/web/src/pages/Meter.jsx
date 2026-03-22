@@ -197,9 +197,9 @@ export default function Meter() {
       <div className="grid gap-3">
         
 
-        <form onSubmit={submit} className="border rounded-xl bg-white p-4 space-y-3">
+        <form onSubmit={submit} className="space-y-3 rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
           <select
-            className="w-full border rounded px-3 py-2"
+            className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-auto sm:text-sm"
             value={form.roomId}
             onChange={e => setForm({ ...form, roomId: e.target.value })}
           >
@@ -220,22 +220,41 @@ export default function Meter() {
           </select>
 
           <h4 className="font-semibold">Chỉ số điện (kWh)</h4>
-          <input placeholder="Điện đầu (kWh)" className="input" value={form.electricStart} onChange={e=>setForm({...form,electricStart:e.target.value})}/>
-          <input placeholder="Điện cuối (kWh)" className="input" value={form.electricEnd} onChange={e=>setForm({...form,electricEnd:e.target.value})}/>
+          <input placeholder="Điện đầu (kWh)" className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={form.electricStart} onChange={e=>setForm({...form,electricStart:e.target.value})}/>
+          <input placeholder="Điện cuối (kWh)" className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={form.electricEnd} onChange={e=>setForm({...form,electricEnd:e.target.value})}/>
 
           <h4 className="font-semibold">Chỉ số nước (m³)</h4>
-          <input placeholder="Nước đầu (m³)" className="input" value={form.waterStart} onChange={e=>setForm({...form,waterStart:e.target.value})}/>
-          <input placeholder="Nước cuối (m³)" className="input" value={form.waterEnd} onChange={e=>setForm({...form,waterEnd:e.target.value})}/>
+          <input placeholder="Nước đầu (m³)" className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={form.waterStart} onChange={e=>setForm({...form,waterStart:e.target.value})}/>
+          <input placeholder="Nước cuối (m³)" className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={form.waterEnd} onChange={e=>setForm({...form,waterEnd:e.target.value})}/>
 
-          <div className="flex items-center gap-2">
-            <button className="bg-emerald-600 text-white px-4 py-2 rounded">Lưu chỉ số</button>
-            {form.id && (<button type="button" onClick={()=>setForm({ roomId:'', month, electricStart:'', electricEnd:'', waterStart:'', waterEnd:'' })} className="rounded border px-3 py-2">Hủy sửa</button>)}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <button type="submit" className="h-12 rounded-xl bg-emerald-600 px-4 text-base font-medium text-white sm:h-auto sm:py-2">Lưu chỉ số</button>
+            {form.id && (<button type="button" onClick={()=>setForm({ roomId:'', month, electricStart:'', electricEnd:'', waterStart:'', waterEnd:'' })} className="h-12 rounded-xl border px-4 text-base sm:h-auto sm:py-2">Hủy sửa</button>)}
           </div>
         </form>
         {readingsVisible.length > 0 && (
-          <div className="border rounded-xl bg-white p-3">
-            <div className="font-semibold mb-2">Danh sách chỉ số — {month}</div>
-            <div className="overflow-auto">
+          <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
+            <div className="mb-3 font-semibold">Danh sách chỉ số — {month}</div>
+            <div className="space-y-3 lg:hidden">
+              {readingsVisible.map(r => {
+                const eUse = Math.max(0, (r.electricEnd || 0) - (r.electricStart || 0));
+                const wUse = Math.max(0, (r.waterEnd || 0) - (r.waterStart || 0));
+                return (
+                  <div key={r.id} className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                    <div className="font-semibold text-slate-900">{roomMap[r.roomId]?.name || r.roomId}</div>
+                    <dl className="mt-2 space-y-1 text-sm text-slate-700">
+                      <div><span className="text-slate-500">Điện: </span>{(r.electricStart ?? '')} — {r.electricEnd ?? ''} <span className="text-slate-400">({eUse} kWh)</span></div>
+                      <div><span className="text-slate-500">Nước: </span>{(r.waterStart ?? '')} — {r.waterEnd ?? ''} <span className="text-slate-400">({wUse} m³)</span></div>
+                    </dl>
+                    <div className="mt-3 flex flex-col gap-2">
+                      <button type="button" onClick={() => onEditReading(r)} className="h-11 w-full rounded-lg border border-slate-200 bg-white text-sm font-medium">Sửa</button>
+                      <button type="button" onClick={() => onDeleteReading(r.id)} className="h-11 w-full rounded-lg border border-rose-200 bg-rose-50 text-sm font-medium text-rose-800">Xóa</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="hidden overflow-x-auto lg:block">
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="text-left text-slate-500">
@@ -250,13 +269,15 @@ export default function Meter() {
                     const eUse = Math.max(0, (r.electricEnd || 0) - (r.electricStart || 0));
                     const wUse = Math.max(0, (r.waterEnd || 0) - (r.waterStart || 0));
                     return (
-                      <tr key={r.id} className="border-t">
+                      <tr key={r.id} className="border-t border-slate-100">
                         <td className="p-2 font-medium">{roomMap[r.roomId]?.name || r.roomId}</td>
                         <td className="p-2">{(r.electricStart ?? '') + ' — ' + (r.electricEnd ?? '')} <span className="text-slate-400">({eUse} kWh)</span></td>
                         <td className="p-2">{(r.waterStart ?? '') + ' — ' + (r.waterEnd ?? '')} <span className="text-slate-400">({wUse} m³)</span></td>
-                        <td className="p-2 space-x-2">
-                          <button onClick={() => onEditReading(r)} className="rounded border px-3 py-1 text-sm">Sửa</button>
-                          <button onClick={() => onDeleteReading(r.id)} className="rounded border px-3 py-1 text-sm">Xóa</button>
+                        <td className="p-2">
+                          <div className="flex flex-wrap gap-1.5">
+                            <button type="button" onClick={() => onEditReading(r)} className="rounded border px-2 py-1 text-xs sm:text-sm">Sửa</button>
+                            <button type="button" onClick={() => onDeleteReading(r.id)} className="rounded border px-2 py-1 text-xs sm:text-sm">Xóa</button>
+                          </div>
                         </td>
                       </tr>
                     );

@@ -178,12 +178,12 @@ export default function Rooms(){
     const primary = occupants.find(t=> t.id===room.primaryTenantId) || occupants[0];
 
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <div className="font-semibold">PHÒNG {room.name}</div>
-          <span className={`rounded-full px-2 py-1 text-xs ${badge}`}>{status}</span>
+      <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm flex flex-col gap-3 min-w-0">
+        <div className="flex items-start justify-between gap-2 min-w-0">
+          <div className="font-semibold text-[15px] sm:text-base min-w-0 break-words pr-1">PHÒNG {room.name}</div>
+          <span className={`shrink-0 rounded-full px-2 py-1 text-xs ${badge}`}>{status}</span>
         </div>
-        <div className="grid grid-cols-2 gap-2 text-sm">
+        <div className="grid grid-cols-2 gap-x-2 gap-y-2 text-sm min-w-0">
           <div><div className="text-slate-500">Tiền phòng</div><div className="font-medium">{currency(room.baseRent)} đ</div></div>
           <div><div className="text-slate-500">Đơn giá điện</div><div className="font-medium">{currency(room.electricRate)} đ/kWh</div></div>
           <div><div className="text-slate-500">Đơn giá nước</div><div className="font-medium">{currency(room.waterRate)} đ/m³</div></div>
@@ -201,12 +201,12 @@ export default function Rooms(){
             ) : <i className="text-slate-400">(trống)</i>}
           </div>
         </div>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-lg font-semibold">{currency(total)} đ</div>
-          <div className="flex items-center gap-2">
-            <button onClick={()=>openEditRoom(room)} className="rounded-lg border px-3 py-1 text-sm">Sửa phòng</button>
-            <button onClick={()=>openTenantManager(room.id)} className="rounded-lg border px-3 py-1 text-sm">Quản lý khách</button>
-            <button onClick={()=>removeRoom(room.id)} className="rounded-lg border px-3 py-1 text-sm">Xóa</button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={()=>openEditRoom(room)} className="flex-1 min-w-[6.5rem] rounded-lg border px-3 py-2 text-sm sm:flex-none sm:py-1">Sửa phòng</button>
+            <button onClick={()=>openTenantManager(room.id)} className="flex-1 min-w-[6.5rem] rounded-lg border px-3 py-2 text-sm sm:flex-none sm:py-1">Quản lý khách</button>
+            <button onClick={()=>removeRoom(room.id)} className="flex-1 min-w-[6.5rem] rounded-lg border px-3 py-2 text-sm sm:flex-none sm:py-1">Xóa</button>
           </div>
         </div>
       </div>
@@ -220,47 +220,53 @@ export default function Rooms(){
       <div className="text-slate-600 text-sm font-medium">Các lần ghi trước:</div>
       <TotalsBar sumPaid={sumPaid} sumDebt={sumDebt} />
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div></div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
           <ViewSwitch value={view} onChange={setView} />
-          <button onClick={openCreateRoom} className="rounded-xl bg-emerald-600 text-white px-4 py-2">Thêm phòng</button>
+          <button onClick={openCreateRoom} className="rounded-xl bg-emerald-600 text-white px-4 py-2 text-sm sm:text-base">Thêm phòng</button>
         </div>
       </div>
 
-      {/* Payments-style table (rooms) */}
+      {/* Bảng: từ lg trở lên; dưới lg (gồm iPhone ngang ~844px) dùng thẻ để không ép cuộn ngang */}
       {view === 'table' && (
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <div className="overflow-auto">
-            <table className="min-w-full text-sm">
+        <>
+          <div className="lg:hidden grid gap-3 sm:gap-4">
+            {visibleRooms.map(r => <Card key={r.id} room={r} />)}
+          </div>
+          <div className="hidden lg:block rounded-2xl border bg-white p-4 shadow-sm">
+            <div className="overflow-x-auto -mx-1 px-1">
+              <table className="min-w-[720px] w-full text-sm">
             <thead>
               <tr className="text-left text-slate-500">
-                <th className="p-2">Phòng</th>
-                <th className="p-2">Khách</th>
-                <th className="p-2">Tháng</th>
-                <th className="p-2">Tiền phòng</th>
-                <th className="p-2">Điện</th>
-                <th className="p-2">Nước</th>
-                <th className="p-2">Tổng</th>
-                <th className="p-2">Trạng thái</th>
-                <th className="p-2">Tác vụ</th>
+                <th className="p-2 whitespace-nowrap">Phòng</th>
+                <th className="p-2 min-w-[8rem]">Khách</th>
+                <th className="p-2 whitespace-nowrap">Tháng</th>
+                <th className="p-2 whitespace-nowrap">Tiền phòng</th>
+                <th className="p-2 whitespace-nowrap">Điện</th>
+                <th className="p-2 whitespace-nowrap">Nước</th>
+                <th className="p-2 whitespace-nowrap">Tổng</th>
+                <th className="p-2 whitespace-nowrap">Trạng thái</th>
+                <th className="p-2 whitespace-nowrap">Tác vụ</th>
               </tr>
             </thead>
             <tbody>
               {roomItems.map(({ room, occupants, tenant, reading, invoice, draft })=> (
-                <tr key={room.id} className="border-t">
-                  <td className="p-2 font-medium">{room.name}</td>
-                  <td className="p-2">{(occupants.length? occupants.map(t=>t.name).join(', ') : <i className="text-slate-400">(chưa có)</i>)}</td>
-                  <td className="p-2">{month}</td>
-                  <td className="p-2">{currency(room.baseRent)}</td>
-                  <td className="p-2">{currency(draft.eAmt)} <span className="text-slate-400">({draft.eUse} kWh)</span></td>
-                  <td className="p-2">{currency(draft.wAmt)} <span className="text-slate-400">({draft.wUse} m³)</span></td>
-                  <td className="p-2 font-semibold">{currency(invoice? invoice.total : draft.totalDraft)}</td>
-                  <td className="p-2">{invoice ? <span className={'rounded-full px-2 py-1 text-xs ' + (invoice.status === 'Đã thanh toán' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700')}>{invoice.status}</span> : <span className="rounded-full px-2 py-1 text-xs bg-amber-100 text-amber-700">Chưa tạo HĐ</span>}</td>
-                  <td className="p-2 space-x-2">
-                    <button onClick={()=>openEditRoom(room)} className="rounded-lg border px-3 py-1 text-sm">Sửa phòng</button>
-                    <button onClick={()=>openTenantManager(room.id)} className="rounded-lg border px-3 py-1 text-sm">Quản lý khách</button>
-                    <button onClick={()=>removeRoom(room.id)} className="rounded-lg border px-3 py-1 text-sm">Xóa</button>
+                <tr key={room.id} className="border-t border-slate-100">
+                  <td className="p-2 font-medium whitespace-nowrap">{room.name}</td>
+                  <td className="p-2 max-w-[12rem]">{(occupants.length? occupants.map(t=>t.name).join(', ') : <i className="text-slate-400">(chưa có)</i>)}</td>
+                  <td className="p-2 whitespace-nowrap">{month}</td>
+                  <td className="p-2 whitespace-nowrap">{currency(room.baseRent)}</td>
+                  <td className="p-2 whitespace-nowrap">{currency(draft.eAmt)} <span className="text-slate-400">({draft.eUse} kWh)</span></td>
+                  <td className="p-2 whitespace-nowrap">{currency(draft.wAmt)} <span className="text-slate-400">({draft.wUse} m³)</span></td>
+                  <td className="p-2 font-semibold whitespace-nowrap">{currency(invoice? invoice.total : draft.totalDraft)}</td>
+                  <td className="p-2">{invoice ? <span className={'rounded-full px-2 py-1 text-xs whitespace-nowrap ' + (invoice.status === 'Đã thanh toán' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700')}>{invoice.status}</span> : <span className="rounded-full px-2 py-1 text-xs bg-amber-100 text-amber-700 whitespace-nowrap">Chưa tạo HĐ</span>}</td>
+                  <td className="p-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      <button type="button" onClick={()=>openEditRoom(room)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Sửa phòng</button>
+                      <button type="button" onClick={()=>openTenantManager(room.id)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Quản lý khách</button>
+                      <button type="button" onClick={()=>removeRoom(room.id)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Xóa</button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -268,13 +274,14 @@ export default function Rooms(){
           </table>
         </div>
         </div>
+        </>
       )}
 
       {/* Readings moved to Meter page - removed from Rooms UI */}
 
 
       {view === 'cards' && (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
           {visibleRooms.map(r=> <Card key={r.id} room={r} />)}
         </div>
       )}
@@ -313,63 +320,121 @@ export default function Rooms(){
 
       {/* ===== Tenant Manager Modal ===== */}
       {tenantModal.open && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4">
-          <div className="w-full max-w-3xl rounded-2xl bg-white p-4 shadow space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="text-lg font-semibold">Quản lý khách thuê — Phòng {roomMap[tenantModal.roomId]?.name}</div>
-              <button onClick={()=>setTenantModal(m=>({...m, open:false}))} className="rounded-xl border px-3 py-1">Đóng</button>
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-stretch sm:items-center justify-center p-0 sm:p-4">
+          <div className="w-full max-w-3xl rounded-none sm:rounded-2xl bg-white shadow-lg flex flex-col max-h-[100dvh] sm:max-h-[min(90dvh,900px)]">
+            <div className="flex-shrink-0 flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5 sm:py-4">
+              <div className="min-w-0">
+                <div className="text-base sm:text-lg font-semibold leading-snug">Quản lý khách thuê</div>
+                <div className="text-sm text-slate-600 mt-0.5">Phòng <span className="font-medium text-slate-800">{roomMap[tenantModal.roomId]?.name}</span></div>
+              </div>
+              <button type="button" onClick={()=>setTenantModal(m=>({...m, open:false}))} className="flex-shrink-0 rounded-xl border px-3 py-2 text-sm">Đóng</button>
             </div>
 
-            <div className="overflow-auto border rounded">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-50 text-slate-600">
-                    <th className="p-2 text-left">Họ tên</th>
-                    <th className="p-2 text-left">CCCD</th>
-                    <th className="p-2 text-left">SĐT</th>
-                    <th className="p-2 text-left">Từ ngày</th>
-                    <th className="p-2 text-left">Đến ngày</th>
-                    <th className="p-2 text-left">Đại diện TT</th>
-                    <th className="p-2 text-left">Tác vụ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(tenantByRoom[tenantModal.roomId]||[]).map(t=> (
-                    <tr key={t.id} className="border-t">
-                        <td className="p-2">{t.name}</td>
-                        <td className="p-2 font-mono">{t.cccd}</td>
-                        <td className="p-2">{t.phone||''}</td>
-                        <td className="p-2">{t.startDate? (new Date(t.startDate)).toLocaleDateString() : ''}</td>
-                        <td className="p-2">{t.endDate? (new Date(t.endDate)).toLocaleDateString() : ''}</td>
-                        <td className="p-2">{roomMap[tenantModal.roomId]?.primaryTenantId===t.id? '★' : ''}</td>
-                        <td className="p-2 space-x-2">
-                        <button onClick={()=>editTenant(t)} className="rounded border px-3 py-1">Sửa</button>
-                        <button onClick={()=>removeTenant(t.id)} className="rounded border px-3 py-1">Xóa</button>
-                        <button onClick={()=>setPrimaryTenant(tenantModal.roomId, t.id)} className="rounded border px-3 py-1">Đặt đại diện</button>
-                      </td>
+            <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 sm:px-5 sm:py-4 space-y-4">
+              {/* Mobile: card list */}
+              <div className="lg:hidden space-y-3">
+                {(tenantByRoom[tenantModal.roomId]||[]).length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-6 text-center text-sm text-slate-500">Chưa có khách trong phòng này.</div>
+                ) : (
+                  (tenantByRoom[tenantModal.roomId]||[]).map(t => (
+                    <div key={t.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="min-w-0">
+                          <div className="font-semibold text-slate-900">{t.name}</div>
+                          {roomMap[tenantModal.roomId]?.primaryTenantId === t.id && (
+                            <span className="inline-block mt-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 border border-emerald-200">Đại diện TT ★</span>
+                          )}
+                        </div>
+                      </div>
+                      <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm mb-3">
+                        <div>
+                          <dt className="text-xs text-slate-500">CCCD</dt>
+                          <dd className="font-mono text-slate-800 break-all">{t.cccd}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-slate-500">SĐT</dt>
+                          <dd className="text-slate-800">{t.phone || '—'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-slate-500">Từ ngày</dt>
+                          <dd>{t.startDate ? (new Date(t.startDate)).toLocaleDateString('vi-VN') : '—'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-slate-500">Đến ngày</dt>
+                          <dd>{t.endDate ? (new Date(t.endDate)).toLocaleDateString('vi-VN') : '—'}</dd>
+                        </div>
+                      </dl>
+                      <div className="flex flex-col gap-2">
+                        <button type="button" onClick={()=>editTenant(t)} className="w-full rounded-lg border border-slate-200 bg-white py-2.5 text-sm font-medium">Sửa</button>
+                        <button type="button" onClick={()=>setPrimaryTenant(tenantModal.roomId, t.id)} className="w-full rounded-lg border border-emerald-200 bg-emerald-50 py-2.5 text-sm font-medium text-emerald-800">Đặt đại diện thanh toán</button>
+                        <button type="button" onClick={()=>removeTenant(t.id)} className="w-full rounded-lg border border-rose-200 bg-rose-50 py-2.5 text-sm font-medium text-rose-800">Xóa</button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* md+: table */}
+              <div className="hidden lg:block overflow-x-auto rounded-xl border border-slate-200">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-600">
+                      <th className="p-2 text-left whitespace-nowrap">Họ tên</th>
+                      <th className="p-2 text-left whitespace-nowrap">CCCD</th>
+                      <th className="p-2 text-left whitespace-nowrap">SĐT</th>
+                      <th className="p-2 text-left whitespace-nowrap">Từ ngày</th>
+                      <th className="p-2 text-left whitespace-nowrap">Đến ngày</th>
+                      <th className="p-2 text-left whitespace-nowrap">Đại diện TT</th>
+                      <th className="p-2 text-left whitespace-nowrap">Tác vụ</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {(tenantByRoom[tenantModal.roomId]||[]).map(t=> (
+                      <tr key={t.id} className="border-t border-slate-100">
+                        <td className="p-2 align-top">{t.name}</td>
+                        <td className="p-2 font-mono align-top text-xs sm:text-sm">{t.cccd}</td>
+                        <td className="p-2 align-top">{t.phone||''}</td>
+                        <td className="p-2 align-top whitespace-nowrap">{t.startDate? (new Date(t.startDate)).toLocaleDateString('vi-VN') : ''}</td>
+                        <td className="p-2 align-top whitespace-nowrap">{t.endDate? (new Date(t.endDate)).toLocaleDateString('vi-VN') : ''}</td>
+                        <td className="p-2 align-top">{roomMap[tenantModal.roomId]?.primaryTenantId===t.id? '★' : ''}</td>
+                        <td className="p-2 align-top">
+                          <div className="flex flex-wrap gap-1.5">
+                            <button type="button" onClick={()=>editTenant(t)} className="rounded border px-2 py-1 text-xs sm:text-sm">Sửa</button>
+                            <button type="button" onClick={()=>removeTenant(t.id)} className="rounded border px-2 py-1 text-xs sm:text-sm">Xóa</button>
+                            <button type="button" onClick={()=>setPrimaryTenant(tenantModal.roomId, t.id)} className="rounded border px-2 py-1 text-xs sm:text-sm">Đặt đại diện</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <form onSubmit={submitTenant} className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-slate-100">
+                <div className="sm:col-span-2 text-sm font-medium text-slate-700">{tenantModal.form.id ? 'Sửa khách' : 'Thêm khách mới'}</div>
+                <input className="rounded-xl border border-slate-200 px-3 py-2.5 text-base sm:text-sm" placeholder="Họ tên" value={tenantModal.form.name} onChange={e=>setTenantModal(m=>({...m, form:{...m.form, name:e.target.value}}))} />
+                <input className="rounded-xl border border-slate-200 px-3 py-2.5 text-base sm:text-sm" placeholder="SĐT" inputMode="tel" autoComplete="tel" value={tenantModal.form.phone} onChange={e=>setTenantModal(m=>({...m, form:{...m.form, phone:e.target.value}}))} />
+                <input className="sm:col-span-2 rounded-xl border border-slate-200 px-3 py-2.5 text-base sm:text-sm" placeholder="CCCD" inputMode="numeric" value={tenantModal.form.cccd} onChange={e=>setTenantModal(m=>({...m, form:{...m.form, cccd:e.target.value}}))} />
+
+                <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Ngày bắt đầu</label>
+                    <input type="date" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-base sm:text-sm" value={tenantModal.form.startDate} onChange={e=>setTenantModal(m=>({...m, form:{...m.form, startDate:e.target.value}}))} />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Ngày kết thúc</label>
+                    <input type="date" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-base sm:text-sm" value={tenantModal.form.endDate} onChange={e=>setTenantModal(m=>({...m, form:{...m.form, endDate:e.target.value}}))} />
+                  </div>
+                </div>
+
+                <div className="sm:col-span-2 flex flex-col-reverse sm:flex-row sm:items-center gap-2 pt-1">
+                  <button type="submit" className="w-full sm:w-auto rounded-xl bg-emerald-600 text-white px-4 py-3 sm:py-2 text-base sm:text-sm font-medium">{tenantModal.form.id? 'Cập nhật khách':'Thêm khách'}</button>
+                  {tenantModal.form.id && (<button type="button" className="w-full sm:w-auto rounded-xl border px-4 py-3 sm:py-2 text-base sm:text-sm" onClick={()=>setTenantModal(m=>({...m, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' }}))}>Hủy sửa</button>)}
+                </div>
+              </form>
+
+              <div className="text-xs text-slate-500 leading-relaxed pb-1">Mẹo: có thể đặt 1 người làm <b>Đại diện TT</b> (đại diện thanh toán) cho phòng; hoá đơn sẽ ưu tiên gắn người này.</div>
             </div>
-
-            <form onSubmit={submitTenant} className="grid grid-cols-3 gap-3">
-              <input className="rounded-xl border px-3 py-2" placeholder="Họ tên" value={tenantModal.form.name} onChange={e=>setTenantModal(m=>({...m, form:{...m.form, name:e.target.value}}))} />
-              <input className="rounded-xl border px-3 py-2" placeholder="SĐT" value={tenantModal.form.phone} onChange={e=>setTenantModal(m=>({...m, form:{...m.form, phone:e.target.value}}))} />
-              <input className="col-span-3 rounded-xl border px-3 py-2" placeholder="CCCD" value={tenantModal.form.cccd} onChange={e=>setTenantModal(m=>({...m, form:{...m.form, cccd:e.target.value}}))} />
-
-              <div className="col-span-3 grid grid-cols-2 gap-3">
-                <input type="date" className="rounded-xl border px-3 py-2" placeholder="Ngày bắt đầu" value={tenantModal.form.startDate} onChange={e=>setTenantModal(m=>({...m, form:{...m.form, startDate:e.target.value}}))} />
-                <input type="date" className="rounded-xl border px-3 py-2" placeholder="Ngày kết thúc" value={tenantModal.form.endDate} onChange={e=>setTenantModal(m=>({...m, form:{...m.form, endDate:e.target.value}}))} />
-              </div>
-
-              <div className="col-span-3 flex items-center gap-2">
-                <button className="rounded-xl bg-emerald-600 text-white px-4 py-2">{tenantModal.form.id? 'Cập nhật khách':'Thêm khách'}</button>
-                {tenantModal.form.id && (<button type="button" className="rounded-xl border px-4 py-2" onClick={()=>setTenantModal(m=>({...m, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' }}))}>Hủy sửa</button>)}
-              </div>
-            </form>
-
-            <div className="text-xs text-slate-500">Mẹo: có thể đặt 1 người làm <b>Đại diện TT</b> (đại diện thanh toán) cho phòng; hoá đơn sẽ ưu tiên gắn người này.</div>
           </div>
         </div>
       )}

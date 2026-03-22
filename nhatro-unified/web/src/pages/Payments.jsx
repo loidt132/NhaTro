@@ -167,85 +167,90 @@ export default function Payments() {
   const { sumPaid, sumDebt } = calcTotals(invoices, payments, month);
 
   const Table = () => (
-    <div className="rounded-2xl border bg-white p-4 shadow-sm">
-      <div className="overflow-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="text-left text-slate-500">
-              <th className="p-2">Phòng</th>
-              <th className="p-2">Khách</th>
-              <th className="p-2">Tháng</th>
-              <th className="p-2">Tiền phòng</th>
-              <th className="p-2">Điện</th>
-              <th className="p-2">Nước</th>
-              <th className="p-2">Tổng</th>
-              <th className="p-2">Trạng thái</th>
-              <th className="p-2">Tác vụ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredItems.map(({ room, names, invoice, draft }) => {
-              if (!invoice) {
+    <>
+      <div className="lg:hidden">
+        <Cards />
+      </div>
+      <div className="hidden lg:block rounded-2xl border bg-white p-4 shadow-sm">
+        <div className="overflow-x-auto -mx-1 px-1">
+          <table className="min-w-[720px] w-full text-sm">
+            <thead>
+              <tr className="text-left text-slate-500">
+                <th className="p-2 whitespace-nowrap">Phòng</th>
+                <th className="p-2 min-w-[8rem]">Khách</th>
+                <th className="p-2 whitespace-nowrap">Tháng</th>
+                <th className="p-2 whitespace-nowrap">Tiền phòng</th>
+                <th className="p-2 whitespace-nowrap">Điện</th>
+                <th className="p-2 whitespace-nowrap">Nước</th>
+                <th className="p-2 whitespace-nowrap">Tổng</th>
+                <th className="p-2 whitespace-nowrap">Trạng thái</th>
+                <th className="p-2 whitespace-nowrap">Tác vụ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredItems.map(({ room, names, invoice, draft }) => {
+                if (!invoice) {
+                  return (
+                    <tr key={room.id} className="border-t border-slate-100 bg-slate-50/60">
+                      <td className="p-2 font-medium whitespace-nowrap">{room.name}</td>
+                      <td className="p-2 max-w-[12rem]">{names ?? <i className="text-slate-400">(chưa có)</i>}</td>
+                      <td className="p-2 whitespace-nowrap">{month}</td>
+                      <td className="p-2 whitespace-nowrap">{currency(room.baseRent)}</td>
+                      <td className="p-2 whitespace-nowrap">{currency(draft.eAmt)} <span className="text-slate-400">({draft.eUse} kWh)</span></td>
+                      <td className="p-2 whitespace-nowrap">{currency(draft.wAmt)} <span className="text-slate-400">({draft.wUse} m³)</span></td>
+                      <td className="p-2 font-semibold whitespace-nowrap">{currency(draft.totalDraft)}</td>
+                      <td className="p-2"><span className="rounded-full px-2 py-1 text-xs bg-amber-100 text-amber-700 whitespace-nowrap">Chưa tạo HĐ</span></td>
+                      <td className="p-2"><button type="button" onClick={() => addInvoiceFromReading(room.id)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Tạo hóa đơn</button></td>
+                    </tr>
+                  );
+                }
+                const i = invoice;
                 return (
-                  <tr key={room.id} className="border-t bg-slate-50/60">
-                    <td className="p-2 font-medium">{room.name}</td>
-                    <td className="p-2">{names ?? <i className="text-slate-400">(chưa có)</i>}</td>
-                    <td className="p-2">{month}</td>
-                    <td className="p-2">{currency(room.baseRent)}</td>
-                    <td className="p-2">{currency(draft.eAmt)} <span className="text-slate-400">({draft.eUse} kWh)</span></td>
-                    <td className="p-2">{currency(draft.wAmt)} <span className="text-slate-400">({draft.wUse} m³)</span></td>
-                    <td className="p-2 font-semibold">{currency(draft.totalDraft)}</td>
-                    <td className="p-2"><span className="rounded-full px-2 py-1 text-xs bg-amber-100 text-amber-700">Chưa tạo HĐ</span></td>
-                    <td className="p-2"><button onClick={() => addInvoiceFromReading(room.id)} className="rounded-lg border px-3 py-1">Tạo hóa đơn</button></td>
+                  <tr key={i.id} className="border-t border-slate-100">
+                    <td className="p-2 font-medium whitespace-nowrap">{room.name}</td>
+                    <td className="p-2 max-w-[12rem]">{names}</td>
+                    <td className="p-2 whitespace-nowrap">{i.month}</td>
+                    <td className="p-2 whitespace-nowrap">{currency(i.rent)}</td>
+                    <td className="p-2 whitespace-nowrap">{currency(i.electricAmount)} <span className="text-slate-400">({i.electricUsage} kWh)</span></td>
+                    <td className="p-2 whitespace-nowrap">{currency(i.waterAmount)} <span className="text-slate-400">({i.waterUsage} m³)</span></td>
+                    <td className="p-2 font-semibold whitespace-nowrap">{currency(i.total)}</td>
+                    <td className="p-2">
+                      <span className={'rounded-full px-2 py-1 text-xs whitespace-nowrap ' + (i.status === 'Đã thanh toán' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700') }>{i.status}</span>
+                    </td>
+                    <td className="p-2">
+                      <div className="flex flex-wrap gap-1.5">
+                        <button type="button" onClick={() => togglePaid(i.id)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">{i.status === 'Đã thanh toán' ? 'Đánh dấu còn nợ' : 'Đánh dấu đã trả'}</button>
+                        <button type="button" onClick={() => printPdf(i)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Xuất PDF</button>
+                      </div>
+                    </td>
                   </tr>
                 );
-              }
-              const i = invoice;
-              return (
-                <tr key={i.id} className="border-t">
-                  <td className="p-2 font-medium">{room.name}</td>
-                  <td className="p-2">{names}</td>
-                  <td className="p-2">{i.month}</td>
-                  <td className="p-2">{currency(i.rent)}</td>
-                  <td className="p-2">{currency(i.electricAmount)} <span className="text-slate-400">({i.electricUsage} kWh)</span></td>
-                  <td className="p-2">{currency(i.waterAmount)} <span className="text-slate-400">({i.waterUsage} m³)</span></td>
-                  <td className="p-2 font-semibold">{currency(i.total)}</td>
-                  <td className="p-2">
-                    <span className={'rounded-full px-2 py-1 text-xs ' + (i.status === 'Đã thanh toán' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700') }>{i.status}</span>
-                  </td>
-                  <td className="p-2 space-x-2">
-                    <button onClick={() => togglePaid(i.id)} className="rounded-lg border px-3 py-1">{i.status === 'Đã thanh toán' ? 'Đánh dấu còn nợ' : 'Đánh dấu đã trả'}</button>
-                    <button onClick={() => printPdf(i)} className="rounded-lg border px-3 py-1">Xuất PDF</button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+    </>
   );
 
   const Cards = () => (
-    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
       {filteredItems.map(({ room, names, invoice, draft }) => {
         if (!invoice) {
           return (
-            <div key={room.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col gap-3">
-              <div className="flex items-center justify-between">
-                <div className="font-semibold">PHÒNG {room.name} — {names ?? ''}</div>
-                <span className="rounded-full px-2 py-1 text-xs bg-amber-100 text-amber-700">Chưa tạo HĐ</span>
+            <div key={room.id} className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm flex flex-col gap-3 min-w-0">
+              <div className="flex items-start justify-between gap-2 min-w-0">
+                <div className="font-semibold text-[15px] sm:text-base min-w-0 break-words pr-1">PHÒNG {room.name} — {names ?? ''}</div>
+                <span className="shrink-0 rounded-full px-2 py-1 text-xs bg-amber-100 text-amber-700">Chưa tạo HĐ</span>
               </div>
-              <div className="text-sm space-y-1">
-                <div className="flex justify-between"><span className="text-slate-500">Tiền phòng</span><b>{currency(room.baseRent)}</b></div>
-                <div className="flex justify-between"><span className="text-slate-500">Điện</span><span>{draft.eUse} kWh × {currency(room.electricRate ?? 0)} = <b>{currency(draft.eAmt)}</b></span></div>
-                <div className="flex justify-between"><span className="text-slate-500">Nước</span><span>{draft.wUse} m³ × {currency(room.waterRate ?? 0)} = <b>{currency(draft.wAmt)}</b></span></div>
+              <div className="text-sm space-y-1.5 min-w-0">
+                <div className="flex justify-between gap-2"><span className="text-slate-500 shrink-0">Tiền phòng</span><b className="text-right tabular-nums">{currency(room.baseRent)}</b></div>
+                <div className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:gap-2"><span className="text-slate-500">Điện</span><span className="min-w-0 text-right sm:text-left break-words">{draft.eUse} kWh × {currency(room.electricRate ?? 0)} = <b className="tabular-nums">{currency(draft.eAmt)}</b></span></div>
+                <div className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:gap-2"><span className="text-slate-500">Nước</span><span className="min-w-0 text-right sm:text-left break-words">{draft.wUse} m³ × {currency(room.waterRate ?? 0)} = <b className="tabular-nums">{currency(draft.wAmt)}</b></span></div>
               </div>
-              <div className="flex items-center justify-between">
-                <div className="text-lg font-semibold">{currency(draft.totalDraft)} đ</div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => addInvoiceFromReading(room.id)} className="rounded-lg border px-3 py-1 text-sm">Tạo hóa đơn</button>
-                </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between pt-1 border-t border-slate-100">
+                <div className="text-lg font-semibold tabular-nums">{currency(draft.totalDraft)} đ</div>
+                <button type="button" onClick={() => addInvoiceFromReading(room.id)} className="w-full sm:w-auto rounded-lg border px-3 py-2.5 sm:py-1 text-sm font-medium">Tạo hóa đơn</button>
               </div>
             </div>
           );
@@ -254,22 +259,22 @@ export default function Payments() {
         const status = i.status ?? 'Còn nợ';
         const badge = status === 'Đã thanh toán' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700';
         return (
-          <div key={i.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <div className="font-semibold">PHÒNG {room.name} — {names ?? ''}</div>
-              <span className={`rounded-full px-2 py-1 text-xs ${badge}`}>{status}</span>
+          <div key={i.id} className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm flex flex-col gap-3 min-w-0">
+            <div className="flex items-start justify-between gap-2 min-w-0">
+              <div className="font-semibold text-[15px] sm:text-base min-w-0 break-words pr-1">PHÒNG {room.name} — {names ?? ''}</div>
+              <span className={`shrink-0 rounded-full px-2 py-1 text-xs ${badge}`}>{status}</span>
             </div>
-            <div className="text-sm space-y-1">
-              <div className="flex justify-between"><span className="text-slate-500">Tiền phòng</span><b>{currency(i.rent)}</b></div>
-              <div className="flex justify-between"><span className="text-slate-500">Điện</span><span>{i.electricUsage} kWh × {currency(room.electricRate ?? 0)} = <b>{currency(i.electricAmount)}</b></span></div>
-              <div className="flex justify-between"><span className="text-slate-500">Nước</span><span>{i.waterUsage} m³ × {currency(room.waterRate ?? 0)} = <b>{currency(i.waterAmount)}</b></span></div>
+            <div className="text-sm space-y-1.5 min-w-0">
+              <div className="flex justify-between gap-2"><span className="text-slate-500 shrink-0">Tiền phòng</span><b className="text-right tabular-nums">{currency(i.rent)}</b></div>
+              <div className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:gap-2"><span className="text-slate-500">Điện</span><span className="min-w-0 text-right sm:text-left break-words">{i.electricUsage} kWh × {currency(room.electricRate ?? 0)} = <b className="tabular-nums">{currency(i.electricAmount)}</b></span></div>
+              <div className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:gap-2"><span className="text-slate-500">Nước</span><span className="min-w-0 text-right sm:text-left break-words">{i.waterUsage} m³ × {currency(room.waterRate ?? 0)} = <b className="tabular-nums">{currency(i.waterAmount)}</b></span></div>
               <div className="text-xs text-slate-500">Trạng thái: {status}</div>
             </div>
-            <div className="flex items-center justify-between">
-              <div className="text-lg font-semibold">{currency(i.total)} đ</div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => togglePaid(i.id)} className="rounded-lg border px-3 py-1 text-sm">{status === 'Đã thanh toán' ? 'Đánh dấu còn nợ' : 'Đánh dấu đã trả'}</button>
-                <button onClick={() => printPdf(i)} className="rounded-lg border px-3 py-1 text-sm">Xuất PDF</button>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between pt-1 border-t border-slate-100">
+              <div className="text-lg font-semibold tabular-nums shrink-0">{currency(i.total)} đ</div>
+              <div className="flex flex-col gap-2 w-full sm:w-auto sm:min-w-[12rem]">
+                <button type="button" onClick={() => togglePaid(i.id)} className="w-full rounded-lg border px-3 py-2.5 sm:py-1.5 text-sm font-medium">{status === 'Đã thanh toán' ? 'Đánh dấu còn nợ' : 'Đánh dấu đã trả'}</button>
+                <button type="button" onClick={() => printPdf(i)} className="w-full rounded-lg border px-3 py-2.5 sm:py-1.5 text-sm font-medium">Xuất PDF</button>
               </div>
             </div>
           </div>
@@ -282,9 +287,11 @@ export default function Payments() {
     <Page className="space-y-4">
       <SearchBar month={month} onMonthChange={setMonth} query={query} onQueryChange={setQuery} />
       <TotalsBar sumPaid={sumPaid} sumDebt={sumDebt} />
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Hóa đơn tháng {month}</h2>
-        <ViewSwitch value={view} onChange={setView} />
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between min-w-0">
+        <h2 className="text-base sm:text-lg font-semibold min-w-0 break-words">Hóa đơn tháng {month}</h2>
+        <div className="shrink-0 self-start sm:self-auto">
+          <ViewSwitch value={view} onChange={setView} />
+        </div>
       </div>
       {view === 'table' ? <Table /> : <Cards />}
 

@@ -4,7 +4,9 @@ import React from 'react';
 export default function Page({ children, className = '' }) {
   // max-w-xl on small screens, expand on larger; comfortable padding
   return (
-    <div className={`mx-auto w-full px-4 sm:px-6 lg:px-8 max-w-5xl ${className}`}>
+    <div
+      className={`mx-auto w-full max-w-5xl min-w-0 overflow-x-hidden px-2 sm:px-6 lg:px-8 pb-[max(0.5rem,env(safe-area-inset-bottom))] ${className}`}
+    >
       {children}
     </div>
   );

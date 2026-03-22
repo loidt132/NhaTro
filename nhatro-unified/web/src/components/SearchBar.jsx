@@ -23,11 +23,11 @@ export default function SearchBar({
   }, [localQuery, onQueryChange]);
 
   return (
-    <div className={`rounded-2xl border bg-white p-3 flex items-center justify-between gap-3 ${className}`}>
-      <div className="flex items-center gap-2 flex-1">
+    <div className={`rounded-2xl border bg-white p-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3 ${className}`}>
+      <div className="flex items-center gap-2 flex-1 min-w-0">
         <input
           type="text"
-          className="w-full border rounded-lg px-3 py-2"
+          className="w-full min-w-0 border rounded-lg px-3 py-2 text-base sm:text-sm"
           placeholder={placeholder}
           value={localQuery}
           onChange={(e) => setLocalQuery(e.target.value)}
@@ -43,10 +43,10 @@ export default function SearchBar({
         ) : null}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
         <input
           type="month"
-          className="border rounded-lg px-3 py-2"
+          className="w-full sm:w-auto min-w-0 border rounded-lg px-3 py-2 text-base sm:text-sm"
           value={month}
           onChange={(e) => onMonthChange && onMonthChange(e.target.value)}
         />
