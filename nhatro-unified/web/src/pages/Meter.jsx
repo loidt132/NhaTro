@@ -1,5 +1,5 @@
 // src/pages/Meter.jsx
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { loadState, saveState, monthKey, uid, calcTotals } from '../utils/state';
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
@@ -8,6 +8,11 @@ import Page from '../components/Page';
 
 export default function Meter() {
   const [state, setState] = useState(loadState());
+  useEffect(() => {
+    const handler = () => setState(loadState());
+    window.addEventListener('boarding_state_updated', handler);
+    return () => window.removeEventListener('boarding_state_updated', handler);
+  }, []);
   const { rooms, tenants, readings = [], invoices, payments, settings } = state;
   const [month, setMonth] = useState(monthKey());
   const [query, setQuery] = useState('');

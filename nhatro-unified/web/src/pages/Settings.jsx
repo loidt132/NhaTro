@@ -1,5 +1,5 @@
 // src/pages/Settings.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { loadState, saveState } from '../utils/state';
 import Footer from '../components/Footer';
 import Page from '../components/Page';
@@ -7,6 +7,15 @@ import Page from '../components/Page';
 export default function Settings() {
   const [state, setState] = useState(loadState());
   const [s, setS] = useState(() => state.settings || {});
+  useEffect(() => {
+    const handler = () => {
+      const next = loadState();
+      setState(next);
+      setS(next.settings || {});
+    };
+    window.addEventListener('boarding_state_updated', handler);
+    return () => window.removeEventListener('boarding_state_updated', handler);
+  }, []);
 
   const onSave = () => {
     const next = { ...state, settings: s };

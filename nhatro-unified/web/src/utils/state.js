@@ -2,8 +2,62 @@
 const KEY = 'boarding_state_v1';
 import { dbGet, dbSet } from './db';
 
+/** Trống = fetch `/api` cùng origin; dev: `VITE_API_ORIGIN` trong `.env.development`. */
+function apiUrl(path) {
+  const base = (import.meta.env.VITE_API_ORIGIN || '').replace(/\/+$/, '');
+  const p = path.startsWith('/') ? path : `/${path}`;
+  return base ? `${base}${p}` : p;
+}
+
 // In-memory state snapshot (synchronous access for existing code paths)
 let memoryState = null;
+
+import { isNocoConfigured, loadStateFromNoco, saveStateToNoco } from './nocodb';
+
+async function loadStateFromServer() {
+  if (isNocoConfigured()) {
+    try {
+      const state = await loadStateFromNoco();
+      if (state) return state;
+    } catch (e) {
+      // noco fails, fallback next
+    }
+  }
+
+  try {
+    const resp = await fetch(apiUrl('/api/state'));
+    if (!resp.ok) return null;
+    const json = await resp.json();
+    if (json && json.state) return json.state;
+  } catch (e) {
+    // server unavailable, ignore
+  }
+  return null;
+}
+
+async function saveStateToServer(state) {
+  let saved = false;
+
+  if (isNocoConfigured()) {
+    try {
+      await saveStateToNoco(state);
+      saved = true;
+    } catch (e) {
+      // continue to local server fallback
+    }
+  }
+
+  if (!saved) {
+    try {
+      await fetch(apiUrl('/api/state'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state }) });
+      saved = true;
+    } catch (e) {
+      // server unavailable, ignore
+    }
+  }
+
+  return saved;
+}
 
 function applyDefaults(s) {
   return {
@@ -47,6 +101,15 @@ export function loadState(){
       }
     }
 
+    // try server copy first (non-blocking if endpoint absent)
+    const serverState = await loadStateFromServer();
+    if (serverState) {
+      memoryState = serverState;
+      try { await dbSet(KEY, serverState); } catch (e) {}
+      if(typeof window !== 'undefined' && window.dispatchEvent){ try{ window.dispatchEvent(new Event('boarding_state_updated')); }catch(e){} }
+      return;
+    }
+
     const dbState = await dbGet(KEY);
     if(dbState){
       memoryState = dbState;
@@ -72,6 +135,7 @@ export function saveState(next){
     // async write to IndexedDB for persistence across sessions
     (async ()=>{
       try{ await dbSet(KEY, withMeta); }catch(e){}
+      try{ await saveStateToServer(withMeta); }catch(e){}
       // notify same-tab listeners that state changed (after DB write)
       if(typeof window !== 'undefined' && window.dispatchEvent){
         try{ window.dispatchEvent(new Event('boarding_state_updated')); }catch(e){}

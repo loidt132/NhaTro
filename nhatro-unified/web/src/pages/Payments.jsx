@@ -159,6 +159,7 @@ export default function Payments() {
       accountName: settings.accountName,
       addInfoTemplate: settings.qrNoteTemplate ?? 'Tien phong {room} {month}',
       landlordName: settings.landlordName,
+      landlordPhone: settings.landlordPhone,
       landlordAddress: settings.landlordAddress
     });
   };

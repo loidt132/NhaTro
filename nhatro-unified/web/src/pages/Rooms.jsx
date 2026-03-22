@@ -1,6 +1,6 @@
 
 // src/pages/Rooms.jsx
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import TopStats from '../components/TopStats';
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
@@ -121,12 +121,6 @@ export default function Rooms(){
     return ss <= last && ee >= first;
   };
 
-  const roomsOccupiedCount = useMemo(() => {
-    const { first, last } = getMonthBounds(month);
-    const roomIds = new Set((tenants||[]).filter(t => isTenantActiveForMonth(t, month)).map(t => t.roomId));
-    return (rooms||[]).filter(r => roomIds.has(r.id)).length;
-  }, [rooms, tenants, month]);
-
   const tenantsActiveCount = useMemo(() => (tenants||[]).filter(t => isTenantActiveForMonth(t, month)).length, [tenants, month]);
 
   const invoicesForMonth = useMemo(() => (invoices||[]).filter(i => i.month === month).length, [invoices, month]);
@@ -221,7 +215,7 @@ export default function Rooms(){
 
   return (
     <Page className="space-y-4">
-      <TopStats rooms={roomsOccupiedCount} tenants={tenantsActiveCount} invoices={invoicesForMonth} debts={unpaidForMonth} />
+      <TopStats rooms={rooms.length} tenants={tenantsActiveCount} invoices={invoicesForMonth} debts={unpaidForMonth} />
   <SearchBar month={month} onMonthChange={setMonth} query={query} onQueryChange={setQuery} />
       <div className="text-slate-600 text-sm font-medium">Các lần ghi trước:</div>
       <TotalsBar sumPaid={sumPaid} sumDebt={sumDebt} />

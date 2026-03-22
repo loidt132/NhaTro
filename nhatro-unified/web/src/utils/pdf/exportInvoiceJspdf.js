@@ -58,7 +58,11 @@ export async function exportInvoicePdfByJsPDF(inv, settings) {
   };
 
   // Landlord information
-  line('Chủ trọ:', settings.landlordName || '');
+  const landlordLine = [settings.landlordName, settings.landlordPhone]
+    .map((s) => String(s || '').trim())
+    .filter(Boolean)
+    .join(' • ');
+  line('Chủ trọ:', landlordLine);
   line('Địa chỉ:', settings.landlordAddress || '');
 
   // Invoice info

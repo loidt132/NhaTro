@@ -9,7 +9,7 @@ export default function TopStats({ rooms=0, tenants=0, invoices=0, debts=0 }){
   );
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-      <Item label="Phòng" value={rooms} color="bg-emerald-100" />
+      <Item label="Tổng phòng" value={rooms} color="bg-emerald-100" />
       <Item label="Khách thuê" value={tenants} color="bg-teal-100" />
       <Item label="Hóa đơn" value={invoices} color="bg-amber-100" />
       <Item label="Còn nợ" value={debts} color="bg-rose-100" />
