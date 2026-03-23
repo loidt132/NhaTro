@@ -6,6 +6,7 @@ import { dbGet, dbSet } from './db';
 function apiUrl(path) {
   const base = (import.meta.env.VITE_API_ORIGIN || '').replace(/\/+$/, '');
   const p = path.startsWith('/') ? path : `/${path}`;
+  console.log(base ? `${base}${p}` : p);
   return base ? `${base}${p}` : p;
 }
 
