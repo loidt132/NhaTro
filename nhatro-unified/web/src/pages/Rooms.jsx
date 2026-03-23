@@ -216,9 +216,10 @@ export default function Rooms(){
   return (
     <Page className="space-y-4">
       <TopStats rooms={rooms.length} tenants={tenantsActiveCount} invoices={invoicesForMonth} debts={unpaidForMonth} />
-  <SearchBar month={month} onMonthChange={setMonth} query={query} onQueryChange={setQuery} />
-      <div className="text-slate-600 text-sm font-medium">Các lần ghi trước:</div>
       <TotalsBar sumPaid={sumPaid} sumDebt={sumDebt} />
+      <SearchBar month={month} onMonthChange={setMonth} query={query} onQueryChange={setQuery} />
+      <div className="text-slate-600 text-sm font-medium">Các lần ghi trước:</div>
+  
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div></div>

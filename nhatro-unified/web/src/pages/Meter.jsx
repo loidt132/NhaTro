@@ -187,6 +187,7 @@ export default function Meter() {
 
   return (
     <Page className="space-y-4">
+      <TotalsBar sumPaid={sumPaid} sumDebt={sumDebt} />
       <SearchBar
         month={month}
         onMonthChange={setMonth}
@@ -288,7 +289,6 @@ export default function Meter() {
           </div>
         )}
       </div>
-      <TotalsBar sumPaid={sumPaid} sumDebt={sumDebt} />
       <Footer />
     </Page>
   );

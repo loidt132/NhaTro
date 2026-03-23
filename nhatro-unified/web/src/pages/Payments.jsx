@@ -285,8 +285,8 @@ export default function Payments() {
 
   return (
     <Page className="space-y-4">
-      <SearchBar month={month} onMonthChange={setMonth} query={query} onQueryChange={setQuery} />
       <TotalsBar sumPaid={sumPaid} sumDebt={sumDebt} />
+      <SearchBar month={month} onMonthChange={setMonth} query={query} onQueryChange={setQuery} />
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between min-w-0">
         <h2 className="text-base sm:text-lg font-semibold min-w-0 break-words">Hóa đơn tháng {month}</h2>
         <div className="shrink-0 self-start sm:self-auto">
