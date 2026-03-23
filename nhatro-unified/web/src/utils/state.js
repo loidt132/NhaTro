@@ -4,6 +4,7 @@ import { dbGet, dbSet } from './db';
 
 /** Trống = fetch `/api` cùng origin; dev: `VITE_API_ORIGIN` trong `.env.development`. */
 function apiUrl(path) {
+  console.log('import.meta.env.VITE_API_ORIGIN', import.meta.env.VITE_API_ORIGIN);
   const base = (import.meta.env.VITE_API_ORIGIN || '').replace(/\/+$/, '');
   const p = path.startsWith('/') ? path : `/${path}`;
   console.log(base ? `${base}${p}` : p);
@@ -18,8 +19,9 @@ import { isNocoConfigured, loadStateFromNoco, saveStateToNoco } from './nocodb';
 async function loadStateFromServer() {
   if (isNocoConfigured()) {
     try {
+      console.log('loadStateFromNoco');
       const state = await loadStateFromNoco();  
-      console.log(state);
+      console.log('state', state);
       if (state) return state;
     } catch (e) {
       // noco fails, fallback next
