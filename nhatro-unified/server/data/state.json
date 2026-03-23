@@ -1,1 +1,150 @@
-
+{
+  "rooms": [
+    {
+      "id": "0r2pds87a06a",
+      "name": "P101",
+      "baseRent": 2500000,
+      "electricRate": 3500,
+      "waterRate": 12000,
+      "primaryTenantId": "rqdkxazhay"
+    },
+    {
+      "id": "3foo6bxcjd7",
+      "name": "P102",
+      "baseRent": 2700000,
+      "electricRate": 3500,
+      "waterRate": 12000,
+      "primaryTenantId": "khzv5s16tqq"
+    },
+    {
+      "id": "kmtpl1g591",
+      "name": "P103",
+      "baseRent": 2500000,
+      "electricRate": 3500,
+      "waterRate": 12000,
+      "primaryTenantId": "zccvipx46e"
+    },
+    {
+      "id": "7sv8fbhhvyw",
+      "name": "P104",
+      "baseRent": 2500000,
+      "electricRate": 3500,
+      "waterRate": 12000
+    },
+    {
+      "id": "sl97aq53lur",
+      "name": "P105",
+      "baseRent": 2500000,
+      "electricRate": 3500,
+      "waterRate": 12000
+    }
+  ],
+  "tenants": [
+    {
+      "id": "rqdkxazhay",
+      "name": "Nguyễn Văn Tèo",
+      "cccd": "012345678901",
+      "phone": "0901234567",
+      "roomId": "0r2pds87a06a",
+      "startDate": "2026-01-01",
+      "endDate": "2026-04-30"
+    },
+    {
+      "id": "1zpunewz5f7",
+      "name": "Nguyễn Văn Tẹo",
+      "cccd": "12345",
+      "phone": "1234",
+      "roomId": "0r2pds87a06a",
+      "startDate": "2026-03-01",
+      "endDate": "2026-04-30"
+    },
+    {
+      "id": "khzv5s16tqq",
+      "name": "Nguyễn Văn Bốp",
+      "cccd": "1234",
+      "phone": "123",
+      "roomId": "3foo6bxcjd7",
+      "startDate": "2026-02-01",
+      "endDate": "2026-03-31"
+    },
+    {
+      "id": "zccvipx46e",
+      "name": "Nguyễn Văn Bộp",
+      "cccd": "1234",
+      "phone": "1234",
+      "roomId": "kmtpl1g591",
+      "startDate": "2026-03-01",
+      "endDate": "2026-04-30"
+    }
+  ],
+  "readings": [
+    {
+      "id": "gk7ynalro6",
+      "roomId": "3foo6bxcjd7",
+      "month": "2026-03",
+      "electricStart": 1,
+      "electricEnd": 4,
+      "waterStart": 1,
+      "waterEnd": 2,
+      "createdAt": "2026-03-21T18:12:32.650Z"
+    },
+    {
+      "id": "gf3cy7prmtn",
+      "roomId": "0r2pds87a06a",
+      "month": "2026-03",
+      "electricStart": 100,
+      "electricEnd": 120,
+      "waterStart": 30,
+      "waterEnd": 32,
+      "createdAt": "2026-03-21T18:09:59.869Z"
+    }
+  ],
+  "invoices": [
+    {
+      "id": "b91zvmsakp4",
+      "roomId": "3foo6bxcjd7",
+      "tenantId": "khzv5s16tqq",
+      "month": "2026-03",
+      "rent": 2700000,
+      "electricUsage": 3,
+      "electricEnd": 4,
+      "electricStart": 1,
+      "waterUsage": 1,
+      "waterEnd": 2,
+      "waterStart": 1,
+      "electricAmount": 10500,
+      "waterAmount": 12000,
+      "other": 0,
+      "total": 2722500,
+      "status": "Còn nợ",
+      "createdAt": "2026-03-21T18:12:37.921Z"
+    },
+    {
+      "id": "s0v05uctm3j",
+      "roomId": "0r2pds87a06a",
+      "tenantId": "rqdkxazhay",
+      "month": "2026-03",
+      "rent": 2500000,
+      "electricUsage": 20,
+      "electricEnd": 120,
+      "electricStart": 100,
+      "waterUsage": 2,
+      "waterEnd": 32,
+      "waterStart": 30,
+      "electricAmount": 70000,
+      "waterAmount": 24000,
+      "other": 0,
+      "total": 2594000,
+      "status": "Đã thanh toán",
+      "createdAt": "2026-03-21T18:12:04.689Z",
+      "paidAt": "2026-03-21T18:12:40.614Z"
+    }
+  ],
+  "payments": [],
+  "settings": {
+    "bankCode": "TPB",
+    "accountNo": "00843190002",
+    "accountName": "DUONG TIEN LOI",
+    "qrNoteTemplate": "Tien phong {room} {month}"
+  }
+}
