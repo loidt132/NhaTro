@@ -18,7 +18,8 @@ import { isNocoConfigured, loadStateFromNoco, saveStateToNoco } from './nocodb';
 async function loadStateFromServer() {
   if (isNocoConfigured()) {
     try {
-      const state = await loadStateFromNoco();
+      const state = await loadStateFromNoco();  
+      console.log(state);
       if (state) return state;
     } catch (e) {
       // noco fails, fallback next
@@ -26,7 +27,9 @@ async function loadStateFromServer() {
   }
 
   try {
+    console.log(apiUrl('/api/state'));
     const resp = await fetch(apiUrl('/api/state'));
+    console.log(resp);
     if (!resp.ok) return null;
     const json = await resp.json();
     if (json && json.state) return json.state;
