@@ -78,20 +78,13 @@ function applyDefaults(s) {
 
 // loadState remains synchronous for compatibility; it returns the in-memory snapshot.
 export function loadState(){
-  if(typeof localStorage !== 'undefined'){
-  if (!memoryState) {
-    // initialize with seed so UI has something to show immediately
-    //memoryState = seed();
-    const raw = localStorage.getItem(KEY);
-      if(raw){
-          const parsed = JSON.parse(raw);
-          memoryState = parsed;
-      }
-    // persist seed to DB asynchronously
-    (async ()=>{ try{ await dbSet(KEY, memoryState); }catch(e){} })();
-    // also notify listeners that state is available
-    if(typeof window !== 'undefined' && window.dispatchEvent){ try{ window.dispatchEvent(new Event('boarding_state_updated')); }catch(e){} }
-  }}
+  // 3️⃣ IndexedDB
+    const dbState = await dbGet(KEY);
+    if (dbState) {
+      memoryState = dbState;
+      window.dispatchEvent(new Event('boarding_state_updated'));
+      return;
+    }
   return applyDefaults(memoryState);
 }
 
