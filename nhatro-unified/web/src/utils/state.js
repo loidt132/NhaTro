@@ -76,28 +76,17 @@ function applyDefaults(s) {
   };
 }
 
-// loadState remains synchronous for compatibility; it returns the in-memory 
-
-export function loadState() {
-  // đã hydrate → dùng luôn
-  if (memoryState) {
-    return applyDefaults(memoryState);
+// loadState remains synchronous for compatibility; it returns the in-
+export function loadState(){
+  if (!memoryState) {
+    // initialize with seed so UI has something to show immediately
+    memoryState = seed();
+    // persist seed to DB asynchronously
+    (async ()=>{ try{ await dbSet(KEY, memoryState); }catch(e){} })();
+    // also notify listeners that state is available
+    if(typeof window !== 'undefined' && window.dispatchEvent){ try{ window.dispatchEvent(new Event('boarding_state_updated')); }catch(e){} }
   }
- 
-  // ⚠️ fallback sync: đọc localStorage (nếu có)
-  try {
-    if (typeof localStorage !== 'undefined') {
-      const raw = localStorage.getItem(KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        memoryState = parsed;
-        return applyDefaults(parsed);
-      }
-    }
-  } catch {}
- 
-  // chưa có gì → trả state rỗng (UI có thể show empty / loading)
-  return applyDefaults({});
+  return applyDefaults(memoryState);
 }
 
 // Attempt to hydrate memoryState from IndexedDB on module load
