@@ -76,16 +76,28 @@ function applyDefaults(s) {
   };
 }
 
-// loadState remains synchronous for compatibility; it returns the in-memory snapshot.
-export function loadState(){
-  // 3️⃣ IndexedDB
-    const dbState = await dbGet(KEY);
-    if (dbState) {
-      memoryState = dbState;
-      window.dispatchEvent(new Event('boarding_state_updated'));
-      return;
+// loadState remains synchronous for compatibility; it returns the in-memory 
+
+export function loadState() {
+  // đã hydrate → dùng luôn
+  if (memoryState) {
+    return applyDefaults(memoryState);
+  }
+ 
+  // ⚠️ fallback sync: đọc localStorage (nếu có)
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        memoryState = parsed;
+        return applyDefaults(parsed);
+      }
     }
-  return applyDefaults(memoryState);
+  } catch {}
+ 
+  // chưa có gì → trả state rỗng (UI có thể show empty / loading)
+  return applyDefaults({});
 }
 
 // Attempt to hydrate memoryState from IndexedDB on module load
