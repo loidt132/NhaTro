@@ -272,7 +272,7 @@ export default function Payments() {
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between pt-1 border-t border-slate-100">
               <div className="text-lg font-semibold tabular-nums shrink-0">{currency(i.total)} đ</div>
-              <div className="flex flex-col gap-2 w-full sm:w-auto sm:min-w-[12rem]">
+              <div className="flex flex-col gap-2 w-full">
                 <button type="button" onClick={() => togglePaid(i.id)} className="w-full rounded-lg border px-3 py-2.5 sm:py-1.5 text-sm font-medium">{status === 'Đã thanh toán' ? 'Đánh dấu còn nợ' : 'Đánh dấu đã trả'}</button>
                 <button type="button" onClick={() => printPdf(i)} className="w-full rounded-lg border px-3 py-2.5 sm:py-1.5 text-sm font-medium">Xuất PDF</button>
               </div>
