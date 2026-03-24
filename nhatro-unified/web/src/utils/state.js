@@ -91,7 +91,7 @@ export function loadState(){
     (async ()=>{ try{ await dbSet(KEY, memoryState); }catch(e){} })();
     // also notify listeners that state is available
     if(typeof window !== 'undefined' && window.dispatchEvent){ try{ window.dispatchEvent(new Event('boarding_state_updated')); }catch(e){} }
-  }
+  }}
   return applyDefaults(memoryState);
 }
 
