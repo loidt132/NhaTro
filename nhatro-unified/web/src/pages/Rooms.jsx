@@ -10,18 +10,22 @@ import { loadState, saveState, monthKey, currency, uid, calcTotals } from '../ut
 import Footer from '../components/Footer';
 
 export default function Rooms(){
-  //const [state, setState] = useState(loadState());
-  const [state, setState] = useState(null);
+  const [state, setState] = useState(loadState());
+  //const [state, setState] = useState(null);
   useEffect(() => {
     const refresh = () => setState(loadState());
     window.addEventListener('boarding_state_updated', refresh);
     return () => window.removeEventListener('boarding_state_updated', refresh);
   }, []);
+
   if (!state) return <div className="p-6">Đang tải dữ liệu...</div>;
+  //if (!state) return <div className="p-6">Đang tải dữ liệu...</div>;
   const [month, setMonth] = useState(monthKey());
   const { rooms, tenants, readings, invoices, payments } = state;
   const [query, setQuery] = useState('');
 
+ 
+  
   // ===== Derived =====
   const roomMap = useMemo(()=> Object.fromEntries(rooms.map(r=>[r.id, r])), [rooms]);
   const tenantByRoom = useMemo(()=>{
