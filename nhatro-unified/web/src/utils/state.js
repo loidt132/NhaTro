@@ -85,6 +85,11 @@ function applyDefaults(s) {
 //   }
 //  return applyDefaults(memoryState);
 // } 
+let isReady = false;
+
+export function isStateReady() {
+  return isReady;
+}
 let isHydrating = false;
 
 // So sánh state để tránh render lại vô ích
@@ -111,7 +116,7 @@ export async function hydrateState() {
     // 1. Load từ IndexedDB (NHANH)
     const dbState = await dbGet(KEY);
     if (dbState) {
-       console.log('hydrateState - Loaded from IndexedDB');
+      console.log('hydrateState - Loaded from IndexedDB');
       memoryState = dbState;
       window.dispatchEvent(new Event('boarding_state_updated'));
     }
@@ -120,13 +125,16 @@ export async function hydrateState() {
     const serverState = await loadStateFromServer();
 
     if (serverState && !isSameState(serverState, memoryState)) {
-        console.log('hydrateState - Loaded from Server');
+      console.log('hydrateState - Loaded from Server');
       memoryState = serverState;
 
       await dbSet(KEY, serverState);
 
       window.dispatchEvent(new Event('boarding_state_updated'));
     }
+
+    isReady = true;
+    window.dispatchEvent(new Event('boarding_state_ready'));
 
   } catch (e) {
     console.error('hydrateState error', e);

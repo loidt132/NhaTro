@@ -10,7 +10,7 @@ import Settings from './pages/Settings';
 import ReportsHub from './pages/ReportsHub';
 
 export default function App(){
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [roomCount, setRoomCount] = useState(() => (loadState().rooms || []).length);
   useEffect(() => {
     const sync = () => setRoomCount((loadState().rooms || []).length);
@@ -18,6 +18,9 @@ export default function App(){
     sync();
     return () => window.removeEventListener('boarding_state_updated', sync);
   }, []);
+
+  
+  
   return (
     <BrowserRouter future={{
     v7_startTransition: true,
