@@ -18,9 +18,6 @@ export default function App(){
     sync();
     return () => window.removeEventListener('boarding_state_updated', sync);
   }, []);
-
-  
-  
   return (
     <BrowserRouter future={{
     v7_startTransition: true,
