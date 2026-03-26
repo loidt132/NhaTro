@@ -28,10 +28,8 @@ async function loadStateFromServer() {
     }
   }
 
-  try {
-    console.log(apiUrl('/api/state'));
-    const resp = await fetch(apiUrl('/api/state'));
-    console.log(resp);
+  try { 
+    const resp = await fetch(apiUrl('/api/state')); 
     if (!resp.ok) return null;
     const json = await resp.json();
     if (json && json.state) return json.state;
@@ -77,18 +75,30 @@ function applyDefaults(s) {
 }
 
 // loadState remains synchronous for compatibility; it returns the in-
+// export function loadState(){
+//   if (!memoryState) {
+//   // initialize with seed so UI has something to show immediately
+//       memoryState = seed();
+//   // persist seed to DB asynchronously
+//       (async ()=>{ try{ await dbSet(KEY, memoryState); }catch(e){} })();
+//   // also notify listeners that state is available
+//       if(typeof window !== 'undefined' && window.dispatchEvent){ try{ window.dispatchEvent(new Event('boarding_state_updated')); }catch(e){} }
+//   }
+//  return applyDefaults(memoryState);
+// }
 export function loadState(){
   if (!memoryState) {
-  // initialize with seed so UI has something to show immediately
-      memoryState = seed();
-  // persist seed to DB asynchronously
-      (async ()=>{ try{ await dbSet(KEY, memoryState); }catch(e){} })();
-  // also notify listeners that state is available
-      if(typeof window !== 'undefined' && window.dispatchEvent){ try{ window.dispatchEvent(new Event('boarding_state_updated')); }catch(e){} }
+    return applyDefaults({
+      rooms: [],
+      tenants: [],
+      readings: [],
+      invoices: [],
+      payments: [],
+      settings: {}
+    });
   }
- return applyDefaults(memoryState);
+  return applyDefaults(memoryState);
 }
-
 // Attempt to hydrate memoryState from IndexedDB on module load
 // Migration: if there is an existing localStorage copy, migrate it to IndexedDB once
 (async ()=>{
