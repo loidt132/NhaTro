@@ -7,7 +7,6 @@ function apiUrl(path) {
   console.log('import.meta.env.VITE_API_ORIGIN', import.meta.env.VITE_API_ORIGIN);
   const base = (import.meta.env.VITE_API_ORIGIN || '').replace(/\/+$/, '');
   const p = path.startsWith('/') ? path : `/${path}`;
-  console.log(base ? `${base}${p}` : p);
   return base ? `${base}${p}` : p;
 }
 
@@ -85,19 +84,53 @@ function applyDefaults(s) {
 //       if(typeof window !== 'undefined' && window.dispatchEvent){ try{ window.dispatchEvent(new Event('boarding_state_updated')); }catch(e){} }
 //   }
 //  return applyDefaults(memoryState);
-// }
-export function loadState(){
-  if (!memoryState) {
-    return applyDefaults({
-      rooms: [],
-      tenants: [],
-      readings: [],
-      invoices: [],
-      payments: [],
-      settings: {}
-    });
+// } 
+let isHydrating = false;
+
+// So sánh state để tránh render lại vô ích
+function isSameState(a, b) {
+  return a?.__meta?.lastModified === b?.__meta?.lastModified;
+  //return JSON.stringify(a) === JSON.stringify(b);
+}
+export function loadState() {
+    console.log('loadState');
+  return applyDefaults(memoryState || {
+    rooms: [],
+    tenants: [],
+    readings: [],
+    invoices: [],
+    payments: [],
+    settings: {}
+  });
+}
+export async function hydrateState() {
+  if (isHydrating) return;
+  isHydrating = true;
+ console.log('hydrateState');
+  try {
+    // 1. Load từ IndexedDB (NHANH)
+    const dbState = await dbGet(KEY);
+    if (dbState) {
+       console.log('hydrateState - Loaded from IndexedDB');
+      memoryState = dbState;
+      window.dispatchEvent(new Event('boarding_state_updated'));
+    }
+
+    // 2. Load từ Server (SYNC NGẦM)
+    const serverState = await loadStateFromServer();
+
+    if (serverState && !isSameState(serverState, memoryState)) {
+        console.log('hydrateState - Loaded from Server');
+      memoryState = serverState;
+
+      await dbSet(KEY, serverState);
+
+      window.dispatchEvent(new Event('boarding_state_updated'));
+    }
+
+  } catch (e) {
+    console.error('hydrateState error', e);
   }
-  return applyDefaults(memoryState);
 }
 // Attempt to hydrate memoryState from IndexedDB on module load
 // Migration: if there is an existing localStorage copy, migrate it to IndexedDB once

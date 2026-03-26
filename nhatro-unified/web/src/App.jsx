@@ -19,7 +19,10 @@ export default function App(){
     return () => window.removeEventListener('boarding_state_updated', sync);
   }, []);
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{
+    v7_startTransition: true,
+    v7_relativeSplatPath: true,
+  }}>
       <div className="min-h-screen min-h-[100dvh] bg-slate-50 flex flex-col">
         <header className="sticky top-0 z-10 border-b bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/70">
           <div className="mx-auto max-w-7xl flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 sm:py-3 pt-[max(0.625rem,env(safe-area-inset-top))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))]">
@@ -68,7 +71,7 @@ export default function App(){
             </Routes>
           </div>
         </main>
-      </div>
+      </div> 
     </BrowserRouter>
   );
 }
