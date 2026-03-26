@@ -71,7 +71,8 @@ export default function App(){
             </Routes>
           </div>
         </main>
-      </div> 
+      </div>
+       <App />
     </BrowserRouter>
   );
 }
