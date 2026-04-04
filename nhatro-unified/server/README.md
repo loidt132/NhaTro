@@ -1,6 +1,6 @@
 # Nhatro-unified Server (JSON file)
 
-This server exposes `/api/state` and persists the app state as **`data/state.json`** (no native database drivers).
+This server exposes auth + `/api/state` and persists fallback state as per-user JSON files under **`data/states/`** when NocoDB is not used.
 
 ## Setup
 
@@ -16,8 +16,11 @@ On start, the console prints the absolute path to the state file.
 
 - GET /api/state  -> { state: { ... } }
 - POST /api/state -> { state: {...} }
+- POST /api/auth/register
+- POST /api/auth/login
+- GET /api/auth/me
 
-The frontend reads this endpoint on startup and POSTs on every `saveState`.
+The frontend reads this endpoint on startup and POSTs on every `saveState`. All three endpoints require login except register/login.
 
 ## Note
 
@@ -27,17 +30,33 @@ The frontend reads this endpoint on startup and POSTs on every `saveState`.
 
 ## NocoDB alternative
 
-You can use NocoDB instead of this server. Set env vars in `web/.env`:
+You can use NocoDB for multi-user app data and user accounts.
+
+Frontend env vars in `web/.env`:
 
 ```
 VITE_NOCODB_URL=https://your-nocodb-host
-VITE_NOCODB_PROJECT=your_project_name
-VITE_NOCODB_API_KEY=your_api_key (optional)
+VITE_NOCODB_API_KEY=your_api_key
+VITE_TABLE_ROOMS=...
+VITE_TABLE_TENANTS=...
+VITE_TABLE_READINGS=...
+VITE_TABLE_INVOICES=...
+VITE_TABLE_PAYMENTS=...
+VITE_TABLE_SETTINGS=...
 ```
 
-Create a table named `app_state` in NocoDB with columns:
+Server env vars:
 
-- `id` (Primary key)
-- `state` (Text)
+```
+NOCODB_URL=https://your-nocodb-host
+NOCODB_API_KEY=your_api_key
+NOCODB_TABLE_USERS=...
+AUTH_SECRET=change-this-secret
+```
+
+The server now also auto-loads `.env` from `server/`, repo root, and `web/`.
+It accepts fallback variable names `VITE_NOCODB_URL`, `VITE_NOCODB_API_KEY`, and `VITE_TABLE_USERS` for the auth users table.
+
+Use the schema in `server/nocodb-schema.sql`. Important rule: every business table must have `created_by` and `modified_by`, and the frontend only reads/writes rows where `created_by` equals the logged-in user's `id`.
 
 The app tries NocoDB first, then `/api/state` + IndexedDB.
