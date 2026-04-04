@@ -1,11 +1,15 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { TenantsReport, RoomsReport, PaymentsReport } from './reports';
 import Page from '../components/Page';
 import Footer from '../components/Footer';
+import { hydrateState } from '../utils/state';
 
 export default function ReportsHub(){
   const [tab, setTab] = useState('rooms');
+  useEffect(() => {
+    hydrateState({ tables: ['rooms', 'tenants', 'readings', 'invoices', 'payments', 'settings'] });
+  }, []);
   const Tab = ({ id, children }) => (
     <button onClick={()=>setTab(id)} className={'px-3 py-2 rounded ' + (tab===id? 'bg-emerald-600 text-white':'bg-slate-100')}>{children}</button>
   );

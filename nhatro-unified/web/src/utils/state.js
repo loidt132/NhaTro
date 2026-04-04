@@ -1,6 +1,6 @@
 
-const KEY = 'boarding_state_v1';
 import { dbGet, dbSet } from './db';
+import { getAuthSession, getStoredToken } from './auth';
 
 /** Trống = fetch `/api` cùng origin; dev: `VITE_API_ORIGIN` trong `.env.development`. */
 function apiUrl(path) {
@@ -10,17 +10,27 @@ function apiUrl(path) {
   return base ? `${base}${p}` : p;
 }
 
+function authHeaders() {
+  const token = getStoredToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function currentStateKey() {
+  const { userId } = getAuthSession();
+  return `boarding_state_v1:${userId || 'guest'}`;
+}
+
 // In-memory state snapshot (synchronous access for existing code paths)
 let memoryState = null;
+let activeStateKey = '';
 
 import { isNocoConfigured, loadStateFromNoco, saveStateToNoco } from './nocodb';
 
-async function loadStateFromServer() {
+async function loadStateFromServer(options = {}) {
+  const { tables = null } = options;
   if (isNocoConfigured()) {
     try {
-      console.log('loadStateFromNoco');
-      const state = await loadStateFromNoco();  
-      console.log('state', state);
+      const state = await loadStateFromNoco({ tables });
       if (state) return state;
     } catch (e) {
       // noco fails, fallback next
@@ -28,7 +38,7 @@ async function loadStateFromServer() {
   }
 
   try { 
-    const resp = await fetch(apiUrl('/api/state')); 
+    const resp = await fetch(apiUrl('/api/state'), { headers: authHeaders() }); 
     if (!resp.ok) return null;
     const json = await resp.json();
     if (json && json.state) return json.state;
@@ -54,7 +64,7 @@ async function saveStateToServer(state) {
   if (!saved) {
     try {
         console.log('save to backend state', state);
-      await fetch(apiUrl('/api/state'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state }) });
+      await fetch(apiUrl('/api/state'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ state }) });
       saved = true;
     } catch (e) {
       // server unavailable, ignore
@@ -73,6 +83,32 @@ function applyDefaults(s) {
     payments: s.payments || [],
     settings: s.settings||{ bankCode:'VCB', accountNo:'', accountName:'', qrNoteTemplate:'Tien phong {room} {month}', landlordName:'', landlordPhone:'', landlordAddress:'' }
   };
+}
+
+function mergeStateSlices(base, incoming, tables = null) {
+  if (!incoming) return applyDefaults(base || {});
+  if (!tables || tables.length === 0) {
+    return applyDefaults(incoming);
+  }
+
+  const next = applyDefaults(base || {});
+  tables.forEach((table) => {
+    if (table === 'settings') next.settings = incoming.settings || next.settings;
+    else if (table in next) next[table] = incoming[table] || [];
+  });
+  if (incoming.__meta) next.__meta = incoming.__meta;
+  return next;
+}
+
+function ensureSessionBoundary() {
+  const key = currentStateKey();
+  if (activeStateKey && activeStateKey !== key) {
+    memoryState = null;
+    isReady = false;
+    isHydrating = false;
+  }
+  activeStateKey = key;
+  return key;
 }
 
 // loadState remains synchronous for compatibility; it returns the in-
@@ -101,8 +137,14 @@ function isSameState(a, b) {
   if (!aLastModified || !bLastModified) return false;
   return aLastModified === bLastModified;
 }
+
+function hasStateChanged(nextState, prevState, tables = null) {
+  if (!prevState) return true;
+  if (!tables || tables.length === 0) return !isSameState(nextState, prevState);
+  return JSON.stringify(nextState) !== JSON.stringify(prevState);
+}
 export function loadState() {
-    console.log('loadState');
+  ensureSessionBoundary();
   return applyDefaults(memoryState || {
     rooms: [],
     tenants: [],
@@ -112,26 +154,35 @@ export function loadState() {
     settings: {}
   });
 }
-export async function hydrateState() {
+export function resetStateSession() {
+  activeStateKey = currentStateKey();
+  memoryState = null;
+  isReady = false;
+  isHydrating = false;
+  if (typeof window !== 'undefined' && window.dispatchEvent) {
+    try { window.dispatchEvent(new Event('boarding_state_updated')); } catch (e) {}
+  }
+}
+
+export async function hydrateState(options = {}) {
+  const { tables = null } = options;
   if (isHydrating) return;
+  const key = ensureSessionBoundary();
   isHydrating = true;
- console.log('hydrateState');
   try {
     // 1. Load từ IndexedDB (NHANH)
-    const dbState = await dbGet(KEY);
+    const dbState = await dbGet(key);
     if (dbState) {
-      console.log('hydrateState - Loaded from IndexedDB');
-      memoryState = dbState;
+      memoryState = mergeStateSlices(memoryState, dbState, tables);
       window.dispatchEvent(new Event('boarding_state_updated'));
     }
 
     // 2. Load từ Server (SYNC NGẦM)
-    const serverState = await loadStateFromServer();
-    console.log('serverState', serverState);
-    if (serverState && !isSameState(serverState, memoryState)) {
-      console.log('hydrateState - Loaded from Server');
-      memoryState = serverState;
-      await dbSet(KEY, serverState);
+    const serverState = await loadStateFromServer({ tables });
+    const nextState = mergeStateSlices(memoryState, serverState, tables);
+    if (serverState && hasStateChanged(nextState, memoryState, tables)) {
+      memoryState = nextState;
+      await dbSet(key, nextState);
       window.dispatchEvent(new Event('boarding_state_updated'));
     }
 
@@ -140,42 +191,10 @@ export async function hydrateState() {
 
   } catch (e) {
     console.error('hydrateState error', e);
+  } finally {
+    isHydrating = false;
   }
 }
-// Attempt to hydrate memoryState from IndexedDB on module load
-// Migration: if there is an existing localStorage copy, migrate it to IndexedDB once
-(async ()=>{
-  try{
-    // if(typeof localStorage !== 'undefined'){
-    //   const raw = localStorage.getItem(KEY);
-    //   if(raw){
-    //     try{
-    //       const parsed = JSON.parse(raw);
-    //       memoryState = parsed;
-    //       try{ await dbSet(KEY, parsed); }catch(e){}
-    //       try{ localStorage.removeItem(KEY); }catch(e){}
-    //       if(typeof window !== 'undefined' && window.dispatchEvent){ try{ window.dispatchEvent(new Event('boarding_state_updated')); }catch(e){} }
-    //       return;
-    //     }catch(e){ /* ignore parse errors */ }
-    //   }
-    // }
-
-    // try server copy first (non-blocking if endpoint absent)
-    const serverState = await loadStateFromServer();
-    if (serverState) {
-      memoryState = serverState;
-      try { await dbSet(KEY, serverState); } catch (e) {}
-      if(typeof window !== 'undefined' && window.dispatchEvent){ try{ window.dispatchEvent(new Event('boarding_state_updated')); }catch(e){} }
-      return;
-    }
-
-    const dbState = await dbGet(KEY);
-    if(dbState){
-      memoryState = dbState;
-      if(typeof window !== 'undefined' && window.dispatchEvent){ try{ window.dispatchEvent(new Event('boarding_state_updated')); }catch(e){} }
-    }
-  }catch(e){ /* ignore */ }
-})();
 function seed(){
   const uid = () => Math.random().toString(36).slice(2);
   const monthKey = (d=new Date())=>{ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); return `${y}-${m}`; };
@@ -188,12 +207,13 @@ function seed(){
 }
 export function saveState(next){ 
   try{
+    const key = ensureSessionBoundary();
     const withMeta = { ...next, __meta: { lastModified: new Date().toISOString() } };
     // update in-memory snapshot
     memoryState = withMeta;
     // async write to IndexedDB for persistence across sessions
     (async ()=>{
-      try{ await dbSet(KEY, withMeta); }catch(e){}
+      try{ await dbSet(key, withMeta); }catch(e){}
       try{ await saveStateToServer(withMeta); }catch(e){}
       // notify same-tab listeners that state changed (after DB write)
       if(typeof window !== 'undefined' && window.dispatchEvent){

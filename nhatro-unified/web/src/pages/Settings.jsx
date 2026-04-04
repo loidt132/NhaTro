@@ -1,6 +1,6 @@
 // src/pages/Settings.jsx
 import React, { useState, useEffect } from 'react';
-import { loadState, saveState } from '../utils/state';
+import { loadState, saveState, hydrateState } from '../utils/state';
 import Footer from '../components/Footer';
 import Page from '../components/Page';
 
@@ -14,6 +14,7 @@ export default function Settings() {
       setS(next.settings || {});
     };
     window.addEventListener('boarding_state_updated', handler);
+    hydrateState({ tables: ['settings'] });
     return () => window.removeEventListener('boarding_state_updated', handler);
   }, []);
 

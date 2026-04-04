@@ -1,6 +1,6 @@
 // src/pages/Payments.jsx
 import React, { useMemo, useState, useEffect } from 'react';
-import { loadState, saveState, currency, monthKey, calcTotals, uid } from '../utils/state';
+import { loadState, saveState, currency, monthKey, calcTotals, uid, hydrateState } from '../utils/state';
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
 import ViewSwitch from '../components/ViewSwitch';
@@ -14,12 +14,16 @@ const makeAddInfo = (inv, rooms, settings) => {
   return tpl.replaceAll('{room}', r?.name ?? '').replaceAll('{month}', inv.month);
 };
 
+const STATUS_UNPAID = 'Chưa thanh toán';
+const STATUS_PAID = 'Đã thanh toán';
+
 export default function Payments() {
   const [state, setState] = useState(loadState());
   // Keep in-sync with other parts of the app that call saveState()
   useEffect(() => {
     const handler = () => setState(loadState());
     window.addEventListener('boarding_state_updated', handler);
+    hydrateState({ tables: ['rooms', 'tenants', 'readings', 'invoices', 'payments', 'settings'] });
     return () => window.removeEventListener('boarding_state_updated', handler);
   }, []);
   const { invoices, rooms, tenants, settings, payments, readings } = state;
@@ -101,8 +105,8 @@ export default function Payments() {
       i.id === id
         ? {
             ...i,
-            status: i.status === 'Đã thanh toán' ? 'Còn nợ' : 'Đã thanh toán',
-            paidAt: i.status === 'Đã thanh toán' ? undefined : new Date().toISOString()
+            status: i.status === STATUS_PAID ? STATUS_UNPAID : STATUS_PAID,
+            paidAt: i.status === STATUS_PAID ? undefined : new Date().toISOString()
           }
         : i
     );
@@ -129,7 +133,7 @@ export default function Payments() {
       waterAmount: wUse * (room.waterRate ?? 0),
       other: 0,
       total: (room.baseRent ?? 0) + eUse * (room.electricRate ?? 0) + wUse * (room.waterRate ?? 0),
-      status: 'Còn nợ', createdAt: new Date().toISOString()
+      status: STATUS_UNPAID, createdAt: new Date().toISOString()
     };
     const s2 = { ...state, invoices: [inv, ...invoices] };
     setState(s2); saveState(s2);
@@ -149,7 +153,7 @@ export default function Payments() {
         { name: 'Nước',  spec: `${inv.waterEnd} m³ - ${inv?.waterStart} m³`,       qty: inv.waterUsage,   unitPrice: room?.waterRate ?? 0, amount: inv.waterAmount },
       ],
       total: inv.total,
-      paid: (inv.status === 'Đã thanh toán'),
+      paid: (inv.status === STATUS_PAID),
       paidDateLabel: inv.paidAt ? new Date(inv.paidAt).toLocaleDateString('vi-VN') : undefined,
       note
     };
@@ -215,11 +219,11 @@ export default function Payments() {
                     <td className="p-2 whitespace-nowrap">{currency(i.waterAmount)} <span className="text-slate-400">({i.waterUsage} m³)</span></td>
                     <td className="p-2 font-semibold whitespace-nowrap">{currency(i.total)}</td>
                     <td className="p-2">
-                      <span className={'rounded-full px-2 py-1 text-xs whitespace-nowrap ' + (i.status === 'Đã thanh toán' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700') }>{i.status}</span>
+                      <span className={'rounded-full px-2 py-1 text-xs whitespace-nowrap ' + (i.status === STATUS_PAID ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700') }>{i.status}</span>
                     </td>
                     <td className="p-2">
                       <div className="flex flex-wrap gap-1.5">
-                        <button type="button" onClick={() => togglePaid(i.id)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">{i.status === 'Đã thanh toán' ? 'Đánh dấu còn nợ' : 'Đánh dấu đã trả'}</button>
+                        <button type="button" onClick={() => togglePaid(i.id)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">{i.status === STATUS_PAID ? 'Đánh dấu chưa thanh toán' : 'Đánh dấu đã trả'}</button>
                         <button type="button" onClick={() => printPdf(i)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Xuất PDF</button>
                       </div>
                     </td>
@@ -256,8 +260,8 @@ export default function Payments() {
           );
         }
         const i = invoice;
-        const status = i.status ?? 'Còn nợ';
-        const badge = status === 'Đã thanh toán' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700';
+        const status = i.status ?? STATUS_UNPAID;
+        const badge = status === STATUS_PAID ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700';
         return (
           <div key={i.id} className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm flex flex-col gap-3 min-w-0">
             <div className="flex items-start justify-between gap-2 min-w-0">
@@ -273,7 +277,7 @@ export default function Payments() {
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between pt-1 border-t border-slate-100">
               <div className="text-lg font-semibold tabular-nums shrink-0">{currency(i.total)} đ</div>
               <div className="flex flex-col gap-2 w-full">
-                <button type="button" onClick={() => togglePaid(i.id)} className="w-full rounded-lg border px-3 py-2.5 sm:py-1.5 text-sm font-medium">{status === 'Đã thanh toán' ? 'Đánh dấu còn nợ' : 'Đánh dấu đã trả'}</button>
+                <button type="button" onClick={() => togglePaid(i.id)} className="w-full rounded-lg border px-3 py-2.5 sm:py-1.5 text-sm font-medium">{status === STATUS_PAID ? 'Đánh dấu chưa thanh toán' : 'Đánh dấu đã trả'}</button>
                 <button type="button" onClick={() => printPdf(i)} className="w-full rounded-lg border px-3 py-2.5 sm:py-1.5 text-sm font-medium">Xuất PDF</button>
               </div>
             </div>

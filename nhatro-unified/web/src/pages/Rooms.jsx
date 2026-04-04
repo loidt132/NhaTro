@@ -35,8 +35,12 @@ export default function Rooms(){
     // load ngay từ memory/cache
     setState(loadState());
 
-    // hydrate async (db + api)
-    hydrateState();
+    // Trang chủ chỉ cần rooms để vào nhanh hơn
+    let cancelled = false;
+    hydrateState({ tables: ['rooms'] }).finally(() => {
+      if (cancelled) return;
+      hydrateState({ tables: ['tenants', 'readings', 'invoices', 'payments', 'settings'] });
+    });
 
     const refresh = () => {
       const newState = loadState();
@@ -49,9 +53,13 @@ export default function Rooms(){
     };
 
     window.addEventListener('boarding_state_updated', refresh);
-    const readyHandler = () => setIsLoading(false);
+    const readyHandler = () => {
+      setState(loadState());
+      setIsLoading(false);
+    };
     window.addEventListener('boarding_state_ready', readyHandler);
     return () => {
+      cancelled = true;
       window.removeEventListener('boarding_state_updated', refresh);
       window.removeEventListener('boarding_state_ready', readyHandler);
     };
@@ -59,7 +67,7 @@ export default function Rooms(){
 
   const { rooms = [], tenants = [], readings = [], invoices = [], payments = [] } = state || {};
 
-  if (isLoading && rooms.length === 0) {
+  if (false && isLoading && rooms.length === 0) {
     return (
       <Page className="p-4 animate-pulse text-slate-400">
         Đang tải dữ liệu...
@@ -171,6 +179,16 @@ export default function Rooms(){
     return ss <= last && ee >= first;
   };
 
+  const activeTenantByRoom = useMemo(()=>{
+    const map = {};
+    (tenants||[]).forEach(t=>{
+      if(!t?.roomId || !isTenantActiveForMonth(t, month)) return;
+      if(!map[t.roomId]) map[t.roomId]=[];
+      map[t.roomId].push(t);
+    });
+    return map;
+  }, [tenants, month]);
+
   const tenantsActiveCount = useMemo(() => (tenants||[]).filter(t => isTenantActiveForMonth(t, month)).length, [tenants, month]);
 
   const invoicesForMonth = useMemo(() => (invoices||[]).filter(i => i.month === month).length, [invoices, month]);
@@ -183,7 +201,7 @@ export default function Rooms(){
     const base = (rooms || []).filter(r => {
       if (!q) return true;
       const nameHit = (r.name || '').toLowerCase().includes(q);
-      const tenantsForRoom = tenantByRoom[r.id] || [];
+      const tenantsForRoom = activeTenantByRoom[r.id] || [];
       const tenantHit = tenantsForRoom.some(t => {
         const tn = (t.name || '').toLowerCase();
         const tc = (t.cccd || '').toLowerCase();
@@ -193,19 +211,14 @@ export default function Rooms(){
       return nameHit || tenantHit;
     });
     return base.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  }, [rooms, query, tenantByRoom]);
+  }, [rooms, query, activeTenantByRoom]);
 
   // items for room table (used to display payments-style table on Rooms page)
   const roomItems = useMemo(() =>
     visibleRooms.map(room => {
       const inv = invoices.find(i=> i.roomId===room.id && i.month===month);
-      const occupants = tenantByRoom[room.id] || [];
-      const occActive = occupants.filter(t=>{
-        const s = (t.startDate||'').slice(0,10); const e = (t.endDate||'').slice(0,10);
-        const { first, last } = (function(ym){ const y=+ym.slice(0,4); const m=+ym.slice(5,7); const d=new Date(y,m,0).getDate(); return { first:`${ym}-01`, last:`${ym}-${String(d).padStart(2,'0')}` }; })(month);
-        const ss = s||'0000-01-01'; const ee = e||'9999-12-31'; return ss<= last && ee>= first;
-      });
-      const tenantId = room.primaryTenantId ?? occActive[0]?.id ?? occupants[0]?.id;
+      const occupants = activeTenantByRoom[room.id] || [];
+      const tenantId = room.primaryTenantId ?? occupants[0]?.id;
       const tenant = occupants.find(t=> t.id===tenantId);
       const reading = latestReadingOf(room.id, month);
       const eUse = Math.max(0, (reading?.electricEnd||0) - (reading?.electricStart||0));
@@ -215,12 +228,12 @@ export default function Rooms(){
       const totalDraft = (room.baseRent||0) + eAmt + wAmt;
       return { room, occupants, tenant, reading, invoice: inv, draft: { eUse, wUse, eAmt, wAmt, totalDraft } };
     })
-  , [visibleRooms, invoices, tenantByRoom, readings, month]);
+  , [visibleRooms, invoices, activeTenantByRoom, readings, month]);
 
   // readings are managed on the Meter page; Rooms shows room/payment info only
 
   const Card = ({ room })=>{
-    const occupants = tenantByRoom[room.id] || [];
+    const occupants = activeTenantByRoom[room.id] || [];
     const inv = invoices.find(i=> i.roomId===room.id && i.month===month);
     const status = inv?.status || 'Còn nợ';
     const badge = status==='Đã thanh toán' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700';
@@ -262,6 +275,14 @@ export default function Rooms(){
       </div>
     );
   };
+
+  if (isLoading && rooms.length === 0) {
+    return (
+      <Page className="p-4 animate-pulse text-slate-400">
+        Đang tải dữ liệu...
+      </Page>
+    );
+  }
 
   return (
     <Page className="space-y-4">

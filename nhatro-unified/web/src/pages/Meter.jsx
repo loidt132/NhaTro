@@ -1,6 +1,6 @@
 // src/pages/Meter.jsx
 import React, { useMemo, useState, useEffect } from 'react';
-import { loadState, saveState, monthKey, uid, calcTotals } from '../utils/state';
+import { loadState, saveState, monthKey, uid, calcTotals, hydrateState } from '../utils/state';
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
 import Footer from '../components/Footer';
@@ -11,6 +11,7 @@ export default function Meter() {
   useEffect(() => {
     const handler = () => setState(loadState());
     window.addEventListener('boarding_state_updated', handler);
+    hydrateState({ tables: ['rooms', 'tenants', 'readings', 'invoices', 'payments', 'settings'] });
     return () => window.removeEventListener('boarding_state_updated', handler);
   }, []);
   const { rooms, tenants, readings = [], invoices, payments, settings } = state;

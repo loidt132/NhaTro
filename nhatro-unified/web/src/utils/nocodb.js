@@ -1,5 +1,9 @@
+import { getAuthSession } from './auth';
+
 const BASE = (import.meta.env.VITE_NOCODB_URL || '').replace(/\/+$/, '');
 const TOKEN = import.meta.env.VITE_NOCODB_API_KEY || '';
+const CREATED_BY_FIELD = 'created_by';
+const MODIFIED_BY_FIELD = 'modified_by';
 
 const TABLES = {
   rooms: import.meta.env.VITE_TABLE_ROOMS,
@@ -18,9 +22,11 @@ const SYSTEM_COLUMNS = new Set([
   'updated_at',
   'CreatedAt',
   'UpdatedAt',
-  'ncRecordId',
   'createdBy',
   'updatedBy',
+  'ncRecordId',
+  CREATED_BY_FIELD,
+  MODIFIED_BY_FIELD,
 ]);
 const MAX_RETRIES = 4;
 const BASE_RETRY_MS = 800;
@@ -39,8 +45,20 @@ function tableUrl(tableKey, suffix = '') {
   return `${BASE}/api/v2/tables/${tableId}/records${suffix}`;
 }
 
+function currentUserId() {
+  return getAuthSession().userId || '';
+}
+
+function buildOwnedQuery(userId, extra = '') {
+  const owned = `where=${encodeURIComponent(`(${CREATED_BY_FIELD},eq,${userId})`)}`;
+  const suffix = extra ? `&${extra.replace(/^\?/, '').replace(/^&/, '')}` : '';
+  return `?${owned}${suffix ? suffix : ''}`;
+}
+
 function getRowId(row) {
-  return row?.Id ?? row?.ID ?? row?.id ?? null;
+  const candidate = row?.Id ?? row?.ID ?? null;
+  if (candidate === null || candidate === undefined || candidate === '') return null;
+  return candidate;
 }
 
 function stripSystemColumns(row = {}) {
@@ -50,6 +68,34 @@ function stripSystemColumns(row = {}) {
     clean[key] = value;
   }
   return clean;
+}
+
+function sanitizeWritablePayload(payload = {}) {
+  const clean = {};
+  for (const [key, value] of Object.entries(payload || {})) {
+    if (SYSTEM_COLUMNS.has(key)) continue;
+    if (key === 'status') {
+      if (value === 'Còn nợ') clean[key] = 'Chưa thanh toán';
+      else clean[key] = value;
+      continue;
+    }
+    clean[key] = value;
+  }
+  return clean;
+}
+
+function sanitizeUpdatePayload(payload = {}) {
+  const clean = sanitizeWritablePayload(payload);
+  delete clean.id;
+  return clean;
+}
+
+function withOwnership(record, userId, isUpdate = false) {
+  return {
+    ...sanitizeWritablePayload(record),
+    ...(isUpdate ? {} : { [CREATED_BY_FIELD]: userId }),
+    [MODIFIED_BY_FIELD]: userId,
+  };
 }
 
 function extractLegacyState(row) {
@@ -78,17 +124,18 @@ function normalizeSettingsRow(row) {
   return stripSystemColumns(row);
 }
 
-function buildSettingsPayload(existingRow, settings = {}, meta = {}) {
+function buildSettingsPayload(existingRow, settings = {}, meta = {}, userId) {
+  const baseId = existingRow?.id || `settings:${userId}`;
   if (existingRow?.state != null) {
-    return { state: JSON.stringify({ settings, __meta: meta }) };
+    return withOwnership({ id: baseId, state: JSON.stringify({ settings, __meta: meta }) }, userId, Boolean(existingRow));
   }
   if (existingRow?.value != null) {
-    return { value: JSON.stringify({ settings, __meta: meta }) };
+    return withOwnership({ id: baseId, value: JSON.stringify({ settings, __meta: meta }) }, userId, Boolean(existingRow));
   }
   if (existingRow?.data != null) {
-    return { data: JSON.stringify({ settings, __meta: meta }) };
+    return withOwnership({ id: baseId, data: JSON.stringify({ settings, __meta: meta }) }, userId, Boolean(existingRow));
   }
-  return { ...settings };
+  return withOwnership({ id: baseId, ...settings }, userId, Boolean(existingRow));
 }
 
 function sleep(ms) {
@@ -130,6 +177,29 @@ async function fetchJson(url, options = {}) {
   throw new Error('NocoDB request retry exhausted');
 }
 
+async function fetchJsonWithStatus(url, options = {}) {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+    const res = await fetch(url, { headers: headers(), ...options });
+    if (res.status === 429 && attempt < MAX_RETRIES) {
+      const waitMs = getRetryDelay(res, attempt);
+      console.warn('NocoDB rate limited, retrying:', url, waitMs);
+      await sleep(waitMs);
+      continue;
+    }
+
+    const contentType = res.headers.get('content-type') || '';
+    const data = res.status === 204
+      ? null
+      : contentType.includes('application/json')
+        ? await res.json()
+        : await res.text();
+
+    return { ok: res.ok, status: res.status, data };
+  }
+
+  throw new Error('NocoDB request retry exhausted');
+}
+
 async function fetchTableRows(tableKey, query = '') {
   const data = await fetchJson(tableUrl(tableKey, query));
   return data?.list || [];
@@ -144,10 +214,24 @@ async function createRow(tableKey, payload) {
 }
 
 async function updateRow(tableKey, rowId, payload) {
-  await fetchJson(tableUrl(tableKey, `/${rowId}`), {
+  if (rowId === null || rowId === undefined || rowId === '') {
+    throw new Error(`Missing NocoDB row Id for ${tableKey}. Enable the system "Id" column in the API response before updating existing rows.`);
+  }
+
+  const fields = sanitizeUpdatePayload(payload);
+  const bulkPayload = Array.isArray(payload)
+    ? payload.map((item) => ({ ...sanitizeUpdatePayload(item), Id: rowId }))
+    : [{ ...fields, Id: rowId }];
+
+  const bulk = await fetchJsonWithStatus(tableUrl(tableKey), {
     method: 'PATCH',
-    body: JSON.stringify(payload),
+    body: JSON.stringify(bulkPayload),
   });
+  if (!bulk.ok) {
+    console.error('NocoDB bulk update failed:', tableUrl(tableKey), bulk.status, bulk.data);
+    throw new Error(`NocoDB request failed: ${bulk.status}`);
+  }
+
   await sleep(WRITE_GAP_MS);
 }
 
@@ -170,13 +254,18 @@ function isSamePayload(a, b) {
   return stableStringify(a) === stableStringify(b);
 }
 
-async function syncCollectionTable(tableKey, records = []) {
-  const existingRows = await fetchTableRows(tableKey, '?limit=1000');
+async function syncCollectionTable(tableKey, records = [], userId) {
+  const existingRows = await fetchTableRows(tableKey, buildOwnedQuery(userId, 'limit=1000'));
   const existingByAppId = new Map();
 
   existingRows.forEach((row) => {
     const clean = stripSystemColumns(row);
-    if (clean?.id) existingByAppId.set(clean.id, { rowId: getRowId(row), data: clean });
+    if (clean?.id) {
+      existingByAppId.set(clean.id, {
+        rowId: getRowId(row),
+        data: clean,
+      });
+    }
   });
 
   const nextIds = new Set();
@@ -185,13 +274,14 @@ async function syncCollectionTable(tableKey, records = []) {
     nextIds.add(record.id);
 
     const existing = existingByAppId.get(record.id);
+    const ownedRecord = withOwnership(record, userId, Boolean(existing));
     if (!existing) {
-      await createRow(tableKey, record);
+      await createRow(tableKey, ownedRecord);
       continue;
     }
 
     if (!isSamePayload(existing.data, record)) {
-      await updateRow(tableKey, existing.rowId, record);
+      await updateRow(tableKey, existing.rowId, ownedRecord);
     }
   }
 
@@ -204,10 +294,10 @@ async function syncCollectionTable(tableKey, records = []) {
   }
 }
 
-async function saveSettingsRow(settings = {}, meta = {}) {
-  const rows = await fetchTableRows('settings', '?limit=1000');
+async function saveSettingsRow(settings = {}, meta = {}, userId) {
+  const rows = await fetchTableRows('settings', buildOwnedQuery(userId, 'limit=1000'));
   const row = rows[0];
-  const payload = buildSettingsPayload(row, settings, meta);
+  const payload = buildSettingsPayload(row, settings, meta, userId);
   const currentSettings = row ? normalizeSettingsRow(row) : null;
   const isLegacyRow = Boolean(row?.state != null || row?.value != null || row?.data != null);
 
@@ -229,19 +319,32 @@ export function isNocoConfigured() {
   return Boolean(BASE && TOKEN);
 }
 
-export async function loadStateFromNoco() {
+export async function loadStateFromNoco(options = {}) {
+  const { tables = null } = options;
   if (!isNocoConfigured()) return null;
 
+  const userId = currentUserId();
+  if (!userId) return null;
+
   try {
-    const settingsRows = await fetchTableRows('settings', '?limit=1000');
+    const wantedTables = tables && tables.length ? tables : [...DATA_TABLE_KEYS, 'settings'];
+    const settingsRows = wantedTables.includes('settings')
+      ? await fetchTableRows('settings', buildOwnedQuery(userId, 'limit=1000'))
+      : [];
     const legacyState = settingsRows.map(extractLegacyState).find(Boolean);
     if (legacyState?.rooms && legacyState?.tenants && legacyState?.payments) {
-      return legacyState;
+      if (!tables || tables.length === 0) return legacyState;
+      const partial = {};
+      tables.forEach((table) => {
+        partial[table] = legacyState[table];
+      });
+      partial.__meta = legacyState.__meta;
+      return partial;
     }
 
     const tableData = {};
-    for (const key of DATA_TABLE_KEYS) {
-      tableData[key] = await fetchTableRows(key, '?limit=1000');
+    for (const key of DATA_TABLE_KEYS.filter((table) => wantedTables.includes(table))) {
+      tableData[key] = await fetchTableRows(key, buildOwnedQuery(userId, 'limit=1000'));
       await sleep(WRITE_GAP_MS);
     }
 
@@ -250,15 +353,15 @@ export async function loadStateFromNoco() {
     const cleanSettings = { ...settings };
     delete cleanSettings.__meta;
 
-    return {
-      rooms: tableData.rooms.map(stripSystemColumns),
-      tenants: tableData.tenants.map(stripSystemColumns),
-      readings: tableData.readings.map(stripSystemColumns),
-      invoices: tableData.invoices.map(stripSystemColumns),
-      payments: tableData.payments.map(stripSystemColumns),
-      settings: cleanSettings,
-      __meta: meta,
-    };
+    const result = { __meta: meta };
+    for (const table of wantedTables) {
+      if (table === 'settings') {
+        result.settings = cleanSettings;
+        continue;
+      }
+      result[table] = (tableData[table] || []).map(stripSystemColumns);
+    }
+    return result;
   } catch (error) {
     console.error('loadStateFromNoco error', error);
     return null;
@@ -268,11 +371,14 @@ export async function loadStateFromNoco() {
 export async function saveStateToNoco(state) {
   if (!isNocoConfigured()) return false;
 
+  const userId = currentUserId();
+  if (!userId) return false;
+
   try {
     for (const key of DATA_TABLE_KEYS) {
-      await syncCollectionTable(key, state[key] || []);
+      await syncCollectionTable(key, state[key] || [], userId);
     }
-    await saveSettingsRow(state.settings || {}, state.__meta || {});
+    await saveSettingsRow(state.settings || {}, state.__meta || {}, userId);
     return true;
   } catch (error) {
     console.error('saveStateToNoco error', error);
@@ -281,10 +387,10 @@ export async function saveStateToNoco(state) {
 }
 
 export const api = {
-  getRooms: () => fetchTableRows('rooms', '?limit=1000'),
-  getTenants: () => fetchTableRows('tenants', '?limit=1000'),
-  getReadings: () => fetchTableRows('readings', '?limit=1000'),
-  getInvoices: () => fetchTableRows('invoices', '?limit=1000'),
-  getPayments: () => fetchTableRows('payments', '?limit=1000'),
-  getSettings: () => fetchTableRows('settings', '?limit=1000'),
+  getRooms: () => fetchTableRows('rooms', buildOwnedQuery(currentUserId(), 'limit=1000')),
+  getTenants: () => fetchTableRows('tenants', buildOwnedQuery(currentUserId(), 'limit=1000')),
+  getReadings: () => fetchTableRows('readings', buildOwnedQuery(currentUserId(), 'limit=1000')),
+  getInvoices: () => fetchTableRows('invoices', buildOwnedQuery(currentUserId(), 'limit=1000')),
+  getPayments: () => fetchTableRows('payments', buildOwnedQuery(currentUserId(), 'limit=1000')),
+  getSettings: () => fetchTableRows('settings', buildOwnedQuery(currentUserId(), 'limit=1000')),
 };
