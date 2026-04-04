@@ -6,27 +6,66 @@ import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
 import ViewSwitch from '../components/ViewSwitch';
 import Page from '../components/Page';
-import { loadState, saveState, monthKey, currency, uid, calcTotals } from '../utils/state';
+import { loadState, hydrateState, saveState, monthKey, currency, uid, calcTotals } from '../utils/state';
 import Footer from '../components/Footer';
 
 export default function Rooms(){
    
   //const [state, setState] = useState(null);
+  // const [state, setState] = useState(() => loadState());
+  // useEffect(() => {
+  //   const refresh = () => {
+  //     const newState = loadState();
+  //     setState(newState); // React tự tối ưu nếu state không đổi
+  //   };
+  
+  //   window.addEventListener('boarding_state_updated', refresh);
+  //   return () => window.removeEventListener('boarding_state_updated', refresh);
+  // }, []);
+  
   const [state, setState] = useState(() => loadState());
+  const [isLoading, setIsLoading] = useState(true);
+  const [month, setMonth] = useState(monthKey());
+  const [query, setQuery] = useState('');
+  const [roomModal, setRoomModal] = useState({ open:false, mode:'create', roomId:null, form:{ name:'', baseRent:2500000, electricRate:3500, waterRate:12000 } });
+  const [tenantModal, setTenantModal] = useState({ open:false, roomId:null, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' } });
+  const [view, setView] = useState('cards'); // 'table' or 'cards'
+
   useEffect(() => {
+    // load ngay từ memory/cache
+    setState(loadState());
+
+    // hydrate async (db + api)
+    hydrateState();
+
     const refresh = () => {
       const newState = loadState();
-      setState(newState); // React tự tối ưu nếu state không đổi
+      setState(prev => {
+        // tránh re-render nếu không đổi
+        if (JSON.stringify(prev) === JSON.stringify(newState)) return prev;
+        return newState;
+      });
+      setIsLoading(false);
     };
-  
+
     window.addEventListener('boarding_state_updated', refresh);
-    return () => window.removeEventListener('boarding_state_updated', refresh);
+    const readyHandler = () => setIsLoading(false);
+    window.addEventListener('boarding_state_ready', readyHandler);
+    return () => {
+      window.removeEventListener('boarding_state_updated', refresh);
+      window.removeEventListener('boarding_state_ready', readyHandler);
+    };
   }, []);
 
-  const [month, setMonth] = useState(monthKey());
-  const { rooms, tenants, readings, invoices, payments } = state;
-  const [query, setQuery] = useState('');
+  const { rooms = [], tenants = [], readings = [], invoices = [], payments = [] } = state || {};
 
+  if (isLoading && rooms.length === 0) {
+    return (
+      <Page className="p-4 animate-pulse text-slate-400">
+        Đang tải dữ liệu...
+      </Page>
+    );
+  }
  
   
   // ===== Derived =====
@@ -43,7 +82,6 @@ export default function Rooms(){
   };
 
   // ===== Room CRUD =====
-  const [roomModal, setRoomModal] = useState({ open:false, mode:'create', roomId:null, form:{ name:'', baseRent:2500000, electricRate:3500, waterRate:12000 } });
   const openCreateRoom = ()=> setRoomModal({ open:true, mode:'create', roomId:null, form:{ name:'', baseRent:2500000, electricRate:3500, waterRate:12000 }});
   const openEditRoom = (r)=> setRoomModal({ open:true, mode:'edit', roomId:r.id, form:{ name:r.name, baseRent:r.baseRent, electricRate:r.electricRate, waterRate:r.waterRate }});
   const saveRoom = (e)=>{
@@ -77,7 +115,6 @@ export default function Rooms(){
   };
 
   // ===== Tenant CRUD (multi-tenant per room) =====
-  const [tenantModal, setTenantModal] = useState({ open:false, roomId:null, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' } });
   const openTenantManager = (roomId)=> setTenantModal({ open:true, roomId, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' } });
 
   const submitTenant = (e)=>{
@@ -117,7 +154,6 @@ export default function Rooms(){
 
   // ===== Render helpers =====
   const { sumPaid, sumDebt } = calcTotals(invoices, payments, month);
-  const [view, setView] = useState('cards'); // 'table' or 'cards'
 
   // compute month-scoped top stats: rooms occupied in month, tenants active in month, invoices for month, unpaid for month
   const getMonthBounds = (ym) => {

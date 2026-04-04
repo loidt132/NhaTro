@@ -9,13 +9,17 @@ import { hydrateState } from './utils/state';
 //ReactDOM.createRoot(document.getElementById('root')).render(<React.StrictMode><App/></React.StrictMode>);
 
 async function bootstrap() {
-  await hydrateState(); // ✅ hợp lệ
+  const root = ReactDOM.createRoot(document.getElementById('root'));
 
-  ReactDOM.createRoot(document.getElementById('root')).render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>
-  );
+  root.render(<div className="skeleton-card" />); // splash
+
+  hydrateState().then(() => {
+    root.render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>
+    );
+  });
 }
 
 bootstrap();

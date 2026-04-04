@@ -43,6 +43,7 @@ async function saveStateToServer(state) {
 
   if (isNocoConfigured()) {
     try {
+        console.log('save to nocodb', state);
       await saveStateToNoco(state);
       saved = true;
     } catch (e) {
@@ -52,6 +53,7 @@ async function saveStateToServer(state) {
 
   if (!saved) {
     try {
+        console.log('save to backend state', state);
       await fetch(apiUrl('/api/state'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state }) });
       saved = true;
     } catch (e) {
@@ -94,8 +96,10 @@ let isHydrating = false;
 
 // So sánh state để tránh render lại vô ích
 function isSameState(a, b) {
-  return a?.__meta?.lastModified === b?.__meta?.lastModified;
-  //return JSON.stringify(a) === JSON.stringify(b);
+  const aLastModified = a?.__meta?.lastModified;
+  const bLastModified = b?.__meta?.lastModified;
+  if (!aLastModified || !bLastModified) return false;
+  return aLastModified === bLastModified;
 }
 export function loadState() {
     console.log('loadState');
@@ -123,13 +127,11 @@ export async function hydrateState() {
 
     // 2. Load từ Server (SYNC NGẦM)
     const serverState = await loadStateFromServer();
-
+    console.log('serverState', serverState);
     if (serverState && !isSameState(serverState, memoryState)) {
       console.log('hydrateState - Loaded from Server');
       memoryState = serverState;
-
       await dbSet(KEY, serverState);
-
       window.dispatchEvent(new Event('boarding_state_updated'));
     }
 
@@ -144,19 +146,19 @@ export async function hydrateState() {
 // Migration: if there is an existing localStorage copy, migrate it to IndexedDB once
 (async ()=>{
   try{
-    if(typeof localStorage !== 'undefined'){
-      const raw = localStorage.getItem(KEY);
-      if(raw){
-        try{
-          const parsed = JSON.parse(raw);
-          memoryState = parsed;
-          try{ await dbSet(KEY, parsed); }catch(e){}
-          try{ localStorage.removeItem(KEY); }catch(e){}
-          if(typeof window !== 'undefined' && window.dispatchEvent){ try{ window.dispatchEvent(new Event('boarding_state_updated')); }catch(e){} }
-          return;
-        }catch(e){ /* ignore parse errors */ }
-      }
-    }
+    // if(typeof localStorage !== 'undefined'){
+    //   const raw = localStorage.getItem(KEY);
+    //   if(raw){
+    //     try{
+    //       const parsed = JSON.parse(raw);
+    //       memoryState = parsed;
+    //       try{ await dbSet(KEY, parsed); }catch(e){}
+    //       try{ localStorage.removeItem(KEY); }catch(e){}
+    //       if(typeof window !== 'undefined' && window.dispatchEvent){ try{ window.dispatchEvent(new Event('boarding_state_updated')); }catch(e){} }
+    //       return;
+    //     }catch(e){ /* ignore parse errors */ }
+    //   }
+    // }
 
     // try server copy first (non-blocking if endpoint absent)
     const serverState = await loadStateFromServer();
