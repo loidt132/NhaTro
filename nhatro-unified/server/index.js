@@ -434,8 +434,12 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
 });
 
 const port = process.env.PORT || 4000;
-app.listen(port, () => {
-  console.log(`Nhatro unified server running on http://localhost:${port}`);
-  console.log(`State dir: ${statesDir}`);
-  console.log(`Auth user storage: ${isNocoUsersConfigured() ? `NocoDB table ${NOCODB_TABLE_USERS}` : `JSON file ${usersPath}`}`);
-});
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`Nhatro unified server running on http://localhost:${port}`);
+    console.log(`State dir: ${statesDir}`);
+    console.log(`Auth user storage: ${isNocoUsersConfigured() ? `NocoDB table ${NOCODB_TABLE_USERS}` : `JSON file ${usersPath}`}`);
+  });
+}
+
+module.exports = app;

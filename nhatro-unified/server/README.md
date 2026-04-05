@@ -10,6 +10,25 @@ npm install
 npm start
 ```
 
+## Vercel Deploy
+
+If you deploy the backend on Vercel, set the project root to `server/`.
+This repo now exposes a Vercel serverless catch-all entry at `server/api/[...all].js`, so these routes work on Vercel:
+
+- `/api/auth/register`
+- `/api/auth/login`
+- `/api/auth/me`
+- `/api/state`
+
+Required Vercel env vars for the `server` project:
+
+```
+AUTH_SECRET=change-this-secret
+NOCODB_URL=https://app.nocodb.com
+NOCODB_API_KEY=...
+NOCODB_TABLE_USERS=...
+```
+
 On start, the console prints the absolute path to the state file.
 
 ## Endpoints
