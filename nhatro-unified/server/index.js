@@ -166,25 +166,26 @@ function mergedUserPayload(user) {
 
 async function nocoCreateUser(user) {
   const variants = [
-    mergedUserPayload(user),
-    compactUserPayload(user),
-    snakeUserPayload(user),
-    camelUserPayload(user),
+    { name: 'merged', payload: mergedUserPayload(user) },
+    { name: 'compact', payload: compactUserPayload(user) },
+    { name: 'snake', payload: snakeUserPayload(user) },
+    { name: 'camel', payload: camelUserPayload(user) },
   ];
 
   let lastError = null;
-  for (const payload of variants) {
+  for (const variant of variants) {
     const response = await fetch(usersTableUrl(), {
       method: 'POST',
       headers: userHeaders(),
-      body: JSON.stringify(payload),
+      body: JSON.stringify(variant.payload),
     });
     if (response.ok) {
       return response.json();
     }
 
     const text = await response.text();
-    lastError = `Noco create user failed: ${response.status} ${text}`;
+    lastError = `Noco create user failed [${variant.name}] fields=${Object.keys(variant.payload).join(',')} status=${response.status} body=${text}`;
+    console.error(lastError);
     if (![400, 422].includes(response.status)) {
       break;
     }

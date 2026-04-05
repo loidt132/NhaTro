@@ -106,32 +106,83 @@ export async function loadUsers() {
 }
 
 export async function createUser(user) {
-  const payload = {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    phone: user.phone,
-    passwordhash: user.passwordHash,
-    passwordsalt: user.passwordSalt,
-    passwordHash: user.passwordHash,
-    passwordSalt: user.passwordSalt,
-    password_hash: user.passwordHash,
-    password_salt: user.passwordSalt,
-    createdat: user.createdAt,
-    createdAt: user.createdAt,
-    created_at: user.createdAt,
-  };
+  const variants = [
+    {
+      name: 'merged',
+      payload: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        passwordhash: user.passwordHash,
+        passwordsalt: user.passwordSalt,
+        passwordHash: user.passwordHash,
+        passwordSalt: user.passwordSalt,
+        password_hash: user.passwordHash,
+        password_salt: user.passwordSalt,
+        createdat: user.createdAt,
+        createdAt: user.createdAt,
+        created_at: user.createdAt,
+      },
+    },
+    {
+      name: 'compact',
+      payload: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        passwordhash: user.passwordHash,
+        passwordsalt: user.passwordSalt,
+        createdat: user.createdAt,
+      },
+    },
+    {
+      name: 'camel',
+      payload: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        passwordHash: user.passwordHash,
+        passwordSalt: user.passwordSalt,
+        createdAt: user.createdAt,
+      },
+    },
+    {
+      name: 'snake',
+      payload: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        password_hash: user.passwordHash,
+        password_salt: user.passwordSalt,
+        created_at: user.createdAt,
+      },
+    },
+  ];
 
-  const response = await fetch(usersTableUrl(), {
-    method: 'POST',
-    headers: userHeaders(),
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
+  let lastError = null;
+  for (const variant of variants) {
+    const response = await fetch(usersTableUrl(), {
+      method: 'POST',
+      headers: userHeaders(),
+      body: JSON.stringify(variant.payload),
+    });
+    if (response.ok) {
+      return response.json();
+    }
+
     const text = await response.text();
-    throw new Error(`Noco create user failed: ${response.status} ${text}`);
+    lastError = `Noco create user failed [${variant.name}] fields=${Object.keys(variant.payload).join(',')} status=${response.status} body=${text}`;
+    console.error(lastError);
+    if (![400, 422].includes(response.status)) {
+      break;
+    }
   }
-  return response.json();
+
+  throw new Error(lastError || 'Noco create user failed');
 }
 
 export function findUserByIdentifier(users, identifier) {
