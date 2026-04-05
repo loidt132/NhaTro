@@ -6,8 +6,8 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        //target: 'https://loidt132-nhatro.vercel.app',
-        target: 'http://localhost:4000/',
+        target: 'https://loidt132-nhatro.vercel.app',
+        //target: 'http://localhost:4000/',
         changeOrigin: true,
         secure: true
       }

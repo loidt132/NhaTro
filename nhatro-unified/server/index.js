@@ -17,6 +17,8 @@ function loadEnvFile(filePath) {
       let value = trimmed.slice(eqIndex + 1).trim();
       if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
         value = value.slice(1, -1);
+      } else {
+        value = value.replace(/\s+#.*$/, '').trim();
       }
       process.env[key] = value;
     });
@@ -30,10 +32,16 @@ function loadEnvFile(filePath) {
 [
   path.join(__dirname, '.env'),
   path.join(__dirname, '.env.local'),
+  path.join(__dirname, '.env.development'),
+  path.join(__dirname, '.env.production'),
   path.join(__dirname, '..', '.env'),
   path.join(__dirname, '..', '.env.local'),
+  path.join(__dirname, '..', '.env.development'),
+  path.join(__dirname, '..', '.env.production'),
   path.join(__dirname, '..', 'web', '.env'),
   path.join(__dirname, '..', 'web', '.env.local'),
+  path.join(__dirname, '..', 'web', '.env.development'),
+  path.join(__dirname, '..', 'web', '.env.production'),
 ].forEach(loadEnvFile);
 
 const app = express();
@@ -102,17 +110,87 @@ async function nocoFetchUsers(query = '') {
   return data.list || [];
 }
 
+function compactUserPayload(user) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    passwordhash: user.passwordHash,
+    passwordsalt: user.passwordSalt,
+    createdat: user.createdAt,
+  };
+}
+
+function snakeUserPayload(user) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    password_hash: user.passwordHash,
+    password_salt: user.passwordSalt,
+    created_at: user.createdAt,
+  };
+}
+
+function camelUserPayload(user) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    passwordHash: user.passwordHash,
+    passwordSalt: user.passwordSalt,
+    createdAt: user.createdAt,
+  };
+}
+
+function mergedUserPayload(user) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    passwordhash: user.passwordHash,
+    passwordsalt: user.passwordSalt,
+    passwordHash: user.passwordHash,
+    passwordSalt: user.passwordSalt,
+    password_hash: user.passwordHash,
+    password_salt: user.passwordSalt,
+    createdat: user.createdAt,
+    createdAt: user.createdAt,
+    created_at: user.createdAt,
+  };
+}
+
 async function nocoCreateUser(user) {
-  const response = await fetch(usersTableUrl(), {
-    method: 'POST',
-    headers: userHeaders(),
-    body: JSON.stringify(user),
-  });
-  if (!response.ok) {
+  const variants = [
+    mergedUserPayload(user),
+    compactUserPayload(user),
+    snakeUserPayload(user),
+    camelUserPayload(user),
+  ];
+
+  let lastError = null;
+  for (const payload of variants) {
+    const response = await fetch(usersTableUrl(), {
+      method: 'POST',
+      headers: userHeaders(),
+      body: JSON.stringify(payload),
+    });
+    if (response.ok) {
+      return response.json();
+    }
+
     const text = await response.text();
-    throw new Error(`Noco create user failed: ${response.status} ${text}`);
+    lastError = `Noco create user failed: ${response.status} ${text}`;
+    if (![400, 422].includes(response.status)) {
+      break;
+    }
   }
-  return response.json();
+
+  throw new Error(lastError || 'Noco create user failed');
 }
 
 function toAppUser(row) {
@@ -122,9 +200,9 @@ function toAppUser(row) {
     name: row.name || '',
     email: row.email || '',
     phone: row.phone || '',
-    passwordHash: row.password_hash || row.passwordHash || '',
-    passwordSalt: row.password_salt || row.passwordSalt || '',
-    createdAt: row.created_at || row.createdAt || '',
+    passwordHash: row.password_hash || row.passwordHash || row.passwordhash || '',
+    passwordSalt: row.password_salt || row.passwordSalt || row.passwordsalt || '',
+    createdAt: row.created_at || row.createdAt || row.createdat || '',
   };
 }
 
@@ -314,15 +392,7 @@ app.post('/api/auth/register', async (req, res) => {
     };
 
     if (isNocoUsersConfigured()) {
-      await nocoCreateUser({
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        password_hash: user.passwordHash,
-        password_salt: user.passwordSalt,
-        created_at: user.createdAt,
-      });
+      await nocoCreateUser(user);
     } else {
       users.push(user);
       await saveUsers(users);

@@ -59,4 +59,13 @@ It accepts fallback variable names `VITE_NOCODB_URL`, `VITE_NOCODB_API_KEY`, and
 
 Use the schema in `server/nocodb-schema.sql`. Important rule: every business table must have `created_by` and `modified_by`, and the frontend only reads/writes rows where `created_by` equals the logged-in user's `id`.
 
+For the `users` table, passwords are not stored as plain text.
+The server stores:
+
+- `password_hash`
+- `password_salt`
+
+If you do not see these fields in NocoDB, your `users` table schema does not match the server auth schema yet.
+The backend also accepts the variants `passwordhash` / `passwordsalt` and `createdat` for existing NocoDB tables.
+
 The app tries NocoDB first, then `/api/state` + IndexedDB.
