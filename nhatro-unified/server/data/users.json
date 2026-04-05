@@ -7,32 +7,5 @@
     "passwordHash": "12b32e5ea321ea0ae412630815c708a6d3975197c33068b92ab7f4206efcc8150511b55e4fb223b8fbc4853d19a33fe3f2d0d75d75529197dad98ec04bf4ddf5",
     "passwordSalt": "bfff1b2bb34ff8fdb9e1b35d9ab433e8",
     "createdAt": "2026-04-04T16:56:03.701Z"
-  },
-  {
-    "id": "3dbd9a2c-cfeb-42b9-bfc5-e6895f5c5ad2",
-    "name": "Duong",
-    "email": "tienloi2008@gmail.com",
-    "phone": "",
-    "passwordHash": "733d9c53d3cb859a434c81613ccf80b3e6428a2825c80c6bec885b4adc34ca3a228977fa654ca658de8414c768cc757f18fb3ed1d39d8ee59790d8a7319e4efc",
-    "passwordSalt": "cc1a942bc3d3735ca48112a8cd4d38e8",
-    "createdAt": "2026-04-04T18:19:58.038Z"
-  },
-  {
-    "id": "e88fe00e-b0d0-47f1-a1c0-d2e487bc282c",
-    "name": "tienloi2009@gmail.com",
-    "email": "tienloi2009@gmail.com",
-    "phone": "",
-    "passwordHash": "d93f9df4b5f0d814dc9d7ce445e9a10797217fb5f7b55b98903348bcd618840541fbe970cf81cb999b135a2a0490832c4241cdaf04df24230e67577d34dd5329",
-    "passwordSalt": "e44a2f8afa57f85f6b6d0827ec6935c3",
-    "createdAt": "2026-04-04T18:54:37.562Z"
-  },
-  {
-    "id": "d723ccec-492f-48ee-915a-c4d2d5cbbe10",
-    "name": "tienloi2010@gmail.com",
-    "email": "tienloi2010@gmail.com",
-    "phone": "",
-    "passwordHash": "362423cce5150d9e4ab45da7b0366b2e857a4c68e0b5901dc4727350eff5f6ce181267cac557ce044c10a7761dd0bd1433cc36ee731a9d1ed5a4a3bd0d8efcc1",
-    "passwordSalt": "f789f8bdd17e2c3ec16068b5d574f7cb",
-    "createdAt": "2026-04-05T12:27:27.015Z"
   }
 ]
