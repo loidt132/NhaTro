@@ -11,23 +11,24 @@ function authHeaders(token) {
 }
 
 async function request(path, options = {}) {
-  const res = await fetch(apiUrl(path), {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
-
-  const contentType = res.headers.get('content-type') || '';
-  const data = contentType.includes('application/json') ? await res.json() : null;
-
-  if (!res.ok) {
-    throw new Error(data?.error || 'Yêu cầu thất bại');
-  }
-
-  return data;
+  const res = await fetch(apiUrl(path), {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+ 
+  const contentType = res.headers.get('content-type') || '';
+  const data = contentType.includes('application/json') ? await res.json() : null;
+ 
+  if (!res.ok) {
+    throw new Error(data?.error || 'Yêu cầu thất bại');
+  }
+ 
+  return data;
 }
+  
 
 export function getStoredToken() {
   try {
