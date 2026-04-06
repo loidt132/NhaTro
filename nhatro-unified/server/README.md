@@ -73,6 +73,13 @@ NOCODB_TABLE_USERS=...
 AUTH_SECRET=change-this-secret
 ```
 
+Storage rule:
+
+- Có `NOCODB_URL` hoặc `VITE_NOCODB_URL`: backend auth đọc/ghi user trên NocoDB
+- Không có `NOCODB_URL`/`VITE_NOCODB_URL`: backend auth dùng `server/data/users.json`
+- Có `VITE_NOCODB_URL`: frontend state dùng NocoDB
+- Không có `VITE_NOCODB_URL`: frontend state dùng `/api/state` và file `server/data/states/*.json`
+
 The server now also auto-loads `.env` from `server/`, repo root, and `web/`.
 It accepts fallback variable names `VITE_NOCODB_URL`, `VITE_NOCODB_API_KEY`, and `VITE_TABLE_USERS` for the auth users table.
 
