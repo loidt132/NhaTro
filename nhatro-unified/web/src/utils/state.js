@@ -7,15 +7,7 @@ function resolveApiBase() {
   const configured = (import.meta.env.VITE_API_ORIGIN || '').replace(/\/+$/, '');
   if (!configured) return '';
 
-  if (typeof window === 'undefined') return configured;
-
-  try {
-    const configuredOrigin = new URL(configured).origin;
-    if (configuredOrigin === window.location.origin) return configured;
-  } catch (error) {
-    return '';
-  }
-
+  if (import.meta.env.PROD) return configured;
   return '';
 }
 
