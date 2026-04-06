@@ -1,7 +1,27 @@
 const TOKEN_KEY = 'nhatro_auth_token';
 
+function resolveApiBase() {
+  const configured = (import.meta.env.VITE_API_ORIGIN || '').replace(/\/+$/, '');
+  if (!configured) return '';
+
+  if (typeof window === 'undefined') return configured;
+
+  const hostname = window.location.hostname;
+  const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1';
+  if (isLocalHost) return configured;
+
+  try {
+    const configuredOrigin = new URL(configured).origin;
+    if (configuredOrigin === window.location.origin) return configured;
+  } catch (error) {
+    return '';
+  }
+
+  return '';
+}
+
 function apiUrl(path) {
-  const base = (import.meta.env.VITE_API_ORIGIN || '').replace(/\/+$/, '');
+  const base = resolveApiBase();
   const p = path.startsWith('/') ? path : `/${path}`;
   return base ? `${base}${p}` : p;
 }
