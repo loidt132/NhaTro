@@ -9,10 +9,6 @@ function resolveApiBase() {
 
   if (typeof window === 'undefined') return configured;
 
-  const hostname = window.location.hostname;
-  const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1';
-  if (isLocalHost) return configured;
-
   try {
     const configuredOrigin = new URL(configured).origin;
     if (configuredOrigin === window.location.origin) return configured;

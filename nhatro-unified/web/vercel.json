@@ -1,7 +1,6 @@
 {
   "rewrites": [
     { "source": "/api/(.*)", "destination": "https://loidt132-nhatro.vercel.app/api/$1" },
-     { "source": "/api/(.*)", "destination": "http://localhost:5173/api/$1" },
     { "source": "/(.*)", "destination": "/" }
   ]
 }

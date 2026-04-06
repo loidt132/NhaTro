@@ -6,10 +6,6 @@ function resolveApiBase() {
 
   if (typeof window === 'undefined') return configured;
 
-  const hostname = window.location.hostname;
-  const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1';
-  if (isLocalHost) return configured;
-
   try {
     const configuredOrigin = new URL(configured).origin;
     if (configuredOrigin === window.location.origin) return configured;
@@ -31,23 +27,24 @@ function authHeaders(token) {
 }
 
 async function request(path, options = {}) {
-  const res = await fetch(apiUrl(path), {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
-
-  const contentType = res.headers.get('content-type') || '';
-  const data = contentType.includes('application/json') ? await res.json() : null;
-
-  if (!res.ok) {
-    throw new Error(data?.error || 'Yêu cầu thất bại');
-  }
-
-  return data;
+  const res = await fetch(apiUrl(path), {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+ 
+  const contentType = res.headers.get('content-type') || '';
+  const data = contentType.includes('application/json') ? await res.json() : null;
+ 
+  if (!res.ok) {
+    throw new Error(data?.error || 'Yêu cầu thất bại');
+  }
+ 
+  return data;
 }
+  
 
 export function getStoredToken() {
   try {
@@ -99,6 +96,10 @@ export async function registerAccount(payload) {
 export async function loginAccount(payload) {
   return request('/api/auth/login', {
     method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
     body: JSON.stringify(payload),
   });
 }
