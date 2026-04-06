@@ -27,24 +27,23 @@ function authHeaders(token) {
 }
 
 async function request(path, options = {}) {
-  const res = await fetch(apiUrl(path), {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  });
- 
-  const contentType = res.headers.get('content-type') || '';
-  const data = contentType.includes('application/json') ? await res.json() : null;
- 
-  if (!res.ok) {
-    throw new Error(data?.error || 'Yêu cầu thất bại');
-  }
- 
-  return data;
+  const res = await fetch(apiUrl(path), {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+
+  const contentType = res.headers.get('content-type') || '';
+  const data = contentType.includes('application/json') ? await res.json() : null;
+
+  if (!res.ok) {
+    throw new Error(data?.error || 'Yêu cầu thất bại');
+  }
+
+  return data;
 }
-  
 
 export function getStoredToken() {
   try {
@@ -97,9 +96,9 @@ export async function loginAccount(payload) {
   return request('/api/auth/login', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-    },
-    credentials: 'include',
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
     body: JSON.stringify(payload),
   });
 }
