@@ -249,6 +249,15 @@ async function createNocoUserRecord(user) {
       passwordSalt: user.passwordSalt,
       createdAt: user.createdAt,
     },
+    {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      passwordhash: user.passwordHash,
+      passwordsalt: user.passwordSalt,
+      createdat: user.createdAt,
+    },
   ];
 
   let lastError = null;
