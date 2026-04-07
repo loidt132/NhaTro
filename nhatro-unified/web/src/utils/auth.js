@@ -11,8 +11,9 @@ function resolveApiBase() {
 function apiUrl(path) {
   const base = resolveApiBase();
   const p = path.startsWith('/') ? path : `/${path}`;
-    return p;
-  //return base ? `${base}${p}` : p;
+  const url= base ? `${base}${p}` : p;
+  console.log(`Resolved API URL: ${url} (base: ${base || 'none'}, path: ${path})`);
+  return url;
 }
 
 function authHeaders(token) {
