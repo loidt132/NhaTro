@@ -50,13 +50,38 @@ const statesDir = path.join(dataDir, 'states');
 const usersPath = path.join(dataDir, 'users.json');
 const usersTmpPath = path.join(dataDir, 'users.json.tmp');
 const AUTH_SECRET = process.env.AUTH_SECRET || 'nhatro-unified-dev-secret';
-const NOCODB_URL = (process.env.NOCODB_URL || process.env.VITE_NOCODB_URL || '').replace(/\/+$/, '');
-const NOCODB_API_KEY = process.env.NOCODB_API_KEY || process.env.VITE_NOCODB_API_KEY || '';
-const NOCODB_TABLE_USERS = process.env.NOCODB_TABLE_USERS || process.env.VITE_TABLE_USERS || process.env.VITE_NOCODB_TABLE_USERS || '';
+function preferServerEnv(name, fallbackName) {
+  if (process.env[name]) return process.env[name];
+  // Keep VITE_* fallback only for local/dev convenience.
+  if (process.env.NODE_ENV !== 'production' && fallbackName && process.env[fallbackName]) {
+    return process.env[fallbackName];
+  }
+  return '';
+}
+
+const NOCODB_URL = preferServerEnv('NOCODB_URL', 'VITE_NOCODB_URL').replace(/\/+$/, '');
+const NOCODB_API_KEY = preferServerEnv('NOCODB_API_KEY', 'VITE_NOCODB_API_KEY');
+const NOCODB_TABLE_USERS =
+  preferServerEnv('NOCODB_TABLE_USERS', 'VITE_TABLE_USERS') ||
+  preferServerEnv('NOCODB_TABLE_USERS', 'VITE_NOCODB_TABLE_USERS');
 
 app.get('/', (req, res) => {
   res.send('OK');
 });
+
+function parseOrigins(value = '') {
+  return String(value)
+    .split(',')
+    .map((item) => item.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+}
+
+function isAllowedOrigin(origin, allowList) {
+  if (!origin) return false;
+  const normalized = String(origin).trim().replace(/\/+$/, '');
+  if (allowList.includes(normalized)) return true;
+  return /^https:\/\/[a-z0-9-]+\.up\.railway\.app$/i.test(normalized);
+}
 
 app.use('/api', (req, res, next) => {
   const origin = req.headers.origin;
@@ -64,12 +89,13 @@ app.use('/api', (req, res, next) => {
     'https://nha-tro-gamma.vercel.app',
     'http://localhost:5173',
     'http://localhost:3000',
-    process.env.CORS_ORIGIN,
-    process.env.VITE_WEB_ORIGIN,
-    process.env.WEB_ORIGIN,
+    ...parseOrigins(process.env.CORS_ORIGIN),
+    ...parseOrigins(process.env.CORS_ORIGINS),
+    ...parseOrigins(process.env.VITE_WEB_ORIGIN),
+    ...parseOrigins(process.env.WEB_ORIGIN),
   ].filter(Boolean);
 
-  if (origin && allowedOrigins.includes(origin)) {
+  if (isAllowedOrigin(origin, allowedOrigins)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Vary', 'Origin');
