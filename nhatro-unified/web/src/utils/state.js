@@ -90,13 +90,24 @@ async function saveStateToServer(state) {
 }
 
 function applyDefaults(s) {
+  const defaultSettings = {
+    bankCode: 'VCB',
+    accountNo: '',
+    accountName: '',
+    qrNoteTemplate: 'Tien phong {room} {month}',
+    landlordName: '',
+    landlordPhone: '',
+    landlordAddress: '',
+    occupancyMode: 'month',
+    meterRoomScope: 'occupied',
+  };
   return {
     rooms: s.rooms || [],
     tenants: s.tenants || [],
     readings: s.readings || [],
     invoices: s.invoices || [],
     payments: s.payments || [],
-    settings: s.settings||{ bankCode:'VCB', accountNo:'', accountName:'', qrNoteTemplate:'Tien phong {room} {month}', landlordName:'', landlordPhone:'', landlordAddress:'' }
+    settings: { ...defaultSettings, ...(s.settings || {}) }
   };
 }
 
@@ -168,7 +179,17 @@ export function loadState() {
     readings: [],
     invoices: [],
     payments: [],
-    settings: {}
+    settings: {
+      bankCode: 'VCB',
+      accountNo: '',
+      accountName: '',
+      qrNoteTemplate: 'Tien phong {room} {month}',
+      landlordName: '',
+      landlordPhone: '',
+      landlordAddress: '',
+      occupancyMode: 'month',
+      meterRoomScope: 'occupied',
+    }
   });
 }
 export function resetStateSession() {
@@ -219,7 +240,7 @@ function seed(){
   const r2={ id:uid(), name:'P102', baseRent:2700000, electricRate:3500, waterRate:12000 };
   const t1={ id:uid(), name:'Nguyễn Văn A', cccd:'012345678901', phone:'0901234567', roomId:r1.id };
   const readings=[{ id:uid(), roomId:r1.id, month:monthKey(), electricStart:100, electricEnd:120, waterStart:30, waterEnd:32, createdAt:new Date().toISOString() }];
-  const s={ rooms:[r1,r2], tenants:[t1], readings, invoices:[], payments:[], settings:{ bankCode:'VCB', accountNo:'', accountName:'', qrNoteTemplate:'Tien phong {room} {month}', landlordName:'', landlordPhone:'', landlordAddress:'' }, __meta: { lastModified: new Date().toISOString() } };
+  const s={ rooms:[r1,r2], tenants:[t1], readings, invoices:[], payments:[], settings:{ bankCode:'VCB', accountNo:'', accountName:'', qrNoteTemplate:'Tien phong {room} {month}', landlordName:'', landlordPhone:'', landlordAddress:'', occupancyMode:'month', meterRoomScope:'occupied' }, __meta: { lastModified: new Date().toISOString() } };
   return s;
 }
 export function saveState(next){ 

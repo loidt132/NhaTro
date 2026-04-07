@@ -23,7 +23,16 @@ export default function Settings() {
   }, []);
 
   const onSave = () => {
-    const next = { ...state, settings: s };
+    const normalizedQrNoteTemplate = (s.qrNoteTemplate || 'Tien phong {room} {month}').trim();
+    const next = {
+      ...state,
+      settings: {
+        ...s,
+        qrNoteTemplate: normalizedQrNoteTemplate,
+        occupancyMode: s.occupancyMode || 'month',
+        meterRoomScope: s.meterRoomScope || 'occupied',
+      },
+    };
     setState(next);
     saveState(next);
     alert('Đã lưu cấu hình');
@@ -92,7 +101,7 @@ export default function Settings() {
               onChange={e=>setS({ ...s, accountName: e.target.value.toUpperCase() })}/>
           </div>
           <div className="md:col-span-2">
-            <label className="text-xs text-slate-500">Mẫu nội dung (addInfo)</label>
+            <label className="text-xs text-slate-500">Mẫu nội dung chuyển khoản (qrNoteTemplate)</label>
             <input className="w-full rounded-xl border px-3 py-2" value={s.qrNoteTemplate || ''}
               onChange={e=>setS({ ...s, qrNoteTemplate: e.target.value })}/>
             <div className="text-xs text-slate-500 mt-1">Dùng <code>{'{room}'}</code> và <code>{'{month}'}</code></div>
@@ -117,6 +126,34 @@ export default function Settings() {
             <label className="text-xs text-slate-500">Địa chỉ</label>
             <input className="w-full rounded-xl border px-3 py-2" value={s.landlordAddress || ''}
               onChange={e=>setS({ ...s, landlordAddress: e.target.value })}/>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border bg-white p-4 shadow-sm">
+        <h3 className="text-lg font-semibold">Cài đặt nghiệp vụ</h3>
+        <div className="grid md:grid-cols-2 gap-3 mt-3">
+          <div>
+            <label className="text-xs text-slate-500">Xác định khách đang ở</label>
+            <select
+              className="w-full rounded-xl border px-3 py-2"
+              value={s.occupancyMode || 'month'}
+              onChange={(e) => setS({ ...s, occupancyMode: e.target.value })}
+            >
+              <option value="month">Theo tháng đang xem</option>
+              <option value="today">Theo ngày hôm nay</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500">Phạm vi phòng ở màn ghi điện nước</label>
+            <select
+              className="w-full rounded-xl border px-3 py-2"
+              value={s.meterRoomScope || 'occupied'}
+              onChange={(e) => setS({ ...s, meterRoomScope: e.target.value })}
+            >
+              <option value="occupied">Chỉ phòng có khách</option>
+              <option value="all">Tất cả phòng</option>
+            </select>
           </div>
         </div>
       </div>
