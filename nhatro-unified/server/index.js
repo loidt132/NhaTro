@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
-
+const fetch = require('node-fetch');
 function loadEnvFile(filePath) {
   try {
     const raw = fs.readFileSync(filePath, 'utf8');
@@ -53,6 +53,10 @@ const AUTH_SECRET = process.env.AUTH_SECRET || 'nhatro-unified-dev-secret';
 const NOCODB_URL = (process.env.NOCODB_URL || process.env.VITE_NOCODB_URL || '').replace(/\/+$/, '');
 const NOCODB_API_KEY = process.env.NOCODB_API_KEY || process.env.VITE_NOCODB_API_KEY || '';
 const NOCODB_TABLE_USERS = process.env.NOCODB_TABLE_USERS || process.env.VITE_TABLE_USERS || process.env.VITE_NOCODB_TABLE_USERS || '';
+
+app.get('/', (req, res) => {
+  res.send('OK');
+});
 
 app.use('/api', (req, res, next) => {
   const origin = req.headers.origin;
@@ -441,11 +445,17 @@ app.post('/api/state', authMiddleware, (req, res) => {
 
 const port = process.env.PORT || 4000;
 
-if (require.main === module) {
+/*if (require.main === module) {
   app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
     console.log(`Auth storage: ${shouldUseNocoAuth() ? 'NocoDB' : 'users.json'}`);
   });
-}
+}*/
+ 
+
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Server running on ${port}`);
+  console.log(`Auth storage: ${shouldUseNocoAuth() ? 'NocoDB' : 'users.json'}`);
+});
 
 module.exports = app;
