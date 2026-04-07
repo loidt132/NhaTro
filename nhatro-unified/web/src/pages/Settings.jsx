@@ -1,20 +1,24 @@
 // src/pages/Settings.jsx
 import React, { useState, useEffect } from 'react';
 import { loadState, saveState, hydrateState } from '../utils/state';
+import { getNocoConfigStatus } from '../utils/nocodb';
 import Footer from '../components/Footer';
 import Page from '../components/Page';
 
 export default function Settings() {
   const [state, setState] = useState(loadState());
   const [s, setS] = useState(() => state.settings || {});
+  const [nocoStatus, setNocoStatus] = useState(() => getNocoConfigStatus());
   useEffect(() => {
     const handler = () => {
       const next = loadState();
       setState(next);
       setS(next.settings || {});
+      setNocoStatus(getNocoConfigStatus());
     };
     window.addEventListener('boarding_state_updated', handler);
     hydrateState({ tables: ['settings'] });
+    setNocoStatus(getNocoConfigStatus());
     return () => window.removeEventListener('boarding_state_updated', handler);
   }, []);
 
@@ -60,6 +64,15 @@ export default function Settings() {
 
   return (
     <Page className="space-y-6">
+      <div className="rounded-2xl border bg-white p-4 shadow-sm">
+        <h3 className="text-lg font-semibold">Trạng thái NocoDB</h3>
+        <div className="mt-3 space-y-1 text-sm text-slate-700">
+          <div>URL: {nocoStatus.baseConfigured ? 'OK' : 'Thiếu VITE_NOCODB_URL'}</div>
+          <div>API key: {nocoStatus.tokenConfigured ? 'OK' : 'Thiếu VITE_NOCODB_API_KEY'}</div>
+          <div>Bảng thiếu: {nocoStatus.missingTables.length ? nocoStatus.missingTables.join(', ') : 'Không thiếu'}</div>
+        </div>
+      </div>
+
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
         <h3 className="text-lg font-semibold">Cài đặt thanh toán</h3>
         <div className="grid md:grid-cols-2 gap-3 mt-3">

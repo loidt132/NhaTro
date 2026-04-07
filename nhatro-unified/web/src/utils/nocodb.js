@@ -31,6 +31,7 @@ const SYSTEM_COLUMNS = new Set([
 const MAX_RETRIES = 4;
 const BASE_RETRY_MS = 800;
 const WRITE_GAP_MS = 150;
+const WARNED_MISSING_TABLES = new Set();
 
 function headers() {
   return {
@@ -42,7 +43,17 @@ function headers() {
 function tableUrl(tableKey, suffix = '') {
   const tableId = TABLES[tableKey];
   if (!tableId) throw new Error(`Missing TABLE_ID for ${tableKey}`);
-  return `${BASE}/api/v2/tables/${tableId}/records${suffix}`;
+  return `${BASE}/api/v2/tables/${encodeURIComponent(tableId)}/records${suffix}`;
+}
+
+function hasTableConfig(tableKey) {
+  return Boolean(TABLES[tableKey]);
+}
+
+function warnMissingTable(tableKey) {
+  if (WARNED_MISSING_TABLES.has(tableKey)) return;
+  WARNED_MISSING_TABLES.add(tableKey);
+  console.warn(`NocoDB table is not configured: ${tableKey}`);
 }
 
 function currentUserId() {
@@ -328,9 +339,18 @@ export async function loadStateFromNoco(options = {}) {
 
   try {
     const wantedTables = tables && tables.length ? tables : [...DATA_TABLE_KEYS, 'settings'];
-    const settingsRows = wantedTables.includes('settings')
-      ? await fetchTableRows('settings', buildOwnedQuery(userId, 'limit=1000'))
-      : [];
+    let settingsRows = [];
+    if (wantedTables.includes('settings')) {
+      if (hasTableConfig('settings')) {
+        try {
+          settingsRows = await fetchTableRows('settings', buildOwnedQuery(userId, 'limit=1000'));
+        } catch (error) {
+          console.error('load settings from NocoDB failed', error);
+        }
+      } else {
+        warnMissingTable('settings');
+      }
+    }
     const legacyState = settingsRows.map(extractLegacyState).find(Boolean);
     if (legacyState?.rooms && legacyState?.tenants && legacyState?.payments) {
       if (!tables || tables.length === 0) return legacyState;
@@ -344,7 +364,17 @@ export async function loadStateFromNoco(options = {}) {
 
     const tableData = {};
     for (const key of DATA_TABLE_KEYS.filter((table) => wantedTables.includes(table))) {
-      tableData[key] = await fetchTableRows(key, buildOwnedQuery(userId, 'limit=1000'));
+      if (!hasTableConfig(key)) {
+        warnMissingTable(key);
+        tableData[key] = [];
+        continue;
+      }
+      try {
+        tableData[key] = await fetchTableRows(key, buildOwnedQuery(userId, 'limit=1000'));
+      } catch (error) {
+        console.error(`load ${key} from NocoDB failed`, error);
+        tableData[key] = [];
+      }
       await sleep(WRITE_GAP_MS);
     }
 
@@ -376,9 +406,17 @@ export async function saveStateToNoco(state) {
 
   try {
     for (const key of DATA_TABLE_KEYS) {
+      if (!hasTableConfig(key)) {
+        warnMissingTable(key);
+        continue;
+      }
       await syncCollectionTable(key, state[key] || [], userId);
     }
-    await saveSettingsRow(state.settings || {}, state.__meta || {}, userId);
+    if (hasTableConfig('settings')) {
+      await saveSettingsRow(state.settings || {}, state.__meta || {}, userId);
+    } else {
+      warnMissingTable('settings');
+    }
     return true;
   } catch (error) {
     console.error('saveStateToNoco error', error);
@@ -387,10 +425,23 @@ export async function saveStateToNoco(state) {
 }
 
 export const api = {
-  getRooms: () => fetchTableRows('rooms', buildOwnedQuery(currentUserId(), 'limit=1000')),
-  getTenants: () => fetchTableRows('tenants', buildOwnedQuery(currentUserId(), 'limit=1000')),
-  getReadings: () => fetchTableRows('readings', buildOwnedQuery(currentUserId(), 'limit=1000')),
-  getInvoices: () => fetchTableRows('invoices', buildOwnedQuery(currentUserId(), 'limit=1000')),
-  getPayments: () => fetchTableRows('payments', buildOwnedQuery(currentUserId(), 'limit=1000')),
-  getSettings: () => fetchTableRows('settings', buildOwnedQuery(currentUserId(), 'limit=1000')),
+  getRooms: () => hasTableConfig('rooms') ? fetchTableRows('rooms', buildOwnedQuery(currentUserId(), 'limit=1000')) : Promise.resolve([]),
+  getTenants: () => hasTableConfig('tenants') ? fetchTableRows('tenants', buildOwnedQuery(currentUserId(), 'limit=1000')) : Promise.resolve([]),
+  getReadings: () => hasTableConfig('readings') ? fetchTableRows('readings', buildOwnedQuery(currentUserId(), 'limit=1000')) : Promise.resolve([]),
+  getInvoices: () => hasTableConfig('invoices') ? fetchTableRows('invoices', buildOwnedQuery(currentUserId(), 'limit=1000')) : Promise.resolve([]),
+  getPayments: () => hasTableConfig('payments') ? fetchTableRows('payments', buildOwnedQuery(currentUserId(), 'limit=1000')) : Promise.resolve([]),
+  getSettings: () => hasTableConfig('settings') ? fetchTableRows('settings', buildOwnedQuery(currentUserId(), 'limit=1000')) : Promise.resolve([]),
 };
+
+export function getNocoConfigStatus() {
+  const missing = Object.entries(TABLES)
+    .filter(([, value]) => !value)
+    .map(([key]) => key);
+
+  return {
+    baseConfigured: Boolean(BASE),
+    tokenConfigured: Boolean(TOKEN),
+    missingTables: missing,
+    ready: Boolean(BASE && TOKEN),
+  };
+}

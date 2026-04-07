@@ -109,7 +109,9 @@ function mergeStateSlices(base, incoming, tables = null) {
   const next = applyDefaults(base || {});
   tables.forEach((table) => {
     if (table === 'settings') next.settings = incoming.settings || next.settings;
-    else if (table in next) next[table] = incoming[table] || [];
+    else if (table in next) {
+      if (Array.isArray(incoming[table])) next[table] = incoming[table];
+    }
   });
   if (incoming.__meta) next.__meta = incoming.__meta;
   return next;
