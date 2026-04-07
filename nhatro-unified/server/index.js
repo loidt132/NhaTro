@@ -50,9 +50,22 @@ const statesDir = path.join(dataDir, 'states');
 const usersPath = path.join(dataDir, 'users.json');
 const usersTmpPath = path.join(dataDir, 'users.json.tmp');
 const AUTH_SECRET = process.env.AUTH_SECRET || 'nhatro-unified-dev-secret';
-const NOCODB_URL = (process.env.NOCODB_URL || process.env.VITE_NOCODB_URL || '').replace(/\/+$/, '');
-const NOCODB_API_KEY = process.env.NOCODB_API_KEY || process.env.VITE_NOCODB_API_KEY || '';
-const NOCODB_TABLE_USERS = process.env.NOCODB_TABLE_USERS || process.env.VITE_TABLE_USERS || process.env.VITE_NOCODB_TABLE_USERS || '';
+function preferServerEnv(name, fallbackName) {
+  if (process.env[name]) return process.env[name];
+  // Keep VITE_* fallback only for local/dev convenience.
+  if (process.env.NODE_ENV !== 'production' && fallbackName && process.env[fallbackName]) {
+    return process.env[fallbackName];
+  }
+  return '';
+}
+
+const NOCODB_URL = preferServerEnv('NOCODB_URL', 'VITE_NOCODB_URL').replace(/\/+$/, '');
+const NOCODB_API_KEY = preferServerEnv('NOCODB_API_KEY', 'VITE_NOCODB_API_KEY');
+const NOCODB_TABLE_USERS =
+  preferServerEnv('NOCODB_TABLE_USERS', 'VITE_TABLE_USERS') ||
+  preferServerEnv('NOCODB_TABLE_USERS', 'VITE_NOCODB_TABLE_USERS');
+const HAS_ANY_NOCO_CONFIG = Boolean(NOCODB_URL || NOCODB_API_KEY || NOCODB_TABLE_USERS);
+const HAS_FULL_NOCO_CONFIG = Boolean(NOCODB_URL && NOCODB_API_KEY && NOCODB_TABLE_USERS);
 
 app.get('/', (req, res) => {
   res.send('OK');
@@ -176,14 +189,11 @@ function saveUsers(users) {
 }
 
 function shouldUseNocoAuth() {
-  return Boolean(NOCODB_URL);
+  return HAS_FULL_NOCO_CONFIG;
 }
 
 function ensureNocoAuthReady() {
   if (!shouldUseNocoAuth()) return;
-  if (!NOCODB_API_KEY || !NOCODB_TABLE_USERS) {
-    throw new Error('Missing NocoDB auth config: NOCODB_API_KEY or NOCODB_TABLE_USERS');
-  }
 }
 
 function nocoHeaders() {
@@ -470,6 +480,9 @@ const port = process.env.PORT || 4000;
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`Server running on ${port}`);
+  if (HAS_ANY_NOCO_CONFIG && !HAS_FULL_NOCO_CONFIG) {
+    console.warn('NocoDB auth config is partial. Falling back to users.json auth.');
+  }
   console.log(`Auth storage: ${shouldUseNocoAuth() ? 'NocoDB' : 'users.json'}`);
 });
 
