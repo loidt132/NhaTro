@@ -2,7 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
-const fetch = require('node-fetch');
+const fetchApi =
+  typeof global.fetch === 'function'
+    ? global.fetch.bind(global)
+    : (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 function loadEnvFile(filePath) {
   try {
     const raw = fs.readFileSync(filePath, 'utf8');
@@ -204,11 +207,11 @@ function nocoHeaders() {
 }
 
 function nocoUsersUrl(suffix = '') {
-  return `${NOCODB_URL}/api/v2/tables/${NOCODB_TABLE_USERS}/records${suffix}`;
+  return `${NOCODB_URL}/api/v2/tables/${encodeURIComponent(NOCODB_TABLE_USERS)}/records${suffix}`;
 }
 
 async function nocoFetchJson(url, options = {}) {
-  const response = await fetch(url, {
+  const response = await fetchApi(url, {
     headers: {
       ...nocoHeaders(),
       ...(options.headers || {}),
