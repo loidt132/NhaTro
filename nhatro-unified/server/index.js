@@ -50,20 +50,9 @@ const statesDir = path.join(dataDir, 'states');
 const usersPath = path.join(dataDir, 'users.json');
 const usersTmpPath = path.join(dataDir, 'users.json.tmp');
 const AUTH_SECRET = process.env.AUTH_SECRET || 'nhatro-unified-dev-secret';
-function preferServerEnv(name, fallbackName) {
-  if (process.env[name]) return process.env[name];
-  // Keep VITE_* fallback only for local/dev convenience.
-  if (process.env.NODE_ENV !== 'production' && fallbackName && process.env[fallbackName]) {
-    return process.env[fallbackName];
-  }
-  return '';
-}
-
-const NOCODB_URL = preferServerEnv('NOCODB_URL', 'VITE_NOCODB_URL').replace(/\/+$/, '');
-const NOCODB_API_KEY = preferServerEnv('NOCODB_API_KEY', 'VITE_NOCODB_API_KEY');
-const NOCODB_TABLE_USERS =
-  preferServerEnv('NOCODB_TABLE_USERS', 'VITE_TABLE_USERS') ||
-  preferServerEnv('NOCODB_TABLE_USERS', 'VITE_NOCODB_TABLE_USERS');
+const NOCODB_URL = (process.env.NOCODB_URL || process.env.VITE_NOCODB_URL || '').replace(/\/+$/, '');
+const NOCODB_API_KEY = process.env.NOCODB_API_KEY || process.env.VITE_NOCODB_API_KEY || '';
+const NOCODB_TABLE_USERS = process.env.NOCODB_TABLE_USERS || process.env.VITE_TABLE_USERS || process.env.VITE_NOCODB_TABLE_USERS || '';
 
 app.get('/', (req, res) => {
   res.send('OK');
@@ -397,11 +386,11 @@ app.post('/api/auth/login', async (req, res) => {
     const user = users.find(
       (entry) => entry.email === normalizedIdentifier || entry.phone === normalizedIdentifierPhone
     );
-
+    console.log('Login attempt for identifier:', identifier, 'normalized email:', normalizedIdentifier, 'normalized phone:', normalizedIdentifierPhone);
     if (!user || !verifyPassword(user, password)) {
       return res.status(401).json({ error: 'Sai thông tin đăng nhập' });
     }
-
+console.log('User authenticated:', { id: user.id, email: user.email, phone: user.phone,  });
     const token = signToken({
       userId: user.id,
       exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
