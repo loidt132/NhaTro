@@ -260,10 +260,11 @@ async function listNocoUsers() {
 
 async function createNocoUserRecord(user) {
   ensureNocoAuthReady();
+  const normalizedName = String(user.name || '').trim() || user.email || user.phone || 'User';
   const payloads = [
     {
       id: user.id,
-      name: user.name,
+      name: normalizedName,
       email: user.email,
       phone: user.phone,
       password_hash: user.passwordHash,
@@ -272,7 +273,7 @@ async function createNocoUserRecord(user) {
     },
     {
       id: user.id,
-      name: user.name,
+      name: normalizedName,
       email: user.email,
       phone: user.phone,
       passwordHash: user.passwordHash,
@@ -281,12 +282,39 @@ async function createNocoUserRecord(user) {
     },
     {
       id: user.id,
-      name: user.name,
+      name: normalizedName,
       email: user.email,
       phone: user.phone,
       passwordhash: user.passwordHash,
       passwordsalt: user.passwordSalt,
       createdat: user.createdAt,
+    },
+    {
+      id: user.id,
+      name: normalizedName,
+      email: user.email,
+      phone: user.phone,
+      password: user.password || user.passwordHash,
+      created_at: user.createdAt,
+    },
+    {
+      id: user.id,
+      name: normalizedName,
+      email: user.email,
+      phone: user.phone,
+      pass: user.password || user.passwordHash,
+      created_at: user.createdAt,
+    },
+    {
+      id: user.id,
+      name: normalizedName,
+      email: user.email,
+      phone: user.phone,
+      created_by: user.id,
+      modified_by: user.id,
+      password_hash: user.passwordHash,
+      password_salt: user.passwordSalt,
+      created_at: user.createdAt,
     },
   ];
 
@@ -353,6 +381,7 @@ app.post('/api/auth/register', async (req, res) => {
       name: String(name || '').trim(),
       email: normalizedEmail,
       phone: normalizedPhone,
+      password: String(password),
       ...createPasswordRecord(password),
       createdAt: new Date().toISOString(),
     };

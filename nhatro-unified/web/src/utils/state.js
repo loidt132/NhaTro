@@ -38,7 +38,7 @@ let activeStateKey = '';
 import { isNocoConfigured, loadStateFromNoco, saveStateToNoco } from './nocodb';
 
 function shouldUseNocoState() {
-  return Boolean(import.meta.env.VITE_NOCODB_URL);
+  return isNocoConfigured();
 }
 
 async function loadStateFromServer(options = {}) {
@@ -76,7 +76,7 @@ async function saveStateToServer(state) {
     }
   }
 
-  if (!saved && !shouldUseNocoState()) {
+  if (!saved) {
     try {
         console.log('save to backend state', state);
       await fetch(apiUrl('/api/state'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ state }) });
