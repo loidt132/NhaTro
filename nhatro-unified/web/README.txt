@@ -42,7 +42,7 @@ npm i jspdf jspdf-autotable
 3) npm run dev
   Thêm ENV trên Vercel https://vercel.com/tienloi2007-3127s-projects/nha-tro/settings/environment-variables
   VITE_API_ORIGIN
-https://loidt132-nhatro.vercel.app
+https://nhatro-production.up.railway.app
 
 ---
 

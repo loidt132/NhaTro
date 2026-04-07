@@ -50,20 +50,20 @@ const statesDir = path.join(dataDir, 'states');
 const usersPath = path.join(dataDir, 'users.json');
 const usersTmpPath = path.join(dataDir, 'users.json.tmp');
 const AUTH_SECRET = process.env.AUTH_SECRET || 'nhatro-unified-dev-secret';
-function preferServerEnv(name, fallbackName) {
-  if (process.env[name]) return process.env[name];
-  // Keep VITE_* fallback only for local/dev convenience.
-  if (process.env.NODE_ENV !== 'production' && fallbackName && process.env[fallbackName]) {
-    return process.env[fallbackName];
+function firstEnv(...names) {
+  for (const name of names) {
+    if (!name) continue;
+    const value = process.env[name];
+    if (value != null && String(value).trim() !== '') {
+      return String(value).trim();
+    }
   }
   return '';
 }
 
-const NOCODB_URL = preferServerEnv('NOCODB_URL', 'VITE_NOCODB_URL').replace(/\/+$/, '');
-const NOCODB_API_KEY = preferServerEnv('NOCODB_API_KEY', 'VITE_NOCODB_API_KEY');
-const NOCODB_TABLE_USERS =
-  preferServerEnv('NOCODB_TABLE_USERS', 'VITE_TABLE_USERS') ||
-  preferServerEnv('NOCODB_TABLE_USERS', 'VITE_NOCODB_TABLE_USERS');
+const NOCODB_URL = firstEnv('NOCODB_URL', 'VITE_NOCODB_URL').replace(/\/+$/, '');
+const NOCODB_API_KEY = firstEnv('NOCODB_API_KEY', 'VITE_NOCODB_API_KEY');
+const NOCODB_TABLE_USERS = firstEnv('NOCODB_TABLE_USERS', 'TABLE_USERS', 'VITE_TABLE_USERS', 'VITE_NOCODB_TABLE_USERS');
 const HAS_ANY_NOCO_CONFIG = Boolean(NOCODB_URL || NOCODB_API_KEY || NOCODB_TABLE_USERS);
 const HAS_FULL_NOCO_CONFIG = Boolean(NOCODB_URL && NOCODB_API_KEY && NOCODB_TABLE_USERS);
 
@@ -245,6 +245,7 @@ function mapNocoUser(row) {
     name: readUserValue(row, ['name']),
     email: normalizeEmail(readUserValue(row, ['email'])),
     phone: normalizePhone(readUserValue(row, ['phone'])),
+    password: readUserValue(row, ['password', 'pass']),
     passwordHash: readUserValue(row, ['password_hash', 'passwordHash', 'passwordhash']),
     passwordSalt: readUserValue(row, ['password_salt', 'passwordSalt', 'passwordsalt']),
     createdAt: readUserValue(row, ['created_at', 'createdAt', 'createdat']),
