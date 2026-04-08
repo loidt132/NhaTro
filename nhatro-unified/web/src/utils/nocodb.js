@@ -247,7 +247,7 @@ async function updateRow(tableKey, rowId, payload) {
 }
 
 async function deleteRow(tableKey, rowId) {
-  await fetchJson(tableUrl(tableKey, `/${rowId}`), {
+  await fetchJson(tableUrl(tableKey, `?ids=${rowId}`), {
     method: 'DELETE',
   });
   await sleep(WRITE_GAP_MS);
