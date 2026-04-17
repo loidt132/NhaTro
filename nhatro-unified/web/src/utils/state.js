@@ -1,8 +1,8 @@
 
 import { dbGet, dbSet } from './db';
 import { getAuthSession, getStoredToken } from './auth';
-const DEFAULT_PROD_API_ORIGIN = 'https://nhatro-production.up.railway.app';
-const LEGACY_API_ORIGIN = 'https://loidt132-nhatro.vercel.app';
+const DEFAULT_PROD_API_ORIGIN = 'https://nhatro-y4ew.onrender.com';
+const LEGACY_API_ORIGIN = 'https://nhatro-y4ew.onrender.com';
 
 /** Trống = fetch `/api` cùng origin; dev: `VITE_API_ORIGIN` trong `.env.development`. */
 function resolveApiBase() {
