@@ -4,6 +4,7 @@ import { loadState, resetStateSession } from './utils/state';
 import { clearAuth, fetchCurrentUser, getStoredToken, loginAccount, registerAccount, setStoredToken } from './utils/auth';
 import Sidebar from './components/Sidebar';
 import Rooms from './pages/Rooms';
+import Tenants from './pages/Tenants';
 import Meter from './pages/Meter';
 import Payments from './pages/Payments';
 import Settings from './pages/Settings';
@@ -140,6 +141,7 @@ export default function App() {
           <div className="min-w-0 flex-1">
             <Routes>
               <Route path="/rooms" element={<Rooms />} />
+              <Route path="/tenants" element={<Tenants />} />
               <Route path="/meter" element={<Meter />} />
               <Route path="/payments" element={<Payments />} />
               <Route path="/reports" element={<ReportsHub />} />

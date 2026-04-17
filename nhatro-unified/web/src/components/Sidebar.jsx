@@ -1,5 +1,4 @@
-
-import React from 'react';
+﻿import React from 'react';
 import { NavLink } from 'react-router-dom';
 
 const LinkItem = ({ to, icon, children, onClick }) => (
@@ -16,12 +15,12 @@ const LinkItem = ({ to, icon, children, onClick }) => (
   </NavLink>
 );
 
-export default function Sidebar({ isOpen=false, onClose=()=>{} }){
-  // Desktop sidebar
+export default function Sidebar({ isOpen = false, onClose = () => {} }) {
   const desktop = (
     <aside className="hidden md:block w-56 shrink-0 p-3 space-y-2">
       <div className="text-sm font-semibold text-slate-500 uppercase">Quản lý trọ</div>
       <LinkItem to="/rooms" icon="🏠">Phòng trọ</LinkItem>
+      <LinkItem to="/tenants" icon="👥">Khách thuê</LinkItem>
       <LinkItem to="/meter" icon="⚡">Ghi điện nước</LinkItem>
       <LinkItem to="/payments" icon="💵">Thu tiền</LinkItem>
       <LinkItem to="/reports" icon="📊">Báo cáo</LinkItem>
@@ -29,7 +28,6 @@ export default function Sidebar({ isOpen=false, onClose=()=>{} }){
     </aside>
   );
 
-  // Mobile overlay menu
   const mobile = isOpen ? (
     <div className="fixed inset-0 z-40 md:hidden">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} aria-hidden />
@@ -50,6 +48,7 @@ export default function Sidebar({ isOpen=false, onClose=()=>{} }){
         </div>
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pb-[max(0.25rem,env(safe-area-inset-bottom))]">
           <LinkItem to="/rooms" icon="🏠" onClick={onClose}>Phòng trọ</LinkItem>
+          <LinkItem to="/tenants" icon="👥" onClick={onClose}>Khách thuê</LinkItem>
           <LinkItem to="/meter" icon="⚡" onClick={onClose}>Ghi điện nước</LinkItem>
           <LinkItem to="/payments" icon="💵" onClick={onClose}>Thu tiền</LinkItem>
           <LinkItem to="/reports" icon="📊" onClick={onClose}>Báo cáo</LinkItem>
