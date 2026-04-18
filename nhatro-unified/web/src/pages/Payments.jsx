@@ -7,6 +7,7 @@ import ViewSwitch from '../components/ViewSwitch';
 import Footer from '../components/Footer';
 import Page from '../components/Page';
 import { exportInvoicePdfByJsPDF } from '../utils/pdf/exportInvoiceJspdf';
+import PaginationControls from '../components/PaginationControls';
 
 const makeAddInfo = (inv, rooms, settings) => {
   const tpl = (settings.qrNoteTemplate ?? 'Tien phong {room} {month}');
@@ -30,6 +31,8 @@ export default function Payments() {
   const [month, setMonth] = useState(monthKey());
   const [view, setView] = useState('cards');
   const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(10);
 
   const todayYmd = new Date().toISOString().slice(0,10);
   const getMonthBounds = (ym)=>{
@@ -102,6 +105,13 @@ console.log('get data by month ', month);
     });
   }, [items, query]);
 console.log('filtered items', { query, filteredItems });
+
+ const totalPages = Math.max(1, Math.ceil(filteredItems.length / perPage));
+  const currentPage = Math.min(page, totalPages);
+  const pagedPayments = useMemo(() => {
+    const start = (currentPage - 1) * perPage;
+    return filteredItems.slice(start, start + perPage);
+  }, [filteredItems, currentPage, perPage]);
   // const togglePaid = (id) => {
   //   const next = invoices.map(i =>
   //     i.id === id
@@ -240,7 +250,7 @@ const togglePaid = (id) => {
               </tr>
             </thead>
             <tbody>
-              {filteredItems.map(({ room, names, invoice, draft }) => {
+              {pagedPayments.map(({ room, names, invoice, draft }) => {
                 if (!invoice) {
                   return (
                     <tr key={room.id} className="border-t border-slate-100 bg-slate-50/60">
@@ -287,7 +297,7 @@ const togglePaid = (id) => {
 
   const Cards = () => (
     <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
-      {filteredItems.map(({ room, names, invoice, draft }) => {
+      {pagedPayments.map(({ room, names, invoice, draft }) => {
         if (!invoice) {
           return (
             <div key={room.id} className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm flex flex-col gap-3 min-w-0">
@@ -343,6 +353,15 @@ const togglePaid = (id) => {
         <h2 className="text-base sm:text-lg font-semibold min-w-0 break-words">Hóa đơn tháng {month}</h2>
         <div className="shrink-0 self-start sm:self-auto">
           <ViewSwitch value={view} onChange={setView} />
+        </div>
+         <div className="mt-3">
+          <PaginationControls
+            totalItems={filteredItems.length}
+            page={currentPage}
+            perPage={perPage}
+            onPageChange={setPage}
+            onPerPageChange={setPerPage}
+          />
         </div>
       </div>
       {view === 'table' ? <Table /> : <Cards />}
