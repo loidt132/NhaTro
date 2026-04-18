@@ -8,21 +8,13 @@ import ViewSwitch from '../components/ViewSwitch';
 import Page from '../components/Page';
 import { loadState, hydrateState, saveState, monthKey, currency, uid, calcTotals } from '../utils/state';
 import Footer from '../components/Footer';
+import PaginationControls from '../components/PaginationControls';
+function compareByName(a = '', b = '') {
+  return String(a).localeCompare(String(b), 'vi');
+}
 
 export default function Rooms(){
    
-  //const [state, setState] = useState(null);
-  // const [state, setState] = useState(() => loadState());
-  // useEffect(() => {
-  //   const refresh = () => {
-  //     const newState = loadState();
-  //     setState(newState); // React tự tối ưu nếu state không đổi
-  //   };
-  
-  //   window.addEventListener('boarding_state_updated', refresh);
-  //   return () => window.removeEventListener('boarding_state_updated', refresh);
-  // }, []);
-  
   const [state, setState] = useState(() => loadState());
   const [isLoading, setIsLoading] = useState(true);
   const [month, setMonth] = useState(monthKey());
@@ -30,6 +22,8 @@ export default function Rooms(){
   const [roomModal, setRoomModal] = useState({ open:false, mode:'create', roomId:null, form:{ name:'', baseRent:2500000, electricRate:3500, waterRate:12000 } });
   const [tenantModal, setTenantModal] = useState({ open:false, roomId:null, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' } });
   const [view, setView] = useState('cards'); // 'table' or 'cards'
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(10);
 
   useEffect(() => {
     // load ngay từ memory/cache
@@ -88,7 +82,7 @@ export default function Rooms(){
     const list = (readings||[]).filter(r=> r.roomId===roomId && r.month===ym).sort((a,b)=> new Date(b.createdAt)-new Date(a.createdAt));
     return list[0];
   };
-
+ 
   // ===== Room CRUD =====
   const openCreateRoom = ()=> setRoomModal({ open:true, mode:'create', roomId:null, form:{ name:'', baseRent:2500000, electricRate:3500, waterRate:12000 }});
   const openEditRoom = (r)=> setRoomModal({ open:true, mode:'edit', roomId:r.id, form:{ name:r.name, baseRent:r.baseRent, electricRate:r.electricRate, waterRate:r.waterRate }});
@@ -230,6 +224,19 @@ export default function Rooms(){
     })
   , [visibleRooms, invoices, activeTenantByRoom, readings, month]);
 
+const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
+  const currentPage = Math.min(page, totalPages);
+  const pagedRooms   = useMemo(() => {
+    const start = (currentPage - 1) * perPage;
+    return visibleRooms.slice(start, start + perPage);
+  }, [visibleRooms, currentPage, perPage]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, perPage]);
+
+
+
   // readings are managed on the Meter page; Rooms shows room/payment info only
 
   const Card = ({ room })=>{
@@ -299,12 +306,20 @@ export default function Rooms(){
           <button onClick={openCreateRoom} className="rounded-xl bg-emerald-600 text-white px-4 py-2 text-sm sm:text-base">Thêm phòng</button>
         </div>
       </div>
-
+ <div className="mt-3">
+          <PaginationControls
+            totalItems={visibleRooms.length}
+            page={currentPage}
+            perPage={perPage}
+            onPageChange={setPage}
+            onPerPageChange={setPerPage}
+          />
+        </div>
       {/* Bảng: từ lg trở lên; dưới lg (gồm iPhone ngang ~844px) dùng thẻ để không ép cuộn ngang */}
       {view === 'table' && (
         <>
           <div className="lg:hidden grid gap-3 sm:gap-4">
-            {visibleRooms.map(r => <Card key={r.id} room={r} />)}
+            {pagedRooms.map(r => <Card key={r.id} room={r} />)}
           </div>
           <div className="hidden lg:block rounded-2xl border bg-white p-4 shadow-sm">
             <div className="overflow-x-auto -mx-1 px-1">
@@ -354,7 +369,7 @@ export default function Rooms(){
 
       {view === 'cards' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
-          {visibleRooms.map(r=> <Card key={r.id} room={r} />)}
+          {pagedRooms.map(r=> <Card key={r.id} room={r} />)}
         </div>
       )}
 
