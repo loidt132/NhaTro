@@ -1,5 +1,5 @@
 // src/pages/Payments.jsx
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useImperativeHandle } from 'react';
 import { loadState, saveState, currency, monthKey, calcTotals, uid, hydrateState } from '../utils/state';
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
@@ -63,7 +63,7 @@ export default function Payments() {
     tenants.forEach(t => { if (!m[t.roomId]) m[t.roomId] = []; m[t.roomId].push(t); });
     return m;
   }, [tenants]);
-
+console.log('get data by month ', month);
   const items = useMemo(
     () =>
       {
@@ -74,11 +74,13 @@ export default function Payments() {
         const tenantId = room.primaryTenantId ?? occActive[0]?.id ?? occupants[0]?.id;
         const tenant = occupants.find(t => t.id === tenantId);
         const reading = (readings ?? []).find(r => r.roomId === room.id && r.month === month);
+        //console.log('calculating item for room', room.name, { inv, tenant, reading });
         const eUse = Math.max(0, (reading?.electricEnd ?? 0) - (reading?.electricStart ?? 0));
         const wUse = Math.max(0, (reading?.waterEnd ?? 0) - (reading?.waterStart ?? 0));
         const eAmt = eUse * (room.electricRate ?? 0);
         const wAmt = wUse * (room.waterRate ?? 0);
         const totalDraft = (room.baseRent ?? 0) + eAmt + wAmt;
+        //console.log('draft amounts calculated', { eUse, wUse, eAmt, wAmt, totalDraft });
         const names = (occActive.length ? occActive : occupants).map(t => t.name).join(', ');
         return { room, occupants, names, tenant, reading, invoice: inv, draft: { eUse, wUse, eAmt, wAmt, totalDraft } };
       });
@@ -99,22 +101,68 @@ export default function Payments() {
       return roomHit || namesHit || statusHit;
     });
   }, [items, query]);
+console.log('filtered items', { query, filteredItems });
+  // const togglePaid = (id) => {
+  //   const next = invoices.map(i =>
+  //     i.id === id
+  //       ? {
+  //           ...i,
+  //           status: i.status === STATUS_PAID ? STATUS_UNPAID : STATUS_PAID,
+  //           paidAt: i.status === STATUS_PAID ? undefined : new Date().toISOString()
+  //         }
+  //       : i
+  //   );
+  //   const s2 = { ...state, invoices: next };
+  //   setState(s2);
+  //   saveState(s2);
+  // };
+const togglePaid = (id) => {
+  const inv = invoices.find(i => i.id === id);
+  if (!inv) return;
 
-  const togglePaid = (id) => {
-    const next = invoices.map(i =>
-      i.id === id
-        ? {
-            ...i,
-            status: i.status === STATUS_PAID ? STATUS_UNPAID : STATUS_PAID,
-            paidAt: i.status === STATUS_PAID ? undefined : new Date().toISOString()
-          }
-        : i
+  let nextInvoices = [];
+  let nextPayments = [...(payments ?? [])];
+
+  if (inv.status === STATUS_PAID) {
+    // 👉 chuyển về chưa thanh toán → xóa payment
+    nextInvoices = invoices.map(i =>
+      i.id === id ? { ...i, status: STATUS_UNPAID, paidAt: undefined } : i
     );
-    const s2 = { ...state, invoices: next };
-    setState(s2);
-    saveState(s2);
+
+    nextPayments = nextPayments.filter(p => p.invoiceId !== id);
+
+  } else {
+    // 👉 đánh dấu đã trả → tạo payment
+    const paidAt = new Date().toISOString();
+
+    nextInvoices = invoices.map(i =>
+      i.id === id ? { ...i, status: STATUS_PAID, paidAt } : i
+    );
+
+    const payment = {
+      id: uid(),
+      invoiceId: id,
+      roomId: inv.roomId,
+      tenantId: inv.tenantId,
+      amount: inv.total,
+      method: 'Tiền mặt', // Chuyển khoản,Khác, Momo, ZaloPay, v.v. có thể thêm sau
+      note: `Thanh toán ${inv.month}`,
+      paidAt :paidAt,
+      createdAt: paidAt,
+    };
+
+    nextPayments.unshift(payment);
+  }
+
+  const s2 = {
+    ...state,
+    invoices: nextInvoices,
+    payments: nextPayments
   };
 
+  setState(s2);
+  saveState(s2);
+};
   const addInvoiceFromReading = (roomId) => {
     const room = roomMap[roomId];
     const occ = tenantsByRoom[roomId] ?? [];

@@ -211,6 +211,7 @@ export async function hydrateState(options = {}) {
     // 1. Load từ IndexedDB (NHANH)
     const dbState = await dbGet(key);
     if (dbState) {
+      console.log('get hydrated state from IndexedDB with key =', key, { dbState });
       memoryState = mergeStateSlices(memoryState, dbState, tables);
       window.dispatchEvent(new Event('boarding_state_updated'));
     }
@@ -220,6 +221,7 @@ export async function hydrateState(options = {}) {
     const nextState = mergeStateSlices(memoryState, serverState, tables);
     if (serverState && hasStateChanged(nextState, memoryState, tables)) {
       memoryState = nextState;
+      console.log('store hydrated state from server with key  =', key, { serverState, nextState });
       await dbSet(key, nextState);
       window.dispatchEvent(new Event('boarding_state_updated'));
     }

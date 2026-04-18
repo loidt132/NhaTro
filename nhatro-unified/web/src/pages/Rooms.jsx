@@ -296,8 +296,6 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
       <TopStats rooms={rooms.length} tenants={tenantsActiveCount} invoices={invoicesForMonth} debts={unpaidForMonth} />
       <TotalsBar sumPaid={sumPaid} sumDebt={sumDebt} />
       <SearchBar month={month} onMonthChange={setMonth} query={query} onQueryChange={setQuery} />
-      <div className="text-slate-600 text-sm font-medium">Các lần ghi trước:</div>
-  
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div></div>
@@ -306,7 +304,7 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
           <button onClick={openCreateRoom} className="rounded-xl bg-emerald-600 text-white px-4 py-2 text-sm sm:text-base">Thêm phòng</button>
         </div>
       </div>
- <div className="mt-3">
+    <div className="mt-3">
           <PaginationControls
             totalItems={visibleRooms.length}
             page={currentPage}
