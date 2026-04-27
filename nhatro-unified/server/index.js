@@ -80,22 +80,35 @@ app.get('/', (req, res) => {
 function sanitizeStateForPersistence(nextState = {}) {
   const invoices = Array.isArray(nextState.invoices) ? nextState.invoices : [];
   const payments = Array.isArray(nextState.payments) ? nextState.payments : [];
-  const invoiceIds = new Set(
+  const invoiceById = new Map(
     invoices
-      .filter((invoice) => invoice?.id)
-      .map((invoice) => String(invoice.id))
+      .filter((invoice) => invoice?.id !== null && invoice?.id !== undefined && invoice?.id !== '')
+      .map((invoice) => [String(invoice.id), invoice])
   );
+  const STATUS_UNPAID = 'Chưa thanh toán';
+  const LEGACY_STATUS_UNPAID = 'Chưa thanh toán';
+  const isUnpaid = (status = '') => {
+    const s = String(status || '').trim();
+    return s === STATUS_UNPAID || s === LEGACY_STATUS_UNPAID;
+  };
+  const paymentsByInvoiceId = new Map();
 
-  const filteredPayments = payments.filter((payment) => {
+  payments.forEach((payment) => {
     const invoiceId = payment?.invoiceId;
-    if (invoiceId === null || invoiceId === undefined || invoiceId === '') return false;
-    return invoiceIds.has(String(invoiceId));
+    if (invoiceId === null || invoiceId === undefined || invoiceId === '') return;
+    const invoiceIdKey = String(invoiceId);
+    const invoice = invoiceById.get(invoiceIdKey);
+    if (!invoice) return;
+    if (isUnpaid(invoice.status)) return;
+    if (!paymentsByInvoiceId.has(invoiceIdKey)) {
+      paymentsByInvoiceId.set(invoiceIdKey, payment);
+    }
   });
 
   return {
     ...nextState,
     invoices,
-    payments: filteredPayments,
+    payments: Array.from(paymentsByInvoiceId.values()),
   };
 }
 
@@ -415,7 +428,7 @@ app.post('/api/auth/register', async (req, res) => {
   const normalizedPhone = normalizePhone(phone);
 
   if ((!normalizedEmail && !normalizedPhone) || !password) {
-    return res.status(400).json({ error: 'Thiếu thông tin đăng ký' });
+    return res.status(400).json({ error: 'Thiáº¿u thÃ´ng tin Ä‘Äƒng kÃ½' });
   }
 
   try {
@@ -427,7 +440,7 @@ app.post('/api/auth/register', async (req, res) => {
     );
 
     if (duplicated) {
-      return res.status(409).json({ error: 'Tài khoản đã tồn tại' });
+      return res.status(409).json({ error: 'TÃ i khoáº£n Ä‘Ã£ tá»“n táº¡i' });
     }
 
     const nextUser = {
@@ -462,7 +475,7 @@ app.post('/api/auth/register', async (req, res) => {
     });
   } catch (error) {
     console.error('register error', error);
-    return res.status(500).json({ error: 'Đăng ký thất bại' });
+    return res.status(500).json({ error: 'Thiếu thông tin đăng ký' });
   }
 });
 
@@ -573,3 +586,4 @@ app.listen(port, '0.0.0.0', () => {
 });
 
 module.exports = app;
+

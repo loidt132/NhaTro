@@ -1,24 +1,11 @@
-const DEFAULT_PROD_API_ORIGIN = 'https://nhatro-y4ew.onrender.com';
-const LEGACY_API_ORIGIN = 'https://nhatro-y4ew.onrender.com';
+import { dbGet, dbSet } from './db';
+import { getAuthSession, getStoredToken } from './auth';
+import { isNocoConfigured, loadStateFromNoco, saveStateToNoco } from './nocodb';
 
 /** Trống = fetch `/api` cùng origin; dev: `VITE_API_ORIGIN` trong `.env.development`. */
 function resolveApiBase() {
-  const configured = (import.meta.env.VITE_API_ORIGIN || '').replace(/\/+$/, '');
-  if (import.meta.env.PROD) {
-    if (!configured) return DEFAULT_PROD_API_ORIGIN;
-    if (configured === LEGACY_API_ORIGIN) return DEFAULT_PROD_API_ORIGIN;
-    return configured;
-  }
-  return '';
+  return (import.meta.env.VITE_API_ORIGIN || '').replace(/\/+$/, '');
 }
-
-import { dbGet, dbSet } from './db';
-import { getAuthSession, getStoredToken } from './auth';
-
-/** Trống = fetch `/api` cùng origin; dev: `VITE_API_ORIGIN` trong `.env.development`. */
-//function resolveApiBase() {
- // return (import.meta.env.VITE_API_ORIGIN || '').replace(/\/+$/, '');
-//}
 
 function apiUrl(path) {
   const base = resolveApiBase();
@@ -40,7 +27,6 @@ function currentStateKey() {
 let memoryState = null;
 let activeStateKey = '';
 
-import { isNocoConfigured, loadStateFromNoco, saveStateToNoco } from './nocodb';
 
 function shouldUseNocoState() {
   return isNocoConfigured();
@@ -163,7 +149,7 @@ export function isStateReady() {
 }
 let isHydrating = false;
 
-// So sánh state để tránh render lại vô ích
+// Compare state to avoid unnecessary re-render
 function isSameState(a, b) {
   const aLastModified = a?.__meta?.lastModified;
   const bLastModified = b?.__meta?.lastModified;
@@ -213,7 +199,7 @@ export async function hydrateState(options = {}) {
   const key = ensureSessionBoundary();
   isHydrating = true;
   try {
-    // 1. Load từ IndexedDB (NHANH)
+    // 1. Load from IndexedDB (fast)
     const dbState = await dbGet(key);
     if (dbState) {
       console.log('get hydrated state from IndexedDB with key =', key, { dbState });
@@ -221,7 +207,7 @@ export async function hydrateState(options = {}) {
       window.dispatchEvent(new Event('boarding_state_updated'));
     }
 
-    // 2. Load từ Server (SYNC NGẦM)
+    // 2. Load from server (silent sync)
     const serverState = await loadStateFromServer({ tables });
     const nextState = mergeStateSlices(memoryState, serverState, tables);
     if (serverState && hasStateChanged(nextState, memoryState, tables)) {
@@ -245,7 +231,7 @@ function seed(){
   const monthKey = (d=new Date())=>{ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); return `${y}-${m}`; };
   const r1={ id:uid(), name:'P101', baseRent:2500000, electricRate:3500, waterRate:12000 };
   const r2={ id:uid(), name:'P102', baseRent:2700000, electricRate:3500, waterRate:12000 };
-  const t1={ id:uid(), name:'Nguyễn Văn A', cccd:'012345678901', phone:'0901234567', roomId:r1.id };
+  const t1={ id:uid(), name:'Nguyen Van A', cccd:'012345678901', phone:'0901234567', roomId:r1.id };
   const readings=[{ id:uid(), roomId:r1.id, month:monthKey(), electricStart:100, electricEnd:120, waterStart:30, waterEnd:32, createdAt:new Date().toISOString() }];
   const s={ rooms:[r1,r2], tenants:[t1], readings, invoices:[], payments:[], settings:{ bankCode:'VCB', accountNo:'', accountName:'', qrNoteTemplate:'Tien phong {room} {month}', landlordName:'', landlordPhone:'', landlordAddress:'', occupancyMode:'month', meterRoomScope:'occupied' }, __meta: { lastModified: new Date().toISOString() } };
   return s;
@@ -254,22 +240,45 @@ function seed(){
 function normalizeStateBeforePersist(state = {}) {
   const invoices = Array.isArray(state.invoices) ? state.invoices : [];
   const sourcePayments = Array.isArray(state.payments) ? state.payments : [];
-  const invoiceIds = new Set(invoices.filter((inv) => inv?.id).map((inv) => String(inv.id)));
+  const invoiceById = new Map(
+    invoices
+      .filter((inv) => inv?.id !== null && inv?.id !== undefined && inv?.id !== '')
+      .map((inv) => [String(inv.id), inv])
+  );
   const paymentsByInvoiceId = new Map();
+  const STATUS_PAID = 'Đã thanh toán';
+  const STATUS_UNPAID = 'Chưa thanh toán';
+  const LEGACY_STATUS_UNPAID = 'Chưa thanh toán';
+  const isUnpaid = (status = '') => {
+    const s = String(status || '').trim();
+    return s === STATUS_UNPAID || s === LEGACY_STATUS_UNPAID;
+  };
 
   for (const payment of sourcePayments) {
     const invoiceId = payment?.invoiceId;
     if (invoiceId === null || invoiceId === undefined || invoiceId === '') continue;
     const invoiceIdKey = String(invoiceId);
-    if (!invoiceIds.has(invoiceIdKey)) continue;
+    const invoice = invoiceById.get(invoiceIdKey);
+    if (!invoice) continue;
+    if (isUnpaid(invoice.status)) continue;
     if (!paymentsByInvoiceId.has(invoiceIdKey)) {
       paymentsByInvoiceId.set(invoiceIdKey, payment);
     }
   }
 
+  const normalizedInvoices = invoices.map((invoice) => {
+    if (!invoice?.id) return invoice;
+    const hasPayment = paymentsByInvoiceId.has(String(invoice.id));
+    if (hasPayment) {
+      const payment = paymentsByInvoiceId.get(String(invoice.id));
+      return { ...invoice, status: STATUS_PAID, paidAt: payment?.paidAt || invoice.paidAt };
+    }
+    return { ...invoice, status: STATUS_UNPAID, paidAt: undefined };
+  });
+
   return {
     ...state,
-    invoices,
+    invoices: normalizedInvoices,
     payments: Array.from(paymentsByInvoiceId.values()),
   };
 }
@@ -307,3 +316,4 @@ export function calcTotals(invoices=[], payments=[], ym){
   const sumDebt = filtered.reduce((a,i)=> a + Math.max(0,(+i.total||0) - paidOf(i)), 0);
   return { sumPaid, sumDebt };
 }
+

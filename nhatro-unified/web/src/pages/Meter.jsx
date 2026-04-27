@@ -5,6 +5,7 @@ import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
 import Footer from '../components/Footer';
 import Page from '../components/Page';
+import PaginationControls from '../components/PaginationControls';
 
 export default function Meter() {
   const [state, setState] = useState(loadState());
@@ -17,14 +18,22 @@ export default function Meter() {
   const { rooms, tenants, readings = [], invoices, payments, settings } = state;
   const [month, setMonth] = useState(monthKey());
   const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(10);
 
-  const [form, setForm] = useState({
+  useEffect(() => {
+    setPage(1);
+  }, [month, query, perPage]);
+
+  const EMPTY_FORM = useMemo(() => ({
+    id: null,
     roomId: '',
     electricStart: '',
     electricEnd: '',
     waterStart: '',
     waterEnd: ''
-  });
+  }), []);
+  const [readingModal, setReadingModal] = useState({ open: false, form: EMPTY_FORM });
 
   const getMonthBounds = (ym) => {
     const y = +ym.slice(0, 4);
@@ -68,15 +77,19 @@ export default function Meter() {
     return list.slice().sort((a, b) => (roomMap[a.roomId]?.name || '').localeCompare(roomMap[b.roomId]?.name || ''));
   }, [readings, month, roomMap]);
 
+  const closeReadingModal = () => setReadingModal({ open: false, form: EMPTY_FORM });
+  const openCreateReading = () => setReadingModal({ open: true, form: EMPTY_FORM });
   const onEditReading = (r) => {
-    // load reading into form; month is always the currently selected month
-    setForm({
-      id: r.id,
-      roomId: r.roomId,
-      electricStart: r.electricStart?.toString() ?? '',
-      electricEnd: r.electricEnd?.toString() ?? '',
-      waterStart: r.waterStart?.toString() ?? '',
-      waterEnd: r.waterEnd?.toString() ?? ''
+    setReadingModal({
+      open: true,
+      form: {
+        id: r.id,
+        roomId: r.roomId,
+        electricStart: r.electricStart?.toString() ?? '',
+        electricEnd: r.electricEnd?.toString() ?? '',
+        waterStart: r.waterStart?.toString() ?? '',
+        waterEnd: r.waterEnd?.toString() ?? ''
+      }
     });
   };
 
@@ -122,8 +135,16 @@ export default function Meter() {
     return readingsOfMonth.filter(r => (roomMap[r.roomId]?.name || '').toLowerCase().includes(q));
   }, [readingsOfMonth, query, roomMap]);
 
+  const totalPages = Math.max(1, Math.ceil(readingsVisible.length / perPage));
+  const currentPage = Math.min(page, totalPages);
+  const pagedReadings = useMemo(() => {
+    const start = (currentPage - 1) * perPage;
+    return readingsVisible.slice(start, start + perPage);
+  }, [readingsVisible, currentPage, perPage]);
+
   const submit = (e) => {
     e.preventDefault();
+    const form = readingModal.form;
     if (!form.roomId) return alert('Chọn phòng');
 
     // Validation: ensure starts/ends are numeric when provided and end >= start
@@ -180,8 +201,7 @@ export default function Meter() {
       alert('Đã lưu chỉ số');
     }
 
-    // reset form
-    setForm({ roomId: '', electricStart: '', electricEnd: '', waterStart: '', waterEnd: '' });
+    closeReadingModal();
   };
 
   const { sumPaid, sumDebt } = calcTotals(invoices, payments, month);
@@ -197,48 +217,28 @@ export default function Meter() {
       />
 
       <div className="grid gap-3">
-        
-
-        <form onSubmit={submit} className="space-y-3 rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
-          <select
-            className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-auto sm:text-sm"
-            value={form.roomId}
-            onChange={e => setForm({ ...form, roomId: e.target.value })}
-          >
-            <option value="">— Chọn phòng —</option>
-            {(() => {
-              const opts = [];
-              // if currently editing an existing reading, ensure its room appears in select
-              if (form.roomId) {
-                const cur = rooms.find(rr => rr.id === form.roomId);
-                if (cur && !unrecordedRooms.some(u => u.id === cur.id)) {
-                  opts.push(<option key={cur.id} value={cur.id}>{cur.name}</option>);
-                }
-              }
-              return opts.concat(unrecordedRooms.map(r => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              )));
-            })()}
-          </select>
-
-          <h4 className="font-semibold">Chỉ số điện (kWh)</h4>
-          <input placeholder="Điện đầu (kWh)" className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={form.electricStart} onChange={e=>setForm({...form,electricStart:e.target.value})}/>
-          <input placeholder="Điện cuối (kWh)" className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={form.electricEnd} onChange={e=>setForm({...form,electricEnd:e.target.value})}/>
-
-          <h4 className="font-semibold">Chỉ số nước (m³)</h4>
-          <input placeholder="Nước đầu (m³)" className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={form.waterStart} onChange={e=>setForm({...form,waterStart:e.target.value})}/>
-          <input placeholder="Nước cuối (m³)" className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={form.waterEnd} onChange={e=>setForm({...form,waterEnd:e.target.value})}/>
-
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <button type="submit" className="h-12 rounded-xl bg-emerald-600 px-4 text-base font-medium text-white sm:h-auto sm:py-2">Lưu chỉ số</button>
-            {form.id && (<button type="button" onClick={()=>setForm({ roomId:'', month, electricStart:'', electricEnd:'', waterStart:'', waterEnd:'' })} className="h-12 rounded-xl border px-4 text-base sm:h-auto sm:py-2">Hủy sửa</button>)}
+        <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm text-slate-600">
+            Nhập chỉ số điện/nước theo tháng để tính tiền phòng.
           </div>
-        </form>
+          <button type="button" onClick={openCreateReading} className="h-11 rounded-xl bg-emerald-600 px-4 text-sm font-medium text-white">
+            Thêm chỉ số
+          </button>
+        </div>
         {readingsVisible.length > 0 && (
           <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
             <div className="mb-3 font-semibold">Danh sách chỉ số — {month}</div>
+            <div className="mb-3">
+              <PaginationControls
+                totalItems={readingsVisible.length}
+                page={currentPage}
+                perPage={perPage}
+                onPageChange={setPage}
+                onPerPageChange={setPerPage}
+              />
+            </div>
             <div className="space-y-3 lg:hidden">
-              {readingsVisible.map(r => {
+              {pagedReadings.map(r => {
                 const eUse = Math.max(0, (r.electricEnd || 0) - (r.electricStart || 0));
                 const wUse = Math.max(0, (r.waterEnd || 0) - (r.waterStart || 0));
                 return (
@@ -267,7 +267,7 @@ export default function Meter() {
                   </tr>
                 </thead>
                 <tbody>
-                  {readingsVisible.map(r => {
+                  {pagedReadings.map(r => {
                     const eUse = Math.max(0, (r.electricEnd || 0) - (r.electricStart || 0));
                     const wUse = Math.max(0, (r.waterEnd || 0) - (r.waterStart || 0));
                     return (
@@ -291,6 +291,59 @@ export default function Meter() {
         )}
       </div>
       <Footer />
+
+      {readingModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-stretch sm:items-center justify-center p-0 sm:p-4">
+          <div className="w-full max-w-xl rounded-none sm:rounded-2xl bg-white shadow-lg flex flex-col max-h-[100dvh] sm:max-h-[min(90dvh,900px)]">
+            <div className="flex-shrink-0 flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5 sm:py-4">
+              <div className="min-w-0">
+                <div className="text-base sm:text-lg font-semibold leading-snug">{readingModal.form.id ? 'Cập nhật chỉ số' : 'Thêm chỉ số'}</div>
+                <div className="text-sm text-slate-600 mt-0.5">Tháng: <span className="font-medium text-slate-800">{month}</span></div>
+              </div>
+              <button type="button" onClick={closeReadingModal} className="flex-shrink-0 rounded-xl border px-3 py-2 text-sm">Đóng</button>
+            </div>
+
+            <form onSubmit={submit} className="flex-1 min-h-0 overflow-y-auto px-4 py-4 sm:px-5 space-y-3">
+              <select
+                className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-auto sm:text-sm"
+                value={readingModal.form.roomId}
+                onChange={e => setReadingModal((prev) => ({ ...prev, form: { ...prev.form, roomId: e.target.value } }))}
+              >
+                <option value="">— Chọn phòng —</option>
+                {(() => {
+                  const opts = [];
+                  if (readingModal.form.roomId) {
+                    const cur = rooms.find(rr => rr.id === readingModal.form.roomId);
+                    if (cur && !unrecordedRooms.some(u => u.id === cur.id)) {
+                      opts.push(<option key={cur.id} value={cur.id}>{cur.name}</option>);
+                    }
+                  }
+                  return opts.concat(unrecordedRooms.map(r => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  )));
+                })()}
+              </select>
+
+              <h4 className="font-semibold">Chỉ số điện (kWh)</h4>
+              <input placeholder="Điện đầu (kWh)" className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={readingModal.form.electricStart} onChange={e=>setReadingModal((prev)=>({ ...prev, form:{...prev.form, electricStart:e.target.value}}))}/>
+              <input placeholder="Điện cuối (kWh)" className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={readingModal.form.electricEnd} onChange={e=>setReadingModal((prev)=>({ ...prev, form:{...prev.form, electricEnd:e.target.value}}))}/>
+
+              <h4 className="font-semibold">Chỉ số nước (m³)</h4>
+              <input placeholder="Nước đầu (m³)" className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={readingModal.form.waterStart} onChange={e=>setReadingModal((prev)=>({ ...prev, form:{...prev.form, waterStart:e.target.value}}))}/>
+              <input placeholder="Nước cuối (m³)" className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={readingModal.form.waterEnd} onChange={e=>setReadingModal((prev)=>({ ...prev, form:{...prev.form, waterEnd:e.target.value}}))}/>
+
+              <div className="pt-2 border-t border-slate-100 flex flex-col-reverse sm:flex-row sm:items-center gap-2">
+                <button type="button" className="w-full sm:w-auto rounded-xl border px-4 py-3 sm:py-2" onClick={closeReadingModal}>
+                  Hủy
+                </button>
+                <button type="submit" className="w-full sm:w-auto rounded-xl bg-emerald-600 px-4 py-3 sm:py-2 text-white font-medium">
+                  Lưu chỉ số
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </Page>
   );
 }

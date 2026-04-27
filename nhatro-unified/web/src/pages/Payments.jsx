@@ -1,5 +1,6 @@
 // src/pages/Payments.jsx
-import React, { useMemo, useState, useEffect, useImperativeHandle } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { loadState, saveState, currency, monthKey, calcTotals, uid, hydrateState } from '../utils/state';
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
@@ -17,6 +18,12 @@ const makeAddInfo = (inv, rooms, settings) => {
 
 const STATUS_UNPAID = 'Chưa thanh toán';
 const STATUS_PAID = 'Đã thanh toán';
+const LEGACY_STATUS_UNPAID = 'Chưa thanh toán';
+
+const isUnpaidStatus = (status = '') => {
+  const s = String(status || '').trim();
+  return s === STATUS_UNPAID || s === LEGACY_STATUS_UNPAID;
+};
 
 export default function Payments() {
   const [state, setState] = useState(loadState());
@@ -33,6 +40,10 @@ export default function Payments() {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
+
+  useEffect(() => {
+    setPage(1);
+  }, [month, query, perPage]);
 
   const todayYmd = new Date().toISOString().slice(0,10);
   const getMonthBounds = (ym)=>{
@@ -61,6 +72,20 @@ export default function Payments() {
 
   const roomMap = useMemo(() => Object.fromEntries(rooms.map(r => [r.id, r])), [rooms]);
 
+  const latestReadingOfMonth = useMemo(() => {
+    const list = readings ?? [];
+    const byKey = new Map();
+    for (const r of list) {
+      if (!r?.roomId || !r?.month) continue;
+      const key = `${r.roomId}__${r.month}`;
+      const prev = byKey.get(key);
+      const prevTime = prev?.updatedAt || prev?.createdAt || '';
+      const nextTime = r?.updatedAt || r?.createdAt || '';
+      if (!prev || String(nextTime) > String(prevTime)) byKey.set(key, r);
+    }
+    return byKey;
+  }, [readings]);
+
   const tenantsByRoom = useMemo(() => {
     const m = {};
     tenants.forEach(t => { if (!m[t.roomId]) m[t.roomId] = []; m[t.roomId].push(t); });
@@ -76,7 +101,7 @@ console.log('get data by month ', month);
         const occActive = occupants.filter(isActiveTenant);
         const tenantId = room.primaryTenantId ?? occActive[0]?.id ?? occupants[0]?.id;
         const tenant = occupants.find(t => t.id === tenantId);
-        const reading = (readings ?? []).find(r => r.roomId === room.id && r.month === month);
+        const reading = latestReadingOfMonth.get(`${room.id}__${month}`);
         //console.log('calculating item for room', room.name, { inv, tenant, reading });
         const eUse = Math.max(0, (reading?.electricEnd ?? 0) - (reading?.electricStart ?? 0));
         const wUse = Math.max(0, (reading?.waterEnd ?? 0) - (reading?.waterStart ?? 0));
@@ -90,7 +115,7 @@ console.log('get data by month ', month);
       // sort items by room name for consistent ordering across pages
       return list.slice().sort((a, b) => (a.room.name || '').localeCompare(b.room.name || ''));
     },
-    [rooms, invoices, tenantsByRoom, readings, month, settings?.occupancyMode]
+    [rooms, invoices, tenantsByRoom, latestReadingOfMonth, month, settings?.occupancyMode]
   );
 
   const filteredItems = useMemo(() => {
@@ -180,6 +205,14 @@ const togglePaid = (id) => {
     }
   }
 
+  // hard-enforce: invoice nào đang "chưa thanh toán" thì không giữ payment
+  const unpaidInvoiceIds = new Set(
+    nextInvoices
+      .filter((i) => i?.id && isUnpaidStatus(i.status))
+      .map((i) => String(i.id))
+  );
+  nextPayments = nextPayments.filter((p) => !unpaidInvoiceIds.has(String(p.invoiceId)));
+
   const s2 = {
     ...state,
     invoices: nextInvoices,
@@ -194,7 +227,7 @@ const togglePaid = (id) => {
     const occ = tenantsByRoom[roomId] ?? [];
     const t = occ.find(x => x.id === room.primaryTenantId) ?? occ[0];
     if (!room || !t) return alert('Phòng chưa có khách');
-    const reading = (readings ?? []).find(r => r.roomId === roomId && r.month === month);
+    const reading = latestReadingOfMonth.get(`${roomId}__${month}`);
     if (!reading) return alert('Chưa có chỉ số điện nước cho tháng này');
     const eUse = Math.max(0, (reading.electricEnd ?? 0) - (reading.electricStart ?? 0));
     const wUse = Math.max(0, (reading.waterEnd ?? 0) - (reading.waterStart ?? 0));
@@ -211,6 +244,39 @@ const togglePaid = (id) => {
     };
     const s2 = { ...state, invoices: [inv, ...invoices] };
     setState(s2); saveState(s2);
+  };
+
+  const updateInvoiceFromReading = (invoiceId) => {
+    const inv = state.invoices.find(i => i.id === invoiceId);
+    if (!inv) return;
+    const room = roomMap[inv.roomId];
+    if (!room) return;
+    const reading = latestReadingOfMonth.get(`${inv.roomId}__${inv.month}`);
+    if (!reading) return alert('Chưa có chỉ số điện nước cho tháng này');
+
+    const eUse = Math.max(0, (reading.electricEnd ?? 0) - (reading.electricStart ?? 0));
+    const wUse = Math.max(0, (reading.waterEnd ?? 0) - (reading.waterStart ?? 0));
+    const nextInvoices = state.invoices.map((i) =>
+      i.id !== invoiceId
+        ? i
+        : ({
+            ...i,
+            rent: room.baseRent ?? 0,
+            electricUsage: eUse,
+            electricEnd: reading.electricEnd,
+            electricStart: reading.electricStart,
+            waterUsage: wUse,
+            waterEnd: reading.waterEnd,
+            waterStart: reading.waterStart,
+            electricAmount: eUse * (room.electricRate ?? 0),
+            waterAmount: wUse * (room.waterRate ?? 0),
+            total: (room.baseRent ?? 0) + eUse * (room.electricRate ?? 0) + wUse * (room.waterRate ?? 0),
+            updatedAt: new Date().toISOString(),
+          })
+    );
+    const s2 = { ...state, invoices: nextInvoices };
+    setState(s2);
+    saveState(s2);
   };
 
   const printPdf = async (inv) => {
@@ -268,6 +334,7 @@ const togglePaid = (id) => {
             <tbody>
               {pagedPayments.map(({ room, names, invoice, draft }) => {
                 if (!invoice) {
+                  const hasReading = Boolean(draft && (draft.eUse > 0 || draft.wUse > 0 || (draft.totalDraft ?? 0) > (room.baseRent ?? 0)));
                   return (
                     <tr key={room.id} className="border-t border-slate-100 bg-slate-50/60">
                       <td className="p-2 font-medium whitespace-nowrap">{room.name}</td>
@@ -277,14 +344,33 @@ const togglePaid = (id) => {
                       <td className="p-2 whitespace-nowrap">{currency(draft.eAmt)} <span className="text-slate-400">({draft.eUse} kWh)</span></td>
                       <td className="p-2 whitespace-nowrap">{currency(draft.wAmt)} <span className="text-slate-400">({draft.wUse} m³)</span></td>
                       <td className="p-2 font-semibold whitespace-nowrap">{currency(draft.totalDraft)}</td>
-                      <td className="p-2"><span className="rounded-full px-2 py-1 text-xs bg-amber-100 text-amber-700 whitespace-nowrap">Chưa tạo HĐ</span></td>
-                      <td className="p-2"><button type="button" onClick={() => addInvoiceFromReading(room.id)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Tạo hóa đơn</button></td>
+                      <td className="p-2">
+                        <span className="rounded-full px-2 py-1 text-xs bg-amber-100 text-amber-700 whitespace-nowrap">Chưa tạo HĐ</span>
+                        {!hasReading && (
+                          <div className="mt-1 text-xs text-rose-600">Chưa nhập chỉ số</div>
+                        )}
+                      </td>
+                      <td className="p-2">
+                        <div className="flex flex-wrap gap-1.5">
+                          <button type="button" onClick={() => addInvoiceFromReading(room.id)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Tạo hóa đơn</button>
+                          {!hasReading && (
+                            <Link to="/meter" className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Nhập chỉ số</Link>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   );
                 }
                 const i = invoice;
                 const isPaid = isPaidByPayments(i.id);
                 const statusText = isPaid ? STATUS_PAID : STATUS_UNPAID;
+                const reading = latestReadingOfMonth.get(`${room.id}__${i.month}`);
+                const mismatch = Boolean(reading) && (
+                  (Number(i.electricStart ?? 0) !== Number(reading.electricStart ?? 0)) ||
+                  (Number(i.electricEnd ?? 0) !== Number(reading.electricEnd ?? 0)) ||
+                  (Number(i.waterStart ?? 0) !== Number(reading.waterStart ?? 0)) ||
+                  (Number(i.waterEnd ?? 0) !== Number(reading.waterEnd ?? 0))
+                );
                 return (
                   <tr key={i.id} className="border-t border-slate-100">
                     <td className="p-2 font-medium whitespace-nowrap">{room.name}</td>
@@ -296,11 +382,17 @@ const togglePaid = (id) => {
                     <td className="p-2 font-semibold whitespace-nowrap">{currency(i.total)}</td>
                     <td className="p-2">
                       <span className={'rounded-full px-2 py-1 text-xs whitespace-nowrap ' + (isPaid ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700') }>{statusText}</span>
+                      {mismatch && (
+                        <div className="mt-1 text-xs text-amber-700">Chỉ số đã đổi</div>
+                      )}
                     </td>
                     <td className="p-2">
                       <div className="flex flex-wrap gap-1.5">
                         <button type="button" onClick={() => togglePaid(i.id)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">{isPaid ? 'Đánh dấu chưa thanh toán' : 'Đánh dấu đã trả'}</button>
                         <button type="button" onClick={() => printPdf(i)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Xuất PDF</button>
+                        {mismatch && (
+                          <button type="button" onClick={() => updateInvoiceFromReading(i.id)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Cập nhật từ chỉ số</button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -317,6 +409,7 @@ const togglePaid = (id) => {
     <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
       {pagedPayments.map(({ room, names, invoice, draft }) => {
         if (!invoice) {
+          const hasReading = Boolean(draft && (draft.eUse > 0 || draft.wUse > 0 || (draft.totalDraft ?? 0) > (room.baseRent ?? 0)));
           return (
             <div key={room.id} className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm flex flex-col gap-3 min-w-0">
               <div className="flex items-start justify-between gap-2 min-w-0">
@@ -330,7 +423,12 @@ const togglePaid = (id) => {
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between pt-1 border-t border-slate-100">
                 <div className="text-lg font-semibold tabular-nums">{currency(draft.totalDraft)} đ</div>
-                <button type="button" onClick={() => addInvoiceFromReading(room.id)} className="w-full sm:w-auto rounded-lg border px-3 py-2.5 sm:py-1 text-sm font-medium">Tạo hóa đơn</button>
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                  <button type="button" onClick={() => addInvoiceFromReading(room.id)} className="w-full sm:w-auto rounded-lg border px-3 py-2.5 sm:py-1 text-sm font-medium">Tạo hóa đơn</button>
+                  {!hasReading && (
+                    <Link to="/meter" className="w-full sm:w-auto rounded-lg border px-3 py-2.5 sm:py-1 text-center text-sm font-medium">Nhập chỉ số</Link>
+                  )}
+                </div>
               </div>
             </div>
           );
@@ -339,12 +437,24 @@ const togglePaid = (id) => {
         const isPaid = isPaidByPayments(i.id);
         const status = isPaid ? STATUS_PAID : STATUS_UNPAID;
         const badge = isPaid ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700';
+        const reading = latestReadingOfMonth.get(`${room.id}__${i.month}`);
+        const mismatch = Boolean(reading) && (
+          (Number(i.electricStart ?? 0) !== Number(reading.electricStart ?? 0)) ||
+          (Number(i.electricEnd ?? 0) !== Number(reading.electricEnd ?? 0)) ||
+          (Number(i.waterStart ?? 0) !== Number(reading.waterStart ?? 0)) ||
+          (Number(i.waterEnd ?? 0) !== Number(reading.waterEnd ?? 0))
+        );
         return (
           <div key={i.id} className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm flex flex-col gap-3 min-w-0">
             <div className="flex items-start justify-between gap-2 min-w-0">
               <div className="font-semibold text-[15px] sm:text-base min-w-0 break-words pr-1">PHÒNG {room.name} — {names ?? ''}</div>
               <span className={`shrink-0 rounded-full px-2 py-1 text-xs ${badge}`}>{status}</span>
             </div>
+            {mismatch && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                Chỉ số điện/nước đã thay đổi so với hóa đơn.
+              </div>
+            )}
             <div className="text-sm space-y-1.5 min-w-0">
               <div className="flex justify-between gap-2"><span className="text-slate-500 shrink-0">Tiền phòng</span><b className="text-right tabular-nums">{currency(i.rent)}</b></div>
               <div className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:gap-2"><span className="text-slate-500">Điện</span><span className="min-w-0 text-right sm:text-left break-words">{i.electricUsage} kWh × {currency(room.electricRate ?? 0)} = <b className="tabular-nums">{currency(i.electricAmount)}</b></span></div>
@@ -356,6 +466,9 @@ const togglePaid = (id) => {
               <div className="flex flex-col gap-2 w-full">
                 <button type="button" onClick={() => togglePaid(i.id)} className="w-full rounded-lg border px-3 py-2.5 sm:py-1.5 text-sm font-medium">{isPaid ? 'Đánh dấu chưa thanh toán' : 'Đánh dấu đã trả'}</button>
                 <button type="button" onClick={() => printPdf(i)} className="w-full rounded-lg border px-3 py-2.5 sm:py-1.5 text-sm font-medium">Xuất PDF</button>
+                {mismatch && (
+                  <button type="button" onClick={() => updateInvoiceFromReading(i.id)} className="w-full rounded-lg border px-3 py-2.5 sm:py-1.5 text-sm font-medium">Cập nhật từ chỉ số</button>
+                )}
               </div>
             </div>
           </div>

@@ -21,7 +21,7 @@ function compareByName(a = '', b = '') {
 export default function Tenants() {
   const [state, setState] = useState(() => loadState());
   const [query, setQuery] = useState('');
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [tenantModal, setTenantModal] = useState({ open: false, form: EMPTY_FORM });
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
 
@@ -56,45 +56,48 @@ export default function Tenants() {
     setPage(1);
   }, [query, perPage]);
 
-  const resetForm = () => setForm(EMPTY_FORM);
+  const closeTenantModal = () => setTenantModal({ open: false, form: EMPTY_FORM });
+  const openCreateTenant = () => setTenantModal({ open: true, form: EMPTY_FORM });
 
   const submit = (e) => {
     e.preventDefault();
-    const name = String(form.name || '').trim();
-    const cccd = String(form.cccd || '').trim();
+    const name = String(tenantModal.form.name || '').trim();
+    const cccd = String(tenantModal.form.cccd || '').trim();
     if (!name || !cccd) {
       alert('Nhập đủ Họ tên và CCCD');
       return;
     }
 
-    const sd = form.startDate ? new Date(form.startDate) : null;
-    const ed = form.endDate ? new Date(form.endDate) : null;
+    const sd = tenantModal.form.startDate ? new Date(tenantModal.form.startDate) : null;
+    const ed = tenantModal.form.endDate ? new Date(tenantModal.form.endDate) : null;
     if (sd && Number.isNaN(sd.getTime())) return alert('Ngày bắt đầu không hợp lệ');
     if (ed && Number.isNaN(ed.getTime())) return alert('Ngày kết thúc không hợp lệ');
     if (sd && ed && sd > ed) return alert('Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc');
 
     const payload = {
-      id: form.id || uid(),
+      id: tenantModal.form.id || uid(),
       name,
       cccd,
-      phone: String(form.phone || '').trim(),
-      roomId: form.roomId || '',
-      startDate: form.startDate || '',
-      endDate: form.endDate || '',
+      phone: String(tenantModal.form.phone || '').trim(),
+      roomId: tenantModal.form.roomId || '',
+      startDate: tenantModal.form.startDate || '',
+      endDate: tenantModal.form.endDate || '',
     };
 
-    const nextTenants = form.id
-      ? tenants.map((t) => (t.id === form.id ? payload : t))
+    const nextTenants = tenantModal.form.id
+      ? tenants.map((t) => (t.id === tenantModal.form.id ? payload : t))
       : [...tenants, payload];
 
     const next = { ...state, tenants: nextTenants };
     setState(next);
     saveState(next);
-    resetForm();
+    closeTenantModal();
   };
 
   const editTenant = (t) => {
-    setForm({
+    setTenantModal({
+      open: true,
+      form: {
       id: t.id,
       name: t.name || '',
       cccd: t.cccd || '',
@@ -102,6 +105,7 @@ export default function Tenants() {
       roomId: t.roomId || '',
       startDate: t.startDate || '',
       endDate: t.endDate || '',
+      }
     });
   };
 
@@ -112,7 +116,7 @@ export default function Tenants() {
     const next = { ...state, tenants: nextTenants, rooms: nextRooms };
     setState(next);
     saveState(next);
-    if (form.id === tenantId) resetForm();
+    if (tenantModal.form.id === tenantId) closeTenantModal();
   };
 
   const setPrimaryTenant = (tenant) => {
@@ -130,82 +134,12 @@ export default function Tenants() {
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
         <h2 className="text-lg font-semibold">Quản lý khách thuê</h2>
         <p className="mt-1 text-sm text-slate-500">Thêm, sửa, xóa và phân phòng khách thuê.</p>
-      </div>
-
-      <form onSubmit={submit} className="rounded-2xl border bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div>
-            <label className="text-xs text-slate-500">Họ tên</label>
-            <input
-              className="mt-1 w-full rounded-xl border px-3 py-2"
-              value={form.name}
-              onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500">CCCD</label>
-            <input
-              className="mt-1 w-full rounded-xl border px-3 py-2"
-              value={form.cccd}
-              onChange={(e) => setForm((prev) => ({ ...prev, cccd: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500">Số điện thoại</label>
-            <input
-              className="mt-1 w-full rounded-xl border px-3 py-2"
-              value={form.phone}
-              onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500">Phòng</label>
-            <select
-              className="mt-1 w-full rounded-xl border px-3 py-2"
-              value={form.roomId}
-              onChange={(e) => setForm((prev) => ({ ...prev, roomId: e.target.value }))}
-            >
-              <option value="">Chưa gán phòng</option>
-              {(rooms || [])
-                .slice()
-                .sort((a, b) => compareByName(a.name, b.name))
-                .map((room) => (
-                  <option key={room.id} value={room.id}>
-                    {room.name}
-                  </option>
-                ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-slate-500">Ngày bắt đầu</label>
-            <input
-              type="date"
-              className="mt-1 w-full rounded-xl border px-3 py-2"
-              value={form.startDate}
-              onChange={(e) => setForm((prev) => ({ ...prev, startDate: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500">Ngày kết thúc</label>
-            <input
-              type="date"
-              className="mt-1 w-full rounded-xl border px-3 py-2"
-              value={form.endDate}
-              onChange={(e) => setForm((prev) => ({ ...prev, endDate: e.target.value }))}
-            />
-          </div>
-        </div>
-        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-          <button type="submit" className="rounded-xl bg-emerald-600 px-4 py-2 text-white">
-            {form.id ? 'Cập nhật khách thuê' : 'Thêm khách thuê'}
+        <div className="mt-3">
+          <button type="button" onClick={openCreateTenant} className="rounded-xl bg-emerald-600 px-4 py-2 text-white">
+            Thêm khách thuê
           </button>
-          {form.id ? (
-            <button type="button" className="rounded-xl border px-4 py-2" onClick={resetForm}>
-              Hủy sửa
-            </button>
-          ) : null}
         </div>
-      </form>
+      </div>
 
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -315,6 +249,94 @@ export default function Tenants() {
       </div>
 
       <Footer />
+
+      {tenantModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-stretch sm:items-center justify-center p-0 sm:p-4">
+          <div className="w-full max-w-2xl rounded-none sm:rounded-2xl bg-white shadow-lg flex flex-col max-h-[100dvh] sm:max-h-[min(90dvh,900px)]">
+            <div className="flex-shrink-0 flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5 sm:py-4">
+              <div className="min-w-0">
+                <div className="text-base sm:text-lg font-semibold leading-snug">{tenantModal.form.id ? 'Cập nhật khách thuê' : 'Thêm khách thuê'}</div>
+                <div className="text-sm text-slate-600 mt-0.5">Nhập thông tin khách và gán phòng (nếu có).</div>
+              </div>
+              <button type="button" onClick={closeTenantModal} className="flex-shrink-0 rounded-xl border px-3 py-2 text-sm">Đóng</button>
+            </div>
+
+            <form onSubmit={submit} className="flex-1 min-h-0 overflow-y-auto px-4 py-4 sm:px-5 space-y-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label className="text-xs text-slate-500">Họ tên</label>
+                  <input
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5"
+                    value={tenantModal.form.name}
+                    onChange={(e) => setTenantModal((prev) => ({ ...prev, form: { ...prev.form, name: e.target.value } }))}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-xs text-slate-500">CCCD</label>
+                  <input
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5"
+                    value={tenantModal.form.cccd}
+                    onChange={(e) => setTenantModal((prev) => ({ ...prev, form: { ...prev.form, cccd: e.target.value } }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500">Số điện thoại</label>
+                  <input
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5"
+                    value={tenantModal.form.phone}
+                    onChange={(e) => setTenantModal((prev) => ({ ...prev, form: { ...prev.form, phone: e.target.value } }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500">Phòng</label>
+                  <select
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5"
+                    value={tenantModal.form.roomId}
+                    onChange={(e) => setTenantModal((prev) => ({ ...prev, form: { ...prev.form, roomId: e.target.value } }))}
+                  >
+                    <option value="">Chưa gán phòng</option>
+                    {(rooms || [])
+                      .slice()
+                      .sort((a, b) => compareByName(a.name, b.name))
+                      .map((room) => (
+                        <option key={room.id} value={room.id}>
+                          {room.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500">Ngày bắt đầu</label>
+                  <input
+                    type="date"
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5"
+                    value={tenantModal.form.startDate}
+                    onChange={(e) => setTenantModal((prev) => ({ ...prev, form: { ...prev.form, startDate: e.target.value } }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500">Ngày kết thúc</label>
+                  <input
+                    type="date"
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5"
+                    value={tenantModal.form.endDate}
+                    onChange={(e) => setTenantModal((prev) => ({ ...prev, form: { ...prev.form, endDate: e.target.value } }))}
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-slate-100 flex flex-col-reverse sm:flex-row sm:items-center gap-2">
+                <button type="button" className="w-full sm:w-auto rounded-xl border px-4 py-3 sm:py-2" onClick={closeTenantModal}>
+                  Hủy
+                </button>
+                <button type="submit" className="w-full sm:w-auto rounded-xl bg-emerald-600 px-4 py-3 sm:py-2 text-white font-medium">
+                  {tenantModal.form.id ? 'Cập nhật' : 'Thêm mới'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </Page>
   );
 }

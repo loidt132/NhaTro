@@ -66,8 +66,17 @@ function buildOwnedQuery(userId, extra = '') {
   return `?${owned}${suffix ? suffix : ''}`;
 }
 
+function buildOwnedWhere(userId, whereClause = '', extra = '') {
+  const base = `(${CREATED_BY_FIELD},eq,${userId})`;
+  const combined = whereClause ? `${base}~and${whereClause}` : base;
+  const owned = `where=${encodeURIComponent(combined)}`;
+  const suffix = extra ? `&${extra.replace(/^\?/, '').replace(/^&/, '')}` : '';
+  return `?${owned}${suffix ? suffix : ''}`;
+}
+
 function getRowId(row) {
-  const candidate = row?.Id ?? row?.ID ?? null;
+  // Prefer NocoDB system "Id" column. Avoid accidentally using a user-defined "ID" column.
+  const candidate = row?.Id ?? null;
   if (candidate === null || candidate === undefined || candidate === '') return null;
   return candidate;
 }
@@ -216,6 +225,16 @@ async function fetchTableRows(tableKey, query = '') {
   return data?.list || [];
 }
 
+async function findRowIdByAppId(tableKey, appId, userId) {
+  if (!appId) return null;
+  const rows = await fetchTableRows(
+    tableKey,
+    buildOwnedWhere(userId, `(id,eq,${appId})`, 'limit=1')
+  );
+  const row = rows?.[0];
+  return getRowId(row);
+}
+
 async function createRow(tableKey, payload) {
   await fetchJson(tableUrl(tableKey), {
     method: 'POST',
@@ -247,10 +266,41 @@ async function updateRow(tableKey, rowId, payload) {
 }
 
 async function deleteRow(tableKey, rowId) {
-  await fetchJson(tableUrl(tableKey, `?ids=${rowId}`), {
+  const res = await fetchJsonWithStatus(tableUrl(tableKey, `?ids=${rowId}`), {
     method: 'DELETE',
   });
+  // NocoDB may return 404 if the record was already deleted (eventual consistency / concurrent writes).
+  // Treat it as success to keep state sync resilient.
+  if (!res.ok && res.status !== 404) {
+    console.error('NocoDB delete failed:', tableUrl(tableKey, `?ids=${rowId}`), res.status, res.data);
+    throw new Error(`NocoDB request failed: ${res.status}`);
+  }
   await sleep(WRITE_GAP_MS);
+}
+
+async function deleteRowByCandidates(tableKey, candidates = []) {
+  const tried = new Set();
+  for (const raw of candidates) {
+    const id = raw === null || raw === undefined ? '' : String(raw);
+    if (!id || tried.has(id)) continue;
+    tried.add(id);
+
+    const res = await fetchJsonWithStatus(tableUrl(tableKey, `?ids=${encodeURIComponent(id)}`), {
+      method: 'DELETE',
+    });
+    if (res.ok) {
+      await sleep(WRITE_GAP_MS);
+      return true;
+    }
+    // If not found, try the next candidate (different PK).
+    if (res.status !== 404) {
+      console.error('NocoDB delete failed:', tableUrl(tableKey, `?ids=${id}`), res.status, res.data);
+      throw new Error(`NocoDB request failed: ${res.status}`);
+    }
+  }
+  // Not found with any candidate => treat as already deleted / missing
+  await sleep(WRITE_GAP_MS);
+  return false;
 }
 
 function stableStringify(value) {
@@ -300,7 +350,19 @@ async function syncCollectionTable(tableKey, records = [], userId) {
     const clean = stripSystemColumns(row);
     if (!clean?.id) continue;
     if (!nextIds.has(clean.id)) {
-      await deleteRow(tableKey, getRowId(row));
+      const rowId = getRowId(row);
+      if (rowId === null || rowId === undefined || rowId === '') {
+        // Fallback: resolve row Id via a lookup query by app-level id
+        const resolved = await findRowIdByAppId(tableKey, clean.id, userId);
+        if (resolved === null || resolved === undefined || resolved === '') {
+          // Last resort: table PK might be the app-level id itself
+          await deleteRowByCandidates(tableKey, [clean.id]);
+          continue;
+        }
+        await deleteRowByCandidates(tableKey, [resolved, clean.id]);
+        continue;
+      }
+      await deleteRowByCandidates(tableKey, [rowId, clean.id]);
     }
   }
 }
