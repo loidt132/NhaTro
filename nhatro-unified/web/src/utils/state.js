@@ -1,6 +1,3 @@
-
-import { dbGet, dbSet } from './db';
-import { getAuthSession, getStoredToken } from './auth';
 const DEFAULT_PROD_API_ORIGIN = 'https://nhatro-y4ew.onrender.com';
 const LEGACY_API_ORIGIN = 'https://nhatro-y4ew.onrender.com';
 
@@ -14,6 +11,14 @@ function resolveApiBase() {
   }
   return '';
 }
+
+import { dbGet, dbSet } from './db';
+import { getAuthSession, getStoredToken } from './auth';
+
+/** Trống = fetch `/api` cùng origin; dev: `VITE_API_ORIGIN` trong `.env.development`. */
+//function resolveApiBase() {
+ // return (import.meta.env.VITE_API_ORIGIN || '').replace(/\/+$/, '');
+//}
 
 function apiUrl(path) {
   const base = resolveApiBase();
@@ -245,10 +250,35 @@ function seed(){
   const s={ rooms:[r1,r2], tenants:[t1], readings, invoices:[], payments:[], settings:{ bankCode:'VCB', accountNo:'', accountName:'', qrNoteTemplate:'Tien phong {room} {month}', landlordName:'', landlordPhone:'', landlordAddress:'', occupancyMode:'month', meterRoomScope:'occupied' }, __meta: { lastModified: new Date().toISOString() } };
   return s;
 }
+
+function normalizeStateBeforePersist(state = {}) {
+  const invoices = Array.isArray(state.invoices) ? state.invoices : [];
+  const sourcePayments = Array.isArray(state.payments) ? state.payments : [];
+  const invoiceIds = new Set(invoices.filter((inv) => inv?.id).map((inv) => String(inv.id)));
+  const paymentsByInvoiceId = new Map();
+
+  for (const payment of sourcePayments) {
+    const invoiceId = payment?.invoiceId;
+    if (invoiceId === null || invoiceId === undefined || invoiceId === '') continue;
+    const invoiceIdKey = String(invoiceId);
+    if (!invoiceIds.has(invoiceIdKey)) continue;
+    if (!paymentsByInvoiceId.has(invoiceIdKey)) {
+      paymentsByInvoiceId.set(invoiceIdKey, payment);
+    }
+  }
+
+  return {
+    ...state,
+    invoices,
+    payments: Array.from(paymentsByInvoiceId.values()),
+  };
+}
+
 export function saveState(next){ 
   try{
     const key = ensureSessionBoundary();
-    const withMeta = { ...next, __meta: { lastModified: new Date().toISOString() } };
+    const normalized = normalizeStateBeforePersist(next);
+    const withMeta = { ...normalized, __meta: { lastModified: new Date().toISOString() } };
     // update in-memory snapshot
     memoryState = withMeta;
     // async write to IndexedDB for persistence across sessions
@@ -271,9 +301,7 @@ export const isInMonth = (inv, ym) => ym ? inv.month===ym : true;
 export function calcTotals(invoices=[], payments=[], ym){
   const filtered = ym? invoices.filter(i=> isInMonth(i, ym)) : invoices;
   const paidOf = (i)=>{
-    const fromPayments = (payments||[]).filter(p=>p.invoiceId===i.id).reduce((a,b)=>a+(+b.amount||0),0);
-    if (fromPayments>0) return fromPayments;
-    return i.status==='Đã thanh toán' ? (+i.total||0) : 0;
+    return (payments||[]).filter(p=>p.invoiceId===i.id).reduce((a,b)=>a+(+b.amount||0),0);
   };
   const sumPaid = filtered.reduce((a,i)=> a + paidOf(i), 0);
   const sumDebt = filtered.reduce((a,i)=> a + Math.max(0,(+i.total||0) - paidOf(i)), 0);

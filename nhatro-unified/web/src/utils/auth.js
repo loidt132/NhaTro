@@ -1,15 +1,7 @@
 const TOKEN_KEY = 'nhatro_auth_token';
-const DEFAULT_PROD_API_ORIGIN = 'https://nhatro-production.up.railway.app';
-const LEGACY_API_ORIGIN = 'https://loidt132-nhatro.vercel.app';
 
 function resolveApiBase() {
-  const configured = (import.meta.env.VITE_API_ORIGIN || '').replace(/\/+$/, '');
-  if (import.meta.env.PROD) {
-    if (!configured) return DEFAULT_PROD_API_ORIGIN;
-    if (configured === LEGACY_API_ORIGIN) return DEFAULT_PROD_API_ORIGIN;
-    return configured;
-  }
-  return '';
+  return (import.meta.env.VITE_API_ORIGIN || '').replace(/\/+$/, '');
 }
 
 function apiUrl(path) {

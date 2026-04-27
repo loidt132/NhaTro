@@ -112,6 +112,9 @@ console.log('filtered items', { query, filteredItems });
     const start = (currentPage - 1) * perPage;
     return filteredItems.slice(start, start + perPage);
   }, [filteredItems, currentPage, perPage]);
+
+  const isPaidByPayments = (invoiceId, paymentList = state.payments ?? []) =>
+    paymentList.some(p => String(p.invoiceId) === String(invoiceId));
   // const togglePaid = (id) => {
   //   const next = invoices.map(i =>
   //     i.id === id
@@ -127,41 +130,54 @@ console.log('filtered items', { query, filteredItems });
   //   saveState(s2);
   // };
 const togglePaid = (id) => {
-  const inv = invoices.find(i => i.id === id);
+  const inv = state.invoices.find(i => i.id === id);
   if (!inv) return;
 
   let nextInvoices = [];
-  let nextPayments = [...(payments ?? [])];
+  let nextPayments = [...(state.payments ?? [])];
+  const currentlyPaid = nextPayments.some(p => String(p.invoiceId) === String(id));
 
-  if (inv.status === STATUS_PAID) {
+  if (currentlyPaid) {
     // 👉 chuyển về chưa thanh toán → xóa payment
-    nextInvoices = invoices.map(i =>
-      i.id === id ? { ...i, status: STATUS_UNPAID, paidAt: undefined } : i
+    nextInvoices = state.invoices.map(i =>
+      i.id === id
+        ? { ...i, status: STATUS_UNPAID, paidAt: undefined }
+        : i
     );
 
-    nextPayments = nextPayments.filter(p => p.invoiceId !== id);
+    nextPayments = nextPayments.filter(
+      p => String(p.invoiceId) !== String(id)
+    );
 
   } else {
-    // 👉 đánh dấu đã trả → tạo payment
     const paidAt = new Date().toISOString();
 
-    nextInvoices = invoices.map(i =>
-      i.id === id ? { ...i, status: STATUS_PAID, paidAt } : i
+    nextInvoices = state.invoices.map(i =>
+      i.id === id
+        ? { ...i, status: STATUS_PAID, paidAt }
+        : i
     );
 
-    const payment = {
-      id: uid(),
-      invoiceId: id,
-      roomId: inv.roomId,
-      tenantId: inv.tenantId,
-      amount: inv.total,
-      method: 'Tiền mặt', // Chuyển khoản,Khác, Momo, ZaloPay, v.v. có thể thêm sau
-      note: `Thanh toán ${inv.month}`,
-      paidAt :paidAt,
-      createdAt: paidAt,
-    };
+    // tránh duplicate
+    const existed = nextPayments.find(
+      p => String(p.invoiceId) === String(id)
+    );
 
-    nextPayments.unshift(payment);
+    if (!existed) {
+      const payment = {
+        id: uid(),
+        invoiceId: id,
+        roomId: inv.roomId,
+        tenantId: inv.tenantId,
+        amount: inv.total,
+        method: 'Tiền mặt',
+        note: `Thanh toán ${inv.month}`,
+        paidAt,
+        createdAt: paidAt,
+      };
+
+      nextPayments.unshift(payment);
+    }
   }
 
   const s2 = {
@@ -211,7 +227,7 @@ const togglePaid = (id) => {
         { name: 'Nước',  spec: `${inv.waterEnd} m³ - ${inv?.waterStart} m³`,       qty: inv.waterUsage,   unitPrice: room?.waterRate ?? 0, amount: inv.waterAmount },
       ],
       total: inv.total,
-      paid: (inv.status === STATUS_PAID),
+      paid: isPaidByPayments(inv.id),
       paidDateLabel: inv.paidAt ? new Date(inv.paidAt).toLocaleDateString('vi-VN') : undefined,
       note
     };
@@ -267,6 +283,8 @@ const togglePaid = (id) => {
                   );
                 }
                 const i = invoice;
+                const isPaid = isPaidByPayments(i.id);
+                const statusText = isPaid ? STATUS_PAID : STATUS_UNPAID;
                 return (
                   <tr key={i.id} className="border-t border-slate-100">
                     <td className="p-2 font-medium whitespace-nowrap">{room.name}</td>
@@ -277,11 +295,11 @@ const togglePaid = (id) => {
                     <td className="p-2 whitespace-nowrap">{currency(i.waterAmount)} <span className="text-slate-400">({i.waterUsage} m³)</span></td>
                     <td className="p-2 font-semibold whitespace-nowrap">{currency(i.total)}</td>
                     <td className="p-2">
-                      <span className={'rounded-full px-2 py-1 text-xs whitespace-nowrap ' + (i.status === STATUS_PAID ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700') }>{i.status}</span>
+                      <span className={'rounded-full px-2 py-1 text-xs whitespace-nowrap ' + (isPaid ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700') }>{statusText}</span>
                     </td>
                     <td className="p-2">
                       <div className="flex flex-wrap gap-1.5">
-                        <button type="button" onClick={() => togglePaid(i.id)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">{i.status === STATUS_PAID ? 'Đánh dấu chưa thanh toán' : 'Đánh dấu đã trả'}</button>
+                        <button type="button" onClick={() => togglePaid(i.id)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">{isPaid ? 'Đánh dấu chưa thanh toán' : 'Đánh dấu đã trả'}</button>
                         <button type="button" onClick={() => printPdf(i)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Xuất PDF</button>
                       </div>
                     </td>
@@ -318,8 +336,9 @@ const togglePaid = (id) => {
           );
         }
         const i = invoice;
-        const status = i.status ?? STATUS_UNPAID;
-        const badge = status === STATUS_PAID ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700';
+        const isPaid = isPaidByPayments(i.id);
+        const status = isPaid ? STATUS_PAID : STATUS_UNPAID;
+        const badge = isPaid ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700';
         return (
           <div key={i.id} className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm flex flex-col gap-3 min-w-0">
             <div className="flex items-start justify-between gap-2 min-w-0">
@@ -335,7 +354,7 @@ const togglePaid = (id) => {
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between pt-1 border-t border-slate-100">
               <div className="text-lg font-semibold tabular-nums shrink-0">{currency(i.total)} đ</div>
               <div className="flex flex-col gap-2 w-full">
-                <button type="button" onClick={() => togglePaid(i.id)} className="w-full rounded-lg border px-3 py-2.5 sm:py-1.5 text-sm font-medium">{status === STATUS_PAID ? 'Đánh dấu chưa thanh toán' : 'Đánh dấu đã trả'}</button>
+                <button type="button" onClick={() => togglePaid(i.id)} className="w-full rounded-lg border px-3 py-2.5 sm:py-1.5 text-sm font-medium">{isPaid ? 'Đánh dấu chưa thanh toán' : 'Đánh dấu đã trả'}</button>
                 <button type="button" onClick={() => printPdf(i)} className="w-full rounded-lg border px-3 py-2.5 sm:py-1.5 text-sm font-medium">Xuất PDF</button>
               </div>
             </div>

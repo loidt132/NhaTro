@@ -69,10 +69,61 @@ const NOCODB_API_KEY = firstEnv('NOCODB_API_KEY', 'VITE_NOCODB_API_KEY');
 const NOCODB_TABLE_USERS = firstEnv('NOCODB_TABLE_USERS', 'TABLE_USERS', 'VITE_TABLE_USERS', 'VITE_NOCODB_TABLE_USERS');
 const HAS_ANY_NOCO_CONFIG = Boolean(NOCODB_URL || NOCODB_API_KEY || NOCODB_TABLE_USERS);
 const HAS_FULL_NOCO_CONFIG = Boolean(NOCODB_URL && NOCODB_API_KEY && NOCODB_TABLE_USERS);
+const KEEP_ALIVE_URL = firstEnv('RENDER_KEEP_ALIVE_URL', 'APP_URL', 'RENDER_EXTERNAL_URL', 'VITE_API_ORIGIN').replace(/\/+$/, '');
+const KEEP_ALIVE_INTERVAL_MS = Number(process.env.RENDER_KEEP_ALIVE_INTERVAL_MS || 13 * 60 * 1000);
+const ENABLE_KEEP_ALIVE = String(process.env.RENDER_KEEP_ALIVE_ENABLED || 'true').toLowerCase() !== 'false';
 
 app.get('/', (req, res) => {
   res.send('OK');
 });
+
+function sanitizeStateForPersistence(nextState = {}) {
+  const invoices = Array.isArray(nextState.invoices) ? nextState.invoices : [];
+  const payments = Array.isArray(nextState.payments) ? nextState.payments : [];
+  const invoiceIds = new Set(
+    invoices
+      .filter((invoice) => invoice?.id)
+      .map((invoice) => String(invoice.id))
+  );
+
+  const filteredPayments = payments.filter((payment) => {
+    const invoiceId = payment?.invoiceId;
+    if (invoiceId === null || invoiceId === undefined || invoiceId === '') return false;
+    return invoiceIds.has(String(invoiceId));
+  });
+
+  return {
+    ...nextState,
+    invoices,
+    payments: filteredPayments,
+  };
+}
+
+function startKeepAlive() {
+  if (!ENABLE_KEEP_ALIVE) {
+    console.log('Render keep-alive disabled by env');
+    return;
+  }
+  if (!KEEP_ALIVE_URL) {
+    console.log('Render keep-alive skipped: missing RENDER_KEEP_ALIVE_URL/APP_URL/RENDER_EXTERNAL_URL/VITE_API_ORIGIN');
+    return;
+  }
+
+  const targetUrl = `${KEEP_ALIVE_URL}/`;
+  const intervalMs = Math.max(60 * 1000, KEEP_ALIVE_INTERVAL_MS);
+  const ping = async () => {
+    try {
+      const response = await fetchApi(targetUrl, { method: 'GET' });
+      console.log(`[keep-alive] ${response.status} ${targetUrl}`);
+    } catch (error) {
+      console.warn(`[keep-alive] failed ${targetUrl}:`, error.message);
+    }
+  };
+
+  setTimeout(() => { ping(); }, 10 * 1000);
+  setInterval(() => { ping(); }, intervalMs);
+  console.log(`Render keep-alive started: every ${Math.round(intervalMs / 60000)} minutes`);
+}
 
 function parseOrigins(value = '') {
   return String(value)
@@ -481,7 +532,7 @@ app.get('/api/state', authMiddleware, (req, res) => {
   try {
     const raw = fs.readFileSync(statePath, 'utf8');
     const state = raw ? JSON.parse(raw) : {};
-    return res.json({ state });
+    return res.json({ state: sanitizeStateForPersistence(state) });
   } catch {
     return res.json({ state: {} });
   }
@@ -493,12 +544,13 @@ app.post('/api/state', authMiddleware, (req, res) => {
     return res.status(400).json({ error: 'Thiếu dữ liệu state' });
   }
 
+  const sanitizedState = sanitizeStateForPersistence(nextState);
   ensureDir(statesDir);
   const { statePath, stateTmpPath } = statePathsForUser(req.userId);
-  fs.writeFileSync(stateTmpPath, JSON.stringify(nextState, null, 2));
+  fs.writeFileSync(stateTmpPath, JSON.stringify(sanitizedState, null, 2));
   fs.renameSync(stateTmpPath, statePath);
 
-  return res.json({ state: nextState });
+  return res.json({ state: sanitizedState });
 });
 
 const port = process.env.PORT || 4000;
@@ -517,6 +569,7 @@ app.listen(port, '0.0.0.0', () => {
     console.warn('NocoDB auth config is partial. Falling back to users.json auth.');
   }
   console.log(`Auth storage: ${shouldUseNocoAuth() ? 'NocoDB' : 'users.json'}`);
+  startKeepAlive();
 });
 
 module.exports = app;
