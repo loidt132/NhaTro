@@ -31,7 +31,8 @@ export default function Payments() {
   useEffect(() => {
     const handler = () => setState(loadState());
     window.addEventListener('boarding_state_updated', handler);
-    hydrateState({ tables: ['rooms', 'tenants', 'readings', 'invoices', 'payments', 'settings'] });
+    // Core data for Payments. Settings are only needed for PDF / occupancy config and can be loaded on demand.
+    hydrateState({ tables: ['rooms', 'tenants', 'readings', 'invoices', 'payments'] });
     return () => window.removeEventListener('boarding_state_updated', handler);
   }, []);
   const { invoices, rooms, tenants, settings, payments, readings } = state;
@@ -280,6 +281,10 @@ const togglePaid = (id) => {
   };
 
   const printPdf = async (inv) => {
+    // Settings are only required for PDF export (bank info, landlord info, QR template).
+    if (!state?.settings || Object.keys(state.settings || {}).length === 0) {
+      await hydrateState({ tables: ['settings'] });
+    }
     const item = items.find(it => it.invoice?.id === inv.id) ?? {};
     const { room, names } = item;
     const note = makeAddInfo(inv, rooms, settings);

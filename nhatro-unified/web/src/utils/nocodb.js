@@ -75,6 +75,7 @@ function buildOwnedWhere(userId, whereClause = '', extra = '') {
 }
 
 function getRowId(row) {
+  console.log('getRowId', row.Id);
   // Prefer NocoDB system "Id" column. Avoid accidentally using a user-defined "ID" column.
   const candidate = row?.Id ?? null;
   if (candidate === null || candidate === undefined || candidate === '') return null;
@@ -110,9 +111,14 @@ function sanitizeUpdatePayload(payload = {}) {
   return clean;
 }
 
+function sanitizeUpdatePayloadKeepId(payload = {}) {
+  return sanitizeWritablePayload(payload);
+}
+
 function withOwnership(record, userId, isUpdate = false) {
   return {
     ...sanitizeWritablePayload(record),
+    isDeleted: false,
     ...(isUpdate ? {} : { [CREATED_BY_FIELD]: userId }),
     [MODIFIED_BY_FIELD]: userId,
   };
@@ -198,6 +204,7 @@ async function fetchJson(url, options = {}) {
 }
 
 async function fetchJsonWithStatus(url, options = {}) {
+  console.log('fetchJsonWithStatus', url, options);
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
     const res = await fetch(url, { headers: headers(), ...options });
     if (res.status === 429 && attempt < MAX_RETRIES) {
@@ -221,7 +228,13 @@ async function fetchJsonWithStatus(url, options = {}) {
 }
 
 async function fetchTableRows(tableKey, query = '') {
-  const data = await fetchJson(tableUrl(tableKey, query));
+  const userId = currentUserId();
+
+  // 👇 thêm filter isDeleted=false
+  const where = `(isDeleted,neq,true)`;
+  const finalQuery = buildOwnedWhere(userId, where, query);
+
+  const data = await fetchJson(tableUrl(tableKey, finalQuery));
   return data?.list || [];
 }
 
@@ -244,14 +257,21 @@ async function createRow(tableKey, payload) {
 }
 
 async function updateRow(tableKey, rowId, payload) {
-  if (rowId === null || rowId === undefined || rowId === '') {
-    throw new Error(`Missing NocoDB row Id for ${tableKey}. Enable the system "Id" column in the API response before updating existing rows.`);
-  }
+  // Some tables use the app-level `id` column as PK (VARCHAR(64) PRIMARY KEY).
+  // In that case, NocoDB expects that PK value in `?ids=...` for deletes and in PATCH payload to identify rows.
+  // We support both:
+  // - system PK: `Id` (numeric)
+  // - custom PK: `id` (string)
+  const canUseSystemId = !(rowId === null || rowId === undefined || rowId === '');
 
-  const fields = sanitizeUpdatePayload(payload);
+  const fields = canUseSystemId ? sanitizeUpdatePayload(payload) : sanitizeUpdatePayloadKeepId(payload);
   const bulkPayload = Array.isArray(payload)
-    ? payload.map((item) => ({ ...sanitizeUpdatePayload(item), Id: rowId }))
-    : [{ ...fields, Id: rowId }];
+    ? payload.map((item) =>
+        canUseSystemId
+          ? ({ ...sanitizeUpdatePayload(item), Id: rowId })
+          : ({ ...sanitizeUpdatePayloadKeepId(item) })
+      )
+    : [canUseSystemId ? ({ ...fields, Id: rowId }) : ({ ...fields })];
 
   const bulk = await fetchJsonWithStatus(tableUrl(tableKey), {
     method: 'PATCH',
@@ -265,26 +285,28 @@ async function updateRow(tableKey, rowId, payload) {
   await sleep(WRITE_GAP_MS);
 }
 
-async function deleteRow(tableKey, rowId) {
-  const res = await fetchJsonWithStatus(tableUrl(tableKey, `?ids=${rowId}`), {
+/*async function deleteRow(tableKey, id = '') {
+console.log('deleteRow', id);
+  const res = await fetchJsonWithStatus(tableUrl(tableKey, `?ids=${id}`), {
     method: 'DELETE',
   });
   // NocoDB may return 404 if the record was already deleted (eventual consistency / concurrent writes).
   // Treat it as success to keep state sync resilient.
   if (!res.ok && res.status !== 404) {
-    console.error('NocoDB delete failed:', tableUrl(tableKey, `?ids=${rowId}`), res.status, res.data);
+    console.error('NocoDB delete failed:', tableUrl(tableKey, `?ids=${id}`), res.status, res.data);
     throw new Error(`NocoDB request failed: ${res.status}`);
   }
   await sleep(WRITE_GAP_MS);
 }
 
 async function deleteRowByCandidates(tableKey, candidates = []) {
+  console.log('deleteRowByCandidates', candidates);
   const tried = new Set();
   for (const raw of candidates) {
     const id = raw === null || raw === undefined ? '' : String(raw);
     if (!id || tried.has(id)) continue;
     tried.add(id);
-
+    console.log(tableUrl(tableKey, `?ids=${id}`));
     const res = await fetchJsonWithStatus(tableUrl(tableKey, `?ids=${encodeURIComponent(id)}`), {
       method: 'DELETE',
     });
@@ -301,8 +323,51 @@ async function deleteRowByCandidates(tableKey, candidates = []) {
   // Not found with any candidate => treat as already deleted / missing
   await sleep(WRITE_GAP_MS);
   return false;
-}
+} */
+async function deleteRow(tableKey, id = '') {
+  console.log('deleteRow (soft)', id);
 
+  if (!id) throw new Error('Missing Id');
+
+  // 👉 update thay 
+  const payload = {
+    records: [
+      {
+        Id: id,
+        isDeleted: true,
+      },
+    ],
+  };
+  const res = await fetchJsonWithStatus(tableUrl(tableKey), {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    console.error('Soft delete failed:', res.status, res.data);
+    throw new Error(`Soft delete failed: ${res.status}`);
+  }
+
+  await sleep(WRITE_GAP_MS);
+}
+async function deleteRowByCandidates(tableKey, candidates = []) {
+  const tried = new Set();
+
+  for (const raw of candidates) {
+    const id = raw ? String(raw) : '';
+    if (!id || tried.has(id)) continue;
+    tried.add(id);
+
+    try {
+      await deleteRow(tableKey, id);
+      return true;
+    } catch (e) {
+      console.warn('Soft delete candidate failed:', id);
+    }
+  }
+
+  return false;
+}
 function stableStringify(value) {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
   if (value && typeof value === 'object') {
@@ -320,6 +385,7 @@ async function syncCollectionTable(tableKey, records = [], userId) {
   const existingByAppId = new Map();
 
   existingRows.forEach((row) => {
+    if (row.isDeleted) return;
     const clean = stripSystemColumns(row);
     if (clean?.id) {
       existingByAppId.set(clean.id, {
@@ -342,6 +408,8 @@ async function syncCollectionTable(tableKey, records = [], userId) {
     }
 
     if (!isSamePayload(existing.data, record)) {
+      // Prefer updating by app-level id if the table uses it as PK.
+      // If system Id is present, updateRow will use it; otherwise it will PATCH with the app-level `id` included.
       await updateRow(tableKey, existing.rowId, ownedRecord);
     }
   }
@@ -351,18 +419,9 @@ async function syncCollectionTable(tableKey, records = [], userId) {
     if (!clean?.id) continue;
     if (!nextIds.has(clean.id)) {
       const rowId = getRowId(row);
-      if (rowId === null || rowId === undefined || rowId === '') {
-        // Fallback: resolve row Id via a lookup query by app-level id
-        const resolved = await findRowIdByAppId(tableKey, clean.id, userId);
-        if (resolved === null || resolved === undefined || resolved === '') {
-          // Last resort: table PK might be the app-level id itself
-          await deleteRowByCandidates(tableKey, [clean.id]);
-          continue;
-        }
-        await deleteRowByCandidates(tableKey, [resolved, clean.id]);
-        continue;
-      }
-      await deleteRowByCandidates(tableKey, [rowId, clean.id]);
+      // Your schema uses app-level `id` as PRIMARY KEY, so try `id` first.
+      // If table still uses system Id, the fallback will try it too.
+      await deleteRowByCandidates(tableKey, [clean.id, rowId]);
     }
   }
 }
@@ -460,24 +519,26 @@ export async function loadStateFromNoco(options = {}) {
   }
 }
 
-export async function saveStateToNoco(state) {
+export async function saveStateToNoco(state, options = {}) {
+  const { tables = null } = options;
   if (!isNocoConfigured()) return false;
 
   const userId = currentUserId();
   if (!userId) return false;
 
   try {
-    for (const key of DATA_TABLE_KEYS) {
+    const wantedTables = tables && tables.length ? tables : DATA_TABLE_KEYS;
+    for (const key of DATA_TABLE_KEYS.filter((k) => wantedTables.includes(k))) {
       if (!hasTableConfig(key)) {
         warnMissingTable(key);
         continue;
       }
       await syncCollectionTable(key, state[key] || [], userId);
     }
-    if (hasTableConfig('settings')) {
+    if ((!tables || tables.length === 0 || wantedTables.includes('settings')) && hasTableConfig('settings')) {
       await saveSettingsRow(state.settings || {}, state.__meta || {}, userId);
     } else {
-      warnMissingTable('settings');
+      if (!hasTableConfig('settings')) warnMissingTable('settings');
     }
     return true;
   } catch (error) {

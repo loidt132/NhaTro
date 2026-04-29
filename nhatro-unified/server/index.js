@@ -159,7 +159,6 @@ app.use('/api', (req, res, next) => {
     'http://localhost:5173',
     'http://localhost:3000',
     ...parseOrigins(process.env.CORS_ORIGIN),
-    ...parseOrigins(process.env.CORS_ORIGINS),
     ...parseOrigins(process.env.VITE_WEB_ORIGIN),
     ...parseOrigins(process.env.WEB_ORIGIN),
   ].filter(Boolean);

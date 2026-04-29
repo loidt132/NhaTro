@@ -12,7 +12,12 @@ export default function Meter() {
   useEffect(() => {
     const handler = () => setState(loadState());
     window.addEventListener('boarding_state_updated', handler);
-    hydrateState({ tables: ['rooms', 'tenants', 'readings', 'invoices', 'payments', 'settings'] });
+    // Phase 1 (core for the Meter page)
+    hydrateState({ tables: ['rooms', 'tenants', 'readings', 'settings'] });
+    // Phase 2 (optional, only for TotalsBar)
+    setTimeout(() => {
+      hydrateState({ tables: ['invoices', 'payments'] });
+    }, 0);
     return () => window.removeEventListener('boarding_state_updated', handler);
   }, []);
   const { rooms, tenants, readings = [], invoices, payments, settings } = state;

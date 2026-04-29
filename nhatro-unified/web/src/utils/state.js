@@ -1,4 +1,3 @@
-import { dbGet, dbSet } from './db';
 import { getAuthSession, getStoredToken } from './auth';
 import { isNocoConfigured, loadStateFromNoco, saveStateToNoco } from './nocodb';
 
@@ -54,13 +53,14 @@ async function loadStateFromServer(options = {}) {
   return null;
 }
 
-async function saveStateToServer(state) {
+async function saveStateToServer(state, options = {}) {
+  const { tables = null } = options;
   let saved = false;
 
   if (shouldUseNocoState()) {
     try {
-        console.log('save to nocodb', state);
-      await saveStateToNoco(state);
+      console.log('save to nocodb', state);
+      await saveStateToNoco(state, { tables });
       saved = true;
     } catch (e) {
       // continue to local server fallback
@@ -196,24 +196,14 @@ export function resetStateSession() {
 export async function hydrateState(options = {}) {
   const { tables = null } = options;
   if (isHydrating) return;
-  const key = ensureSessionBoundary();
+  ensureSessionBoundary();
   isHydrating = true;
   try {
-    // 1. Load from IndexedDB (fast)
-    const dbState = await dbGet(key);
-    if (dbState) {
-      console.log('get hydrated state from IndexedDB with key =', key, { dbState });
-      memoryState = mergeStateSlices(memoryState, dbState, tables);
-      window.dispatchEvent(new Event('boarding_state_updated'));
-    }
-
-    // 2. Load from server (silent sync)
+    // Load from server / NocoDB only, scoped by requested tables.
     const serverState = await loadStateFromServer({ tables });
     const nextState = mergeStateSlices(memoryState, serverState, tables);
     if (serverState && hasStateChanged(nextState, memoryState, tables)) {
       memoryState = nextState;
-      console.log('store hydrated state from server with key  =', key, { serverState, nextState });
-      await dbSet(key, nextState);
       window.dispatchEvent(new Event('boarding_state_updated'));
     }
 
@@ -285,15 +275,27 @@ function normalizeStateBeforePersist(state = {}) {
 
 export function saveState(next){ 
   try{
-    const key = ensureSessionBoundary();
+    ensureSessionBoundary();
+    const prevState = memoryState;
     const normalized = normalizeStateBeforePersist(next);
     const withMeta = { ...normalized, __meta: { lastModified: new Date().toISOString() } };
     // update in-memory snapshot
     memoryState = withMeta;
-    // async write to IndexedDB for persistence across sessions
     (async ()=>{
-      try{ await dbSet(key, withMeta); }catch(e){}
-      try{ await saveStateToServer(withMeta); }catch(e){}
+      // Persist only changed tables (no whole-state sync).
+      const tableKeys = ['rooms', 'tenants', 'readings', 'invoices', 'payments', 'settings'];
+      const changed = [];
+      for (const key of tableKeys) {
+        const a = prevState?.[key];
+        const b = withMeta?.[key];
+        if (key === 'settings') {
+          if (JSON.stringify(a || {}) !== JSON.stringify(b || {})) changed.push(key);
+        } else {
+          if (JSON.stringify(a || []) !== JSON.stringify(b || [])) changed.push(key);
+        }
+      }
+      // Always include meta/settings update when provided
+      try{ await saveStateToServer(withMeta, { tables: changed.length ? changed : null }); }catch(e){}
       // notify same-tab listeners that state changed (after DB write)
       if(typeof window !== 'undefined' && window.dispatchEvent){
         try{ window.dispatchEvent(new Event('boarding_state_updated')); }catch(e){}

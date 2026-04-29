@@ -29,12 +29,8 @@ export default function Rooms(){
     // load ngay từ memory/cache
     setState(loadState());
 
-    // Trang chủ chỉ cần rooms để vào nhanh hơn
-    let cancelled = false;
-    hydrateState({ tables: ['rooms'] }).finally(() => {
-      if (cancelled) return;
-      hydrateState({ tables: ['tenants', 'readings', 'invoices', 'payments', 'settings'] });
-    });
+    // Chỉ load dữ liệu cần cho trang Rooms (không background load all).
+    hydrateState({ tables: ['rooms', 'tenants', 'readings', 'invoices', 'payments'] });
 
     const refresh = () => {
       const newState = loadState();
@@ -53,7 +49,6 @@ export default function Rooms(){
     };
     window.addEventListener('boarding_state_ready', readyHandler);
     return () => {
-      cancelled = true;
       window.removeEventListener('boarding_state_updated', refresh);
       window.removeEventListener('boarding_state_ready', readyHandler);
     };

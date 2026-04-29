@@ -8,8 +8,14 @@ import { hydrateState } from '../utils/state';
 export default function ReportsHub(){
   const [tab, setTab] = useState('rooms');
   useEffect(() => {
-    hydrateState({ tables: ['rooms', 'tenants', 'readings', 'invoices', 'payments', 'settings'] });
-  }, []);
+    if (tab === 'rooms') {
+      hydrateState({ tables: ['rooms', 'tenants'] });
+    } else if (tab === 'tenants') {
+      hydrateState({ tables: ['rooms', 'tenants'] });
+    } else if (tab === 'payments') {
+      hydrateState({ tables: ['rooms', 'tenants', 'invoices', 'payments'] });
+    }
+  }, [tab]);
   const Tab = ({ id, children }) => (
     <button onClick={()=>setTab(id)} className={'px-3 py-2 rounded ' + (tab===id? 'bg-emerald-600 text-white':'bg-slate-100')}>{children}</button>
   );
