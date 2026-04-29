@@ -68,10 +68,35 @@ function buildOwnedQuery(userId, extra = '') {
 
 function buildOwnedWhere(userId, whereClause = '', extra = '') {
   const base = `(${CREATED_BY_FIELD},eq,${userId})`;
-  const combined = whereClause ? `${base}~and${whereClause}` : base;
+
+  let extraWhere = '';
+  let otherParams = '';
+
+  if (extra) {
+    const cleaned = extra.replace(/^\?/, '').replace(/^&/, '');
+    const params = new URLSearchParams(cleaned);
+
+    if (params.has('where')) {
+      extraWhere = decodeURIComponent(params.get('where'));
+      params.delete('where');
+    }
+
+    otherParams = params.toString();
+  }
+
+  // 🚀 FIX: tránh duplicate created_by
+  let combined = base;
+
+  if (whereClause && !whereClause.includes(CREATED_BY_FIELD)) {
+    combined += `~and${whereClause}`;
+  }
+
+  if (extraWhere && !extraWhere.includes(CREATED_BY_FIELD)) {
+    combined += `~and${extraWhere}`;
+  }
+
   const owned = `where=${encodeURIComponent(combined)}`;
-  const suffix = extra ? `&${extra.replace(/^\?/, '').replace(/^&/, '')}` : '';
-  return `?${owned}${suffix ? suffix : ''}`;
+  return `?${owned}${otherParams ? `&${otherParams}` : ''}`;
 }
 
 function getRowId(row) {
@@ -285,59 +310,19 @@ async function updateRow(tableKey, rowId, payload) {
   await sleep(WRITE_GAP_MS);
 }
 
-/*async function deleteRow(tableKey, id = '') {
-console.log('deleteRow', id);
-  const res = await fetchJsonWithStatus(tableUrl(tableKey, `?ids=${id}`), {
-    method: 'DELETE',
-  });
-  // NocoDB may return 404 if the record was already deleted (eventual consistency / concurrent writes).
-  // Treat it as success to keep state sync resilient.
-  if (!res.ok && res.status !== 404) {
-    console.error('NocoDB delete failed:', tableUrl(tableKey, `?ids=${id}`), res.status, res.data);
-    throw new Error(`NocoDB request failed: ${res.status}`);
-  }
-  await sleep(WRITE_GAP_MS);
-}
 
-async function deleteRowByCandidates(tableKey, candidates = []) {
-  console.log('deleteRowByCandidates', candidates);
-  const tried = new Set();
-  for (const raw of candidates) {
-    const id = raw === null || raw === undefined ? '' : String(raw);
-    if (!id || tried.has(id)) continue;
-    tried.add(id);
-    console.log(tableUrl(tableKey, `?ids=${id}`));
-    const res = await fetchJsonWithStatus(tableUrl(tableKey, `?ids=${encodeURIComponent(id)}`), {
-      method: 'DELETE',
-    });
-    if (res.ok) {
-      await sleep(WRITE_GAP_MS);
-      return true;
-    }
-    // If not found, try the next candidate (different PK).
-    if (res.status !== 404) {
-      console.error('NocoDB delete failed:', tableUrl(tableKey, `?ids=${id}`), res.status, res.data);
-      throw new Error(`NocoDB request failed: ${res.status}`);
-    }
-  }
-  // Not found with any candidate => treat as already deleted / missing
-  await sleep(WRITE_GAP_MS);
-  return false;
-} */
 async function deleteRow(tableKey, id = '') {
   console.log('deleteRow (soft)', id);
 
   if (!id) throw new Error('Missing Id');
 
   // 👉 update thay 
-  const payload = {
-    records: [
+  const payload =   [
       {
         Id: id,
         isDeleted: true,
-      },
-    ],
-  };
+      }
+    ]
   const res = await fetchJsonWithStatus(tableUrl(tableKey), {
     method: 'PATCH',
     body: JSON.stringify(payload),
@@ -421,7 +406,7 @@ async function syncCollectionTable(tableKey, records = [], userId) {
       const rowId = getRowId(row);
       // Your schema uses app-level `id` as PRIMARY KEY, so try `id` first.
       // If table still uses system Id, the fallback will try it too.
-      await deleteRowByCandidates(tableKey, [clean.id, rowId]);
+      await deleteRowByCandidates(tableKey, [ rowId]);
     }
   }
 }
