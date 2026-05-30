@@ -67,6 +67,7 @@ function firstEnv(...names) {
 const NOCODB_URL = firstEnv('NOCODB_URL', 'VITE_NOCODB_URL').replace(/\/+$/, '');
 const NOCODB_API_KEY = firstEnv('NOCODB_API_KEY', 'VITE_NOCODB_API_KEY');
 const NOCODB_TABLE_USERS = firstEnv('NOCODB_TABLE_USERS', 'TABLE_USERS', 'VITE_TABLE_USERS', 'VITE_NOCODB_TABLE_USERS');
+const NOCODB_TABLE_ROOMS = firstEnv('NOCODB_TABLE_ROOMS', 'TABLE_ROOMS', 'VITE_TABLE_ROOMS');
 const HAS_ANY_NOCO_CONFIG = Boolean(NOCODB_URL || NOCODB_API_KEY || NOCODB_TABLE_USERS);
 const HAS_FULL_NOCO_CONFIG = Boolean(NOCODB_URL && NOCODB_API_KEY && NOCODB_TABLE_USERS);
 const KEEP_ALIVE_URL = firstEnv('RENDER_KEEP_ALIVE_URL', 'APP_URL', 'RENDER_EXTERNAL_URL', 'VITE_API_ORIGIN').replace(/\/+$/, '');
@@ -193,6 +194,15 @@ function normalizePhone(value = '') {
   return value.replace(/\D+/g, '');
 }
 
+function validateEmail(value = '') {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value).trim());
+}
+
+function validatePhone(value = '') {
+  const normalized = normalizePhone(value);
+  return /^[0-9]{9,12}$/.test(normalized);
+}
+
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
 }
@@ -273,6 +283,17 @@ function nocoUsersUrl(suffix = '') {
   return `${NOCODB_URL}/api/v2/tables/${encodeURIComponent(NOCODB_TABLE_USERS)}/records${suffix}`;
 }
 
+function nocoRoomsUrl(suffix = '') {
+  if (!NOCODB_TABLE_ROOMS) {
+    throw new Error('Missing NocoDB rooms table configuration');
+  }
+  return `${NOCODB_URL}/api/v2/tables/${encodeURIComponent(NOCODB_TABLE_ROOMS)}/records${suffix}`;
+}
+
+function shouldUseNocoState() {
+  return Boolean(NOCODB_URL && NOCODB_API_KEY && NOCODB_TABLE_ROOMS);
+}
+
 async function nocoFetchJson(url, options = {}) {
   const response = await fetchApi(url, {
     headers: {
@@ -305,8 +326,10 @@ function readUserValue(row, variants) {
 }
 
 function mapNocoUser(row) {
+  const maxRoomValue = readUserValue(row, ['maxRoomLimit', 'max_room_limit', 'maxroomlimit']);
+  const parsedMaxRoom = Number(maxRoomValue);
   return {
-    rowId: row?.Id ?? row?.ID ?? null,
+    rowId: row?.Id ?? row?.ID ?? row?.id ?? null,
     id: readUserValue(row, ['id']),
     name: readUserValue(row, ['name']),
     email: normalizeEmail(readUserValue(row, ['email'])),
@@ -315,6 +338,8 @@ function mapNocoUser(row) {
     passwordHash: readUserValue(row, ['password_hash', 'passwordHash', 'passwordhash']),
     passwordSalt: readUserValue(row, ['password_salt', 'passwordSalt', 'passwordsalt']),
     createdAt: readUserValue(row, ['created_at', 'createdAt', 'createdat']),
+    role: readUserValue(row, ['role']) || 'user',
+    maxRoomLimit: Number.isFinite(parsedMaxRoom) ? parsedMaxRoom : null,
   };
 }
 
@@ -336,6 +361,8 @@ async function createNocoUserRecord(user) {
       password_hash: user.passwordHash,
       password_salt: user.passwordSalt,
       created_at: user.createdAt,
+      role: user.role,
+      maxRoomLimit: user.maxRoomLimit,
     },
     {
       id: user.id,
@@ -345,6 +372,8 @@ async function createNocoUserRecord(user) {
       passwordHash: user.passwordHash,
       passwordSalt: user.passwordSalt,
       createdAt: user.createdAt,
+      role: user.role,
+      maxRoomLimit: user.maxRoomLimit,
     },
     {
       id: user.id,
@@ -354,6 +383,8 @@ async function createNocoUserRecord(user) {
       passwordhash: user.passwordHash,
       passwordsalt: user.passwordSalt,
       createdat: user.createdAt,
+      role: user.role,
+      maxRoomLimit: user.maxRoomLimit,
     },
     {
       id: user.id,
@@ -362,6 +393,8 @@ async function createNocoUserRecord(user) {
       phone: user.phone,
       password: user.password || user.passwordHash,
       created_at: user.createdAt,
+      role: user.role,
+      maxRoomLimit: user.maxRoomLimit,
     },
     {
       id: user.id,
@@ -370,6 +403,8 @@ async function createNocoUserRecord(user) {
       phone: user.phone,
       pass: user.password || user.passwordHash,
       created_at: user.createdAt,
+      role: user.role,
+      maxRoomLimit: user.maxRoomLimit,
     },
     {
       id: user.id,
@@ -381,6 +416,8 @@ async function createNocoUserRecord(user) {
       password_hash: user.passwordHash,
       password_salt: user.passwordSalt,
       created_at: user.createdAt,
+      role: user.role,
+      maxRoomLimit: user.maxRoomLimit,
     },
   ];
 
@@ -398,6 +435,54 @@ async function createNocoUserRecord(user) {
   }
 
   throw lastError || new Error('Failed to create NocoDB user');
+}
+
+async function findNocoUserRowId(userId) {
+  ensureNocoAuthReady();
+  if (!userId) return null;
+
+  const data = await nocoFetchJson(nocoUsersUrl('?limit=1000'));
+  const record = (data?.list || []).find((row) => {
+    const idValue = readUserValue(row, ['id']);
+    return String(idValue) === String(userId);
+  });
+  return record?.Id ?? record?.ID ?? record?.id ?? null;
+}
+
+async function updateNocoUserRecord(rowId, updates = {}) {
+  ensureNocoAuthReady();
+  let targetRowId = rowId;
+
+  if (!targetRowId) {
+    targetRowId = await findNocoUserRowId(updates.id || updates.userId);
+  }
+
+  if (!targetRowId) {
+    throw new Error('Missing NocoDB rowId for user update');
+  }
+
+  const payload = {};
+  if (updates.role !== undefined) payload.role = updates.role;
+  if (updates.maxRoomLimit !== undefined) payload.maxRoomLimit = updates.maxRoomLimit;
+
+  if (Object.keys(payload).length === 0) {
+    return;
+  }
+
+  const updateUrl = nocoUsersUrl(`/${encodeURIComponent(targetRowId)}`);
+  try {
+    return await nocoFetchJson(updateUrl, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  } catch (patchError) {
+    const appId = updates.id || updates.userId || rowId;
+    const fallbackPayload = [{ ...(appId ? { id: appId } : {}), ...payload }];
+    return await nocoFetchJson(nocoUsersUrl(), {
+      method: 'PATCH',
+      body: JSON.stringify(fallbackPayload),
+    });
+  }
 }
 
 function statePathsForUser(userId) {
@@ -421,13 +506,53 @@ function authMiddleware(req, res, next) {
   next();
 }
 
+function adminMiddleware(req, res, next) {
+  authMiddleware(req, res, async () => {
+    try {
+      // Check if user is admin. Prefer NocoDB but fall back to local users when Noco errors.
+      let users;
+      if (shouldUseNocoAuth()) {
+        try {
+          users = await listNocoUsers();
+        } catch (e) {
+          console.warn('listNocoUsers failed, falling back to users.json:', e && e.message ? e.message : e);
+          users = loadUsers();
+        }
+      } else {
+        users = loadUsers();
+      }
+
+      const user = (users || []).find((u) => u.id === req.userId);
+      cốnole.log('Admin check for user:', { id: user?.id, email: user?.email, phone: user?.phone, role: user?.role });
+      if (!user || user.role !== 'admin') {
+        return res.status(403).json({ error: 'Forbidden: Admin access required' });
+      }
+
+      next();
+    } catch (error) {
+      return res.status(500).json({ error: 'Error checking admin status' });
+    }
+  });
+}
+
 app.post('/api/auth/register', async (req, res) => {
   const { email = '', phone = '', password = '', name = '' } = req.body || {};
   const normalizedEmail = normalizeEmail(email);
   const normalizedPhone = normalizePhone(phone);
+  const hasEmail = Boolean(normalizedEmail);
+  const hasPhone = Boolean(normalizedPhone);
 
-  if ((!normalizedEmail && !normalizedPhone) || !password) {
-    return res.status(400).json({ error: 'Thiáº¿u thÃ´ng tin Ä‘Äƒng kÃ½' });
+  if (!hasEmail && !hasPhone) {
+    return res.status(400).json({ error: 'Cần nhập email hoặc số điện thoại' });
+  }
+  if (!password) {
+    return res.status(400).json({ error: 'Thiếu thông tin đăng ký' });
+  }
+  if (hasEmail && !validateEmail(normalizedEmail)) {
+    return res.status(400).json({ error: 'Email không hợp lệ' });
+  }
+  if (hasPhone && !validatePhone(normalizedPhone)) {
+    return res.status(400).json({ error: 'Số điện thoại không hợp lệ' });
   }
 
   try {
@@ -439,7 +564,7 @@ app.post('/api/auth/register', async (req, res) => {
     );
 
     if (duplicated) {
-      return res.status(409).json({ error: 'TÃ i khoáº£n Ä‘Ã£ tá»“n táº¡i' });
+      return res.status(409).json({ error: 'Tài khoản đã tồn tại.' });
     }
 
     const nextUser = {
@@ -450,6 +575,8 @@ app.post('/api/auth/register', async (req, res) => {
       password: String(password),
       ...createPasswordRecord(password),
       createdAt: new Date().toISOString(),
+      role: 'user',
+      maxRoomLimit: 20,
     };
 
     if (shouldUseNocoAuth()) {
@@ -470,6 +597,8 @@ app.post('/api/auth/register', async (req, res) => {
         id: nextUser.id,
         email: nextUser.email,
         phone: nextUser.phone,
+        role: nextUser.role,
+        maxRoomLimit: nextUser.maxRoomLimit,
       },
     });
   } catch (error) {
@@ -508,6 +637,8 @@ console.log('User authenticated:', { id: user.id, email: user.email, phone: user
         id: user.id,
         email: user.email,
         phone: user.phone,
+        role: user.role || 'user',
+        maxRoomLimit: user.maxRoomLimit,
       },
     });
   } catch (error) {
@@ -530,6 +661,8 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
         id: user.id,
         email: user.email,
         phone: user.phone,
+        role: user.role || 'user',
+        maxRoomLimit: user.maxRoomLimit,
       },
     });
   } catch (error) {
@@ -550,19 +683,162 @@ app.get('/api/state', authMiddleware, (req, res) => {
   }
 });
 
-app.post('/api/state', authMiddleware, (req, res) => {
+app.post('/api/state', authMiddleware, async (req, res) => {
   const nextState = req.body?.state;
   if (!nextState || typeof nextState !== 'object') {
     return res.status(400).json({ error: 'Thiếu dữ liệu state' });
   }
 
   const sanitizedState = sanitizeStateForPersistence(nextState);
+  let currentUser;
+
+  try {
+    const users = shouldUseNocoAuth() ? await listNocoUsers() : loadUsers();
+    currentUser = users.find((u) => u.id === req.userId);
+  } catch (error) {
+    console.error('state validation user lookup error', error);
+  }
+
+  const currentLimit = currentUser?.maxRoomLimit;
+  if (currentLimit !== null && currentLimit !== undefined && currentLimit > 0) {
+    const roomCount = Array.isArray(sanitizedState.rooms) ? sanitizedState.rooms.length : 0;
+    if (roomCount > currentLimit) {
+      return res.status(400).json({ error: `Không thể lưu trạng thái. Giới hạn ${currentLimit} phòng đã bị vượt quá.` });
+    }
+  }
+
   ensureDir(statesDir);
   const { statePath, stateTmpPath } = statePathsForUser(req.userId);
   fs.writeFileSync(stateTmpPath, JSON.stringify(sanitizedState, null, 2));
   fs.renameSync(stateTmpPath, statePath);
 
   return res.json({ state: sanitizedState });
+});
+
+// ===== Admin User Management API =====
+
+// Get all users (admin only)
+app.get('/api/admin/users', adminMiddleware, async (req, res) => {
+  try {
+    let users;
+    if (shouldUseNocoAuth()) {
+      try {
+        users = await listNocoUsers();
+      } catch (e) {
+        console.warn('listNocoUsers failed while fetching admin list, falling back to users.json:', e && e.message ? e.message : e);
+        users = loadUsers();
+      }
+    } else {
+      users = loadUsers();
+    }
+    const userList = users.map((user) => ({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role || 'user',
+      maxRoomLimit: user.maxRoomLimit,
+      createdAt: user.createdAt,
+    }));
+    return res.json({ users: userList });
+  } catch (error) {
+    console.error('admin/users get error', error);
+    return res.status(500).json({ error: 'Lỗi lấy danh sách người dùng' });
+  }
+});
+
+// Update user role and room limit (admin only)
+app.put('/api/admin/users/:userId', adminMiddleware, async (req, res) => {
+  const { userId } = req.params;
+  const { role, maxRoomLimit } = req.body || {};
+
+  if (!userId) {
+    return res.status(400).json({ error: 'Missing userId' });
+  }
+
+  if (role && !['user', 'admin'].includes(role)) {
+    return res.status(400).json({ error: 'Invalid role' });
+  }
+
+  try {
+    const users = shouldUseNocoAuth() ? await listNocoUsers() : loadUsers();
+    const userIndex = users.findIndex((u) => u.id === userId);
+
+    if (userIndex === -1) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Prevent admin from removing their own admin status
+    if (userId === req.userId && role === 'user') {
+      return res.status(400).json({ error: 'Cannot remove your own admin status' });
+    }
+
+    const updatedUser = { ...users[userIndex] };
+    if (role) updatedUser.role = role;
+    if (maxRoomLimit !== undefined) {
+      if (maxRoomLimit === null) {
+        updatedUser.maxRoomLimit = null;
+      } else {
+        const parsedLimit = Number(maxRoomLimit);
+        if (!Number.isFinite(parsedLimit) || parsedLimit < 0) {
+          return res.status(400).json({ error: 'Giá trị giới hạn phòng không hợp lệ' });
+        }
+        updatedUser.maxRoomLimit = parsedLimit === 0 ? null : parsedLimit;
+      }
+    }
+
+    users[userIndex] = updatedUser;
+
+    if (shouldUseNocoAuth()) {
+      const rowId = updatedUser.rowId || updatedUser.id;
+      await updateNocoUserRecord(rowId, {
+        role: updatedUser.role,
+        maxRoomLimit: updatedUser.maxRoomLimit,
+      });
+    } else {
+      saveUsers(users);
+    }
+
+    return res.json({
+      user: {
+        id: updatedUser.id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        phone: updatedUser.phone,
+        role: updatedUser.role,
+        maxRoomLimit: updatedUser.maxRoomLimit,
+      },
+    });
+  } catch (error) {
+    console.error('admin/users put error', error);
+    return res.status(500).json({ error: 'Lỗi cập nhật người dùng' });
+  }
+});
+
+// Get user's room count (admin only)
+app.get('/api/admin/users/:userId/rooms', adminMiddleware, async (req, res) => {
+  const { userId } = req.params;
+  if (shouldUseNocoState()) {
+    try {
+      const query = `?where=${encodeURIComponent(`(created_by,eq,${userId})`)}&limit=1000`;
+      const data = await nocoFetchJson(nocoRoomsUrl(query));
+      const roomCount = Array.isArray(data?.list) ? data.list.length : 0;
+      return res.json({ roomCount });
+    } catch (error) {
+      console.warn('Noco state count failed, falling back to local state:', error.message);
+    }
+  }
+
+  const { statePath } = statePathsForUser(userId);
+
+  try {
+    const raw = fs.readFileSync(statePath, 'utf8');
+    const state = raw ? JSON.parse(raw) : {};
+    const roomCount = (state.rooms || []).length;
+    return res.json({ roomCount });
+  } catch {
+    return res.json({ roomCount: 0 });
+  }
 });
 
 const port = process.env.PORT || 4000;

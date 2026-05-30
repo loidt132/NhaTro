@@ -9,7 +9,9 @@ CREATE TABLE IF NOT EXISTS users (
   phone VARCHAR(32),
   password_hash TEXT NOT NULL,
   password_salt TEXT NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  role VARCHAR(32) DEFAULT 'user',
+  maxRoomLimit INT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users (email);

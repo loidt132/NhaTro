@@ -1,6 +1,7 @@
 
 // src/pages/Rooms.jsx
 import React, { useMemo, useState, useEffect } from 'react';
+import { getStoredToken, fetchCurrentUser } from '../utils/auth';
 import TopStats from '../components/TopStats';
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
@@ -14,6 +15,7 @@ function compareByName(a = '', b = '') {
 }
 
 export default function Rooms(){
+  const [currentUser, setCurrentUser] = useState(null);
    
   const [state, setState] = useState(() => loadState());
   const [isLoading, setIsLoading] = useState(true);
@@ -55,16 +57,12 @@ export default function Rooms(){
   }, []);
 
   const { rooms = [], tenants = [], readings = [], invoices = [], payments = [] } = state || {};
+  const user = currentUser;
+  const maxRoomLimit = user?.maxRoomLimit === 0 ? null : user?.maxRoomLimit ?? null;
+  const roomLimitReached = maxRoomLimit !== null && rooms.length >= maxRoomLimit;
+  const roomLimitStatus = maxRoomLimit !== null ? `${rooms.length}/${maxRoomLimit}` : 'Không giới hạn';
 
-  if (false && isLoading && rooms.length === 0) {
-    return (
-      <Page className="p-4 animate-pulse text-slate-400">
-        Đang tải dữ liệu...
-      </Page>
-    );
-  }
- 
-  
+
   // ===== Derived =====
   const roomMap = useMemo(()=> Object.fromEntries(rooms.map(r=>[r.id, r])), [rooms]);
   const tenantByRoom = useMemo(()=>{
@@ -79,12 +77,20 @@ export default function Rooms(){
   };
  
   // ===== Room CRUD =====
-  const openCreateRoom = ()=> setRoomModal({ open:true, mode:'create', roomId:null, form:{ name:'', baseRent:2500000, electricRate:3500, waterRate:12000 }});
+  const openCreateRoom = ()=> {
+    if (roomLimitReached) {
+      return alert(`Không thể thêm phòng mới. Bạn đã đạt giới hạn ${maxRoomLimit} phòng.`);
+    }
+    setRoomModal({ open:true, mode:'create', roomId:null, form:{ name:'', baseRent:2500000, electricRate:3500, waterRate:12000 }});
+  };
   const openEditRoom = (r)=> setRoomModal({ open:true, mode:'edit', roomId:r.id, form:{ name:r.name, baseRent:r.baseRent, electricRate:r.electricRate, waterRate:r.waterRate }});
   const saveRoom = (e)=>{
     e.preventDefault();
     const f = roomModal.form; const n = (f.name||'').trim();
     if(!n) return alert('Nhập tên phòng');
+    if (roomModal.mode === 'create' && roomLimitReached) {
+      return alert(`Không thể thêm phòng mới. Giới hạn ${maxRoomLimit} phòng đã đạt.`);
+    }
     const payload = { id: roomModal.roomId || uid(), name:n, baseRent:+f.baseRent||0, electricRate:+f.electricRate||0, waterRate:+f.waterRate||0, primaryTenantId: roomMap[roomModal.roomId]?.primaryTenantId };
     const nextRooms = roomModal.mode==='edit' ? rooms.map(r=> r.id===roomModal.roomId? payload : r) : [...rooms, payload];
     // If editing an existing room, update unpaid invoices for this room so Payments view shows new rent
@@ -227,6 +233,18 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
   }, [visibleRooms, currentPage, perPage]);
 
   useEffect(() => {
+    // fetch current user for limit checks
+    (async () => {
+      try {
+        const token = getStoredToken();
+        if (token) {
+          const res = await fetchCurrentUser(token);
+          setCurrentUser(res.user || null);
+        }
+      } catch (e) {
+        // ignore
+      }
+    })();
     setPage(1);
   }, [query, perPage]);
 
@@ -293,10 +311,17 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
       <SearchBar month={month} onMonthChange={setMonth} query={query} onQueryChange={setQuery} />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div></div>
+        <div className="text-sm text-slate-500">Giới hạn phòng: {roomLimitStatus}</div>
         <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
           <ViewSwitch value={view} onChange={setView} />
-          <button onClick={openCreateRoom} className="rounded-xl bg-emerald-600 text-white px-4 py-2 text-sm sm:text-base">Thêm phòng</button>
+          <button
+            type="button"
+            onClick={openCreateRoom}
+            disabled={roomLimitReached}
+            className={`rounded-xl px-4 py-2 text-sm sm:text-base ${roomLimitReached ? 'bg-slate-300 text-slate-600 cursor-not-allowed' : 'bg-emerald-600 text-white'}`}
+          >
+            Thêm phòng
+          </button>
         </div>
       </div>
     <div className="mt-3">

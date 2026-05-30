@@ -2,13 +2,37 @@
 import React, { useState, useEffect } from 'react';
 import { loadState, saveState, hydrateState } from '../utils/state';
 import { getNocoConfigStatus } from '../utils/nocodb';
+import { getStoredToken } from '../utils/auth';
 import Footer from '../components/Footer';
 import Page from '../components/Page';
+import UserManagement from '../components/UserManagement';
 
-export default function Settings() {
+export default function Settings({ user = null }) {
   const [state, setState] = useState(loadState());
   const [s, setS] = useState(() => state.settings || {});
   const [nocoStatus, setNocoStatus] = useState(() => getNocoConfigStatus());
+  const [activeTab, setActiveTab] = useState('general');
+  const [currentUser, setCurrentUser] = useState(user);
+
+  useEffect(() => {
+    if (!currentUser && typeof window !== 'undefined') {
+      // Fetch user from API to get role info
+      const token = getStoredToken();
+      if (token) {
+        fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+          .then(res => res.ok ? res.json() : null)
+          .then(data => {
+            if (data?.user) {
+              setCurrentUser(data.user);
+            }
+          })
+          .catch(() => {
+            // silently fail
+          });
+      }
+    }
+  }, [currentUser]);
+
   useEffect(() => {
     const handler = () => {
       const next = loadState();
@@ -73,6 +97,35 @@ export default function Settings() {
 
   return (
     <Page className="space-y-6">
+      {/* Tabs */}
+      <div className="flex gap-2 border-b border-slate-200 overflow-x-auto pb-0">
+        <button
+          onClick={() => setActiveTab('general')}
+          className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+            activeTab === 'general'
+              ? 'border-emerald-600 text-emerald-600'
+              : 'border-transparent text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Cài đặt chung
+        </button>
+        {currentUser?.role === 'admin' && (
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+              activeTab === 'users'
+                ? 'border-emerald-600 text-emerald-600'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Quản lý người dùng
+          </button>
+        )}
+      </div>
+
+      {/* General Settings Tab */}
+      {activeTab === 'general' && (
+        <>
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
         <h3 className="text-lg font-semibold">Trạng thái NocoDB</h3>
         <div className="mt-3 space-y-1 text-sm text-slate-700">
@@ -172,6 +225,16 @@ export default function Settings() {
         <button onClick={onSave} className="rounded-xl bg-emerald-600 text-white px-4 py-2">Lưu cấu hình</button>
       </div>
       <Footer />
+        </>
+      )}
+
+      {/* User Management Tab */}
+      {activeTab === 'users' && (
+        <>
+          <UserManagement isAdmin={currentUser?.role === 'admin'} />
+          <Footer />
+        </>
+      )}
     </Page>
   );
 }

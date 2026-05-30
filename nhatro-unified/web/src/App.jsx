@@ -145,7 +145,7 @@ export default function App() {
               <Route path="/meter" element={<Meter />} />
               <Route path="/payments" element={<Payments />} />
               <Route path="/reports" element={<ReportsHub />} />
-              <Route path="/settings" element={<Settings />} />
+              <Route path="/settings" element={<Settings user={user} />} />
               <Route path="*" element={<Navigate to="/rooms" replace />} />
             </Routes>
           </div>

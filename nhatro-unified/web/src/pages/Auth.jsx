@@ -1,5 +1,14 @@
 import React, { useState } from 'react';
 
+function isValidEmail(value = '') {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value).trim());
+}
+
+function isValidPhone(value = '') {
+  const digits = String(value).replace(/\D+/g, '');
+  return /^[0-9]{9,12}$/.test(digits);
+}
+
 export default function Auth({ onLogin, onRegister, busy = false, error = '' }) {
   const [mode, setMode] = useState('login');
   const [loginForm, setLoginForm] = useState({ identifier: '', password: '' });
@@ -16,8 +25,19 @@ export default function Auth({ onLogin, onRegister, busy = false, error = '' }) 
     event.preventDefault();
     setLocalError('');
 
-    if (!registerForm.email.trim() && !registerForm.phone.trim()) {
+    const email = registerForm.email.trim();
+    const phone = registerForm.phone.trim();
+
+    if (!email && !phone) {
       setLocalError('Nhập email hoặc số điện thoại.');
+      return;
+    }
+    if (email && !isValidEmail(email)) {
+      setLocalError('Email không hợp lệ.');
+      return;
+    }
+    if (phone && !isValidPhone(phone)) {
+      setLocalError('Số điện thoại không hợp lệ.');
       return;
     }
     if (registerForm.password.length < 6) {
@@ -31,8 +51,8 @@ export default function Auth({ onLogin, onRegister, busy = false, error = '' }) 
 
     await onRegister({
       name: registerForm.name,
-      email: registerForm.email,
-      phone: registerForm.phone,
+      email: email,
+      phone: phone,
       password: registerForm.password,
     });
   };
