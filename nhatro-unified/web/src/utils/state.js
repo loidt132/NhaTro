@@ -56,6 +56,7 @@ async function loadStateFromServer(options = {}) {
 async function saveStateToServer(state, options = {}) {
   const { tables = null } = options;
   let saved = false;
+  let lastError = null;
 
   if (shouldUseNocoState()) {
     try {
@@ -63,18 +64,30 @@ async function saveStateToServer(state, options = {}) {
       await saveStateToNoco(state, { tables });
       saved = true;
     } catch (e) {
-      // continue to local server fallback
+      lastError = e;
     }
   }
 
   if (!saved) {
     try {
-        console.log('save to backend state', state);
-      await fetch(apiUrl('/api/state'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ state }) });
+      console.log('save to backend state', state);
+      const res = await fetch(apiUrl('/api/state'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ state }),
+      });
+      const data = res.ok ? null : await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || 'Không thể lưu dữ liệu');
+      }
       saved = true;
     } catch (e) {
-      // server unavailable, ignore
+      lastError = e;
     }
+  }
+
+  if (!saved && lastError) {
+    throw lastError;
   }
 
   return saved;
@@ -294,8 +307,16 @@ export function saveState(next){
           if (JSON.stringify(a || []) !== JSON.stringify(b || [])) changed.push(key);
         }
       }
-      // Always include meta/settings update when provided
-      try{ await saveStateToServer(withMeta, { tables: changed.length ? changed : null }); }catch(e){}
+      try {
+        await saveStateToServer(withMeta, { tables: changed.length ? changed : null });
+      } catch (e) {
+        memoryState = prevState;
+        if (typeof window !== 'undefined' && e?.message) {
+          window.alert(e.message);
+          window.dispatchEvent(new Event('boarding_state_updated'));
+        }
+        return;
+      }
       // notify same-tab listeners that state changed (after DB write)
       if(typeof window !== 'undefined' && window.dispatchEvent){
         try{ window.dispatchEvent(new Event('boarding_state_updated')); }catch(e){}

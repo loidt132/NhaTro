@@ -36,20 +36,9 @@ export default function UserManagement({ isAdmin = false }) {
       const data = await response.json();
       setUsers(data.users || []);
 
-      // Load room counts for each user
       const counts = {};
-      for (const user of data.users) {
-        try {
-          const countRes = await fetch(`/api/admin/users/${user.id}/rooms`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (countRes.ok) {
-            const countData = await countRes.json();
-            counts[user.id] = countData.roomCount;
-          }
-        } catch (e) {
-          counts[user.id] = 0;
-        }
+      for (const user of data.users || []) {
+        counts[user.id] = user.roomCount ?? 0;
       }
       setRoomCounts(counts);
     } catch (err) {
@@ -151,7 +140,7 @@ export default function UserManagement({ isAdmin = false }) {
                       <td className="p-3">{user.name || '—'}</td>
                       <td className="p-3">{user.email || user.phone || '—'}</td>
                       <td className="p-3">{user.phone || '—'}</td>
-                      <td className="p-3 text-center">{roomCounts[user.id] || 0}</td>
+                      <td className="p-3 text-center">{roomCounts[user.id] ?? user.roomCount ?? 0}</td>
                       <td className="p-3">
                         <select
                           className="rounded-lg border px-2 py-1 w-full text-sm"
@@ -196,7 +185,7 @@ export default function UserManagement({ isAdmin = false }) {
                       <td className="p-3">{user.name || '—'}</td>
                       <td className="p-3">{user.email || user.phone || '—'}</td>
                       <td className="p-3">{user.phone || '—'}</td>
-                      <td className="p-3 text-center font-medium">{roomCounts[user.id] || 0}</td>
+                      <td className="p-3 text-center font-medium">{roomCounts[user.id] ?? user.roomCount ?? 0}</td>
                       <td className="p-3 text-center">
                         <span
                           className={`inline-block rounded-full px-2 py-1 text-xs font-medium ${

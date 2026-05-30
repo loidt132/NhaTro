@@ -15,23 +15,20 @@ export default function Settings({ user = null }) {
   const [currentUser, setCurrentUser] = useState(user);
 
   useEffect(() => {
-    if (!currentUser && typeof window !== 'undefined') {
-      // Fetch user from API to get role info
-      const token = getStoredToken();
-      if (token) {
-        fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
-          .then(res => res.ok ? res.json() : null)
-          .then(data => {
-            if (data?.user) {
-              setCurrentUser(data.user);
-            }
-          })
-          .catch(() => {
-            // silently fail
-          });
-      }
-    }
-  }, [currentUser]);
+    const token = getStoredToken();
+    if (!token) return;
+
+    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.user) {
+          setCurrentUser(data.user);
+        }
+      })
+      .catch(() => {
+        // silently fail
+      });
+  }, []);
 
   useEffect(() => {
     const handler = () => {
@@ -109,7 +106,7 @@ export default function Settings({ user = null }) {
         >
           Cài đặt chung
         </button>
-        {currentUser?.role === 'admin' && (
+        {String(currentUser?.role || '').toLowerCase() === 'admin' && (
           <button
             onClick={() => setActiveTab('users')}
             className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
@@ -231,7 +228,7 @@ export default function Settings({ user = null }) {
       {/* User Management Tab */}
       {activeTab === 'users' && (
         <>
-          <UserManagement isAdmin={currentUser?.role === 'admin'} />
+          <UserManagement isAdmin={String(currentUser?.role || '').toLowerCase() === 'admin'} />
           <Footer />
         </>
       )}

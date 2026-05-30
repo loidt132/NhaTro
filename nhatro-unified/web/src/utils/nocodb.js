@@ -1,4 +1,4 @@
-import { getAuthSession } from './auth';
+import { getAuthSession, getStoredToken, fetchCurrentUser } from './auth';
 
 const BASE = (import.meta.env.VITE_NOCODB_URL || '').replace(/\/+$/, '');
 const TOKEN = import.meta.env.VITE_NOCODB_API_KEY || '';
@@ -365,6 +365,26 @@ function isSamePayload(a, b) {
   return stableStringify(a) === stableStringify(b);
 }
 
+async function enforceRoomLimit(nextRooms = []) {
+  const token = getStoredToken();
+  if (!token) return;
+
+  let user;
+  try {
+    ({ user } = await fetchCurrentUser(token));
+  } catch {
+    return;
+  }
+
+  const limit = user?.maxRoomLimit;
+  if (limit === null || limit === undefined || limit <= 0) return;
+
+  const activeCount = Array.isArray(nextRooms) ? nextRooms.length : 0;
+  if (activeCount > limit) {
+    throw new Error(`Không thể thêm phòng. Giới hạn ${limit} phòng (hiện có ${activeCount}).`);
+  }
+}
+
 async function syncCollectionTable(tableKey, records = [], userId) {
   const existingRows = await fetchTableRows(tableKey, buildOwnedQuery(userId, 'limit=1000'));
   const existingByAppId = new Map();
@@ -513,6 +533,9 @@ export async function saveStateToNoco(state, options = {}) {
 
   try {
     const wantedTables = tables && tables.length ? tables : DATA_TABLE_KEYS;
+    if (wantedTables.includes('rooms')) {
+      await enforceRoomLimit(state.rooms || []);
+    }
     for (const key of DATA_TABLE_KEYS.filter((k) => wantedTables.includes(k))) {
       if (!hasTableConfig(key)) {
         warnMissingTable(key);

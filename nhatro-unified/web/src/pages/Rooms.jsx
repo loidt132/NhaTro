@@ -233,7 +233,6 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
   }, [visibleRooms, currentPage, perPage]);
 
   useEffect(() => {
-    // fetch current user for limit checks
     (async () => {
       try {
         const token = getStoredToken();
@@ -245,6 +244,9 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
         // ignore
       }
     })();
+  }, []);
+
+  useEffect(() => {
     setPage(1);
   }, [query, perPage]);
 
