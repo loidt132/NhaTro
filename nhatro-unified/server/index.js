@@ -1053,18 +1053,20 @@ const port = process.env.PORT || 4000;
 }*/
  
 
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Server running on ${port}`);
-  if (HAS_ANY_NOCO_CONFIG && !HAS_FULL_NOCO_CONFIG) {
-    console.warn('NocoDB auth config is partial. Falling back to users.json auth.');
-  }
-  console.log(`Auth storage: ${shouldUseNocoAuth() ? 'NocoDB' : 'users.json'}`);
-  console.log(`Room count source: ${hasNocoRoomsConfig() ? 'NocoDB' : 'local state files only'}`);
-  if (shouldUseNocoAuth() && !hasNocoRoomsConfig()) {
-    console.warn('Missing NOCODB_TABLE_ROOMS / VITE_TABLE_ROOMS — user room counts will stay 0.');
-  }
-  startKeepAlive();
-});
+if (require.main === module) {
+  app.listen(port, '0.0.0.0', () => {
+    console.log(`Server running on ${port}`);
+    if (HAS_ANY_NOCO_CONFIG && !HAS_FULL_NOCO_CONFIG) {
+      console.warn('NocoDB auth config is partial. Falling back to users.json auth.');
+    }
+    console.log(`Auth storage: ${shouldUseNocoAuth() ? 'NocoDB' : 'users.json'}`);
+    console.log(`Room count source: ${hasNocoRoomsConfig() ? 'NocoDB' : 'local state files only'}`);
+    if (shouldUseNocoAuth() && !hasNocoRoomsConfig()) {
+      console.warn('Missing NOCODB_TABLE_ROOMS / VITE_TABLE_ROOMS — user room counts will stay 0.');
+    }
+    startKeepAlive();
+  });
+}
 
 module.exports = app;
 
