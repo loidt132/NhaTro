@@ -218,7 +218,7 @@ async function fetchJson(url, options = {}) {
     if (!res.ok) {
       const text = await res.text();
       console.error('NocoDB request failed:', url, res.status, text);
-      throw new Error(`NocoDB request failed: ${res.status}`);
+      throw new Error(`NocoDB request failed: ${res.status}${text ? ` — ${text.slice(0, 300)}` : ''}`);
     }
 
     if (res.status === 204) return null;
@@ -304,7 +304,8 @@ async function updateRow(tableKey, rowId, payload) {
   });
   if (!bulk.ok) {
     console.error('NocoDB bulk update failed:', tableUrl(tableKey), bulk.status, bulk.data);
-    throw new Error(`NocoDB request failed: ${bulk.status}`);
+    const detail = typeof bulk.data === 'string' ? bulk.data : JSON.stringify(bulk.data || '');
+    throw new Error(`NocoDB request failed: ${bulk.status}${detail ? ` — ${detail.slice(0, 300)}` : ''}`);
   }
 
   await sleep(WRITE_GAP_MS);
@@ -551,7 +552,7 @@ export async function saveStateToNoco(state, options = {}) {
     return true;
   } catch (error) {
     console.error('saveStateToNoco error', error);
-    return false;
+    throw error;
   }
 }
 

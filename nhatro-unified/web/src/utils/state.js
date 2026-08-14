@@ -61,10 +61,16 @@ async function saveStateToServer(state, options = {}) {
   if (shouldUseNocoState()) {
     try {
       console.log('save to nocodb', state);
-      await saveStateToNoco(state, { tables });
-      saved = true;
+      const nocoSaved = await saveStateToNoco(state, { tables });
+      if (nocoSaved) {
+        saved = true;
+      } else {
+        throw new Error('NocoDB từ chối lưu dữ liệu. Kiểm tra lại cấu trúc bảng và tên cột.');
+      }
     } catch (e) {
-      lastError = e;
+      // Khi NocoDB là nguồn dữ liệu chính, không âm thầm ghi sang backend JSON.
+      // Nếu fallback, giao diện có vẻ đã lưu nhưng lần tải sau vẫn mất dữ liệu từ NocoDB.
+      throw e;
     }
   }
 
@@ -339,4 +345,3 @@ export function calcTotals(invoices=[], payments=[], ym){
   const sumDebt = filtered.reduce((a,i)=> a + Math.max(0,(+i.total||0) - paidOf(i)), 0);
   return { sumPaid, sumDebt };
 }
-

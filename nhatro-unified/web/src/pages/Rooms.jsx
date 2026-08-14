@@ -87,19 +87,32 @@ export default function Rooms(){
   const saveRoom = (e)=>{
     e.preventDefault();
     const f = roomModal.form; const n = (f.name||'').trim();
+    const nowIso = new Date().toISOString();
+    const existingRoom = roomMap[roomModal.roomId] || {};
+    const tuyaDeviceId = (f.tuyaDeviceId || '').trim();
     if(!n) return alert('Nhập tên phòng');
+    if (tuyaDeviceId) {
+      const mappedRoom = (rooms || []).find((room) =>
+        room.id !== roomModal.roomId && String(room.tuyaDeviceId || '').trim() === tuyaDeviceId
+      );
+      if (mappedRoom) {
+        return alert(`Công tơ Tuya này đã được gán cho phòng ${mappedRoom.name}. Mỗi Device ID chỉ được gán cho một phòng.`);
+      }
+    }
     if (roomModal.mode === 'create' && roomLimitReached) {
       return alert(`Không thể thêm phòng mới. Giới hạn ${maxRoomLimit} phòng đã đạt.`);
     }
     const payload = {
-      ...(roomMap[roomModal.roomId] || {}),
+      ...existingRoom,
       id: roomModal.roomId || uid(),
       name: n,
       baseRent: +f.baseRent || 0,
       electricRate: +f.electricRate || 0,
       waterRate: +f.waterRate || 0,
-      tuyaDeviceId: (f.tuyaDeviceId || '').trim(),
-      primaryTenantId: roomMap[roomModal.roomId]?.primaryTenantId,
+      tuyaDeviceId,
+      primaryTenantId: existingRoom.primaryTenantId,
+      createdAt: existingRoom.createdAt || nowIso,
+      updatedAt: nowIso,
     };
     const nextRooms = roomModal.mode==='edit' ? rooms.map(r=> r.id===roomModal.roomId? payload : r) : [...rooms, payload];
     // If editing an existing room, update unpaid invoices for this room so Payments view shows new rent
