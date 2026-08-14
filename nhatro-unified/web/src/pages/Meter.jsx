@@ -82,8 +82,54 @@ export default function Meter() {
     return list.slice().sort((a, b) => (roomMap[a.roomId]?.name || '').localeCompare(roomMap[b.roomId]?.name || ''));
   }, [readings, month, roomMap]);
 
+  const latestReadingMap = useMemo(() => {
+    const map = new Map();
+    (readings || []).forEach((reading) => {
+      if (!reading?.roomId || !reading?.month) return;
+      const key = `${reading.roomId}__${reading.month}`;
+      const prev = map.get(key);
+      const prevTime = prev?.updatedAt || prev?.createdAt || '';
+      const nextTime = reading?.updatedAt || reading?.createdAt || '';
+      if (!prev || String(nextTime) > String(prevTime)) {
+        map.set(key, reading);
+      }
+    });
+    return map;
+  }, [readings]);
+
+  const previousReadingMap = useMemo(() => {
+    const map = new Map();
+    latestReadingMap.forEach((reading) => {
+      if (reading.month >= month) return;
+      const previous = map.get(reading.roomId);
+      if (!previous || reading.month > previous.month) {
+        map.set(reading.roomId, reading);
+      }
+    });
+    return map;
+  }, [latestReadingMap, month]);
+
+  const getPreviousReading = (roomId) => {
+    if (!roomId) return null;
+    return previousReadingMap.get(roomId) || null;
+  };
+
   const closeReadingModal = () => setReadingModal({ open: false, form: EMPTY_FORM });
-  const openCreateReading = () => setReadingModal({ open: true, form: EMPTY_FORM });
+  const openCreateReading = () => {
+    const defaultRoomId = unrecordedRooms[0]?.id || '';
+    const nextForm = applyLatestPreviousStartValues(defaultRoomId, { ...EMPTY_FORM, roomId: defaultRoomId });
+    setReadingModal({ open: true, form: nextForm });
+  };
+  const applyLatestPreviousStartValues = (roomId, currentForm) => {
+    const previousReading = getPreviousReading(roomId);
+    if (!previousReading) return currentForm;
+    return {
+      ...currentForm,
+      electricStart: previousReading.electricEnd?.toString() ?? currentForm.electricStart,
+      waterStart: previousReading.waterEnd?.toString() ?? currentForm.waterStart,
+    };
+  };
+
   const onEditReading = (r) => {
     setReadingModal({
       open: true,
@@ -159,6 +205,15 @@ export default function Meter() {
     const ee = parseOrNull(form.electricEnd);
     const ws = parseOrNull(form.waterStart);
     const we = parseOrNull(form.waterEnd);
+    const previousReading = getPreviousReading(form.roomId);
+    const isInvalidNumber = (value) => value !== null && (!Number.isFinite(value) || value < 0);
+
+    if (isInvalidNumber(es) || isInvalidNumber(ee)) {
+      errors.push('Chỉ số điện phải là số lớn hơn hoặc bằng 0.');
+    }
+    if (isInvalidNumber(ws) || isInvalidNumber(we)) {
+      errors.push('Chỉ số nước phải là số lớn hơn hoặc bằng 0.');
+    }
 
     if ((es === null) !== (ee === null)) {
       errors.push('Nếu nhập chỉ số điện thì phải nhập cả Điện đầu và Điện cuối.');
@@ -171,6 +226,12 @@ export default function Meter() {
     }
     if (ws !== null && we !== null && Number.isFinite(ws) && Number.isFinite(we) && we < ws) {
       errors.push('Chỉ số Nước: Nước cuối phải lớn hơn hoặc bằng Nước đầu.');
+    }
+    if (previousReading && es !== null && es < Number(previousReading.electricEnd ?? 0)) {
+      errors.push(`Chỉ số điện đầu phải lớn hơn hoặc bằng chỉ số điện cuối của lần chốt gần nhất (${previousReading.month}): ${previousReading.electricEnd ?? 0}.`);
+    }
+    if (previousReading && ws !== null && ws < Number(previousReading.waterEnd ?? 0)) {
+      errors.push(`Chỉ số nước đầu phải lớn hơn hoặc bằng chỉ số nước cuối của lần chốt gần nhất (${previousReading.month}): ${previousReading.waterEnd ?? 0}.`);
     }
     if (errors.length) return alert(errors.join('\n'));
 
@@ -185,6 +246,7 @@ export default function Meter() {
         electricEnd: +form.electricEnd,
         waterStart: +form.waterStart,
         waterEnd: +form.waterEnd,
+        createdAt: r.createdAt || nowIso,
         updatedAt: nowIso
       }) : r);
       const next = { ...state, readings: nextReadings };
@@ -312,7 +374,14 @@ export default function Meter() {
               <select
                 className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-auto sm:text-sm"
                 value={readingModal.form.roomId}
-                onChange={e => setReadingModal((prev) => ({ ...prev, form: { ...prev.form, roomId: e.target.value } }))}
+                onChange={e => setReadingModal((prev) => {
+                  const roomId = e.target.value;
+                  const nextForm = prev.form.id ? { ...prev.form, roomId } : { ...EMPTY_FORM, roomId };
+                  return {
+                    ...prev,
+                    form: prev.form.id ? nextForm : applyLatestPreviousStartValues(roomId, nextForm)
+                  };
+                })}
               >
                 <option value="">— Chọn phòng —</option>
                 {(() => {

@@ -65,6 +65,11 @@ CREATE TABLE IF NOT EXISTS readings (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- CREATE TABLE IF NOT EXISTS does not add columns to an existing table.
+-- Keep older readings tables compatible with the current application payload.
+ALTER TABLE readings ADD COLUMN IF NOT EXISTS createdAt TIMESTAMP;
+ALTER TABLE readings ADD COLUMN IF NOT EXISTS updatedAt TIMESTAMP;
+
 CREATE INDEX IF NOT EXISTS idx_readings_created_by ON readings (created_by);
 CREATE INDEX IF NOT EXISTS idx_readings_room_month ON readings (roomId, month);
 
