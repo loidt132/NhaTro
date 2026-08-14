@@ -21,7 +21,7 @@ export default function Rooms(){
   const [isLoading, setIsLoading] = useState(true);
   const [month, setMonth] = useState(monthKey());
   const [query, setQuery] = useState('');
-  const [roomModal, setRoomModal] = useState({ open:false, mode:'create', roomId:null, form:{ name:'', baseRent:2500000, electricRate:3500, waterRate:12000 } });
+  const [roomModal, setRoomModal] = useState({ open:false, mode:'create', roomId:null, form:{ name:'', baseRent:2500000, electricRate:3500, waterRate:12000, tuyaDeviceId:'' } });
   const [tenantModal, setTenantModal] = useState({ open:false, roomId:null, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' } });
   const [view, setView] = useState('cards'); // 'table' or 'cards'
   const [page, setPage] = useState(1);
@@ -81,9 +81,9 @@ export default function Rooms(){
     if (roomLimitReached) {
       return alert(`Không thể thêm phòng mới. Bạn đã đạt giới hạn ${maxRoomLimit} phòng.`);
     }
-    setRoomModal({ open:true, mode:'create', roomId:null, form:{ name:'', baseRent:2500000, electricRate:3500, waterRate:12000 }});
+    setRoomModal({ open:true, mode:'create', roomId:null, form:{ name:'', baseRent:2500000, electricRate:3500, waterRate:12000, tuyaDeviceId:'' }});
   };
-  const openEditRoom = (r)=> setRoomModal({ open:true, mode:'edit', roomId:r.id, form:{ name:r.name, baseRent:r.baseRent, electricRate:r.electricRate, waterRate:r.waterRate }});
+  const openEditRoom = (r)=> setRoomModal({ open:true, mode:'edit', roomId:r.id, form:{ name:r.name, baseRent:r.baseRent, electricRate:r.electricRate, waterRate:r.waterRate, tuyaDeviceId:r.tuyaDeviceId || '' }});
   const saveRoom = (e)=>{
     e.preventDefault();
     const f = roomModal.form; const n = (f.name||'').trim();
@@ -91,7 +91,16 @@ export default function Rooms(){
     if (roomModal.mode === 'create' && roomLimitReached) {
       return alert(`Không thể thêm phòng mới. Giới hạn ${maxRoomLimit} phòng đã đạt.`);
     }
-    const payload = { id: roomModal.roomId || uid(), name:n, baseRent:+f.baseRent||0, electricRate:+f.electricRate||0, waterRate:+f.waterRate||0, primaryTenantId: roomMap[roomModal.roomId]?.primaryTenantId };
+    const payload = {
+      ...(roomMap[roomModal.roomId] || {}),
+      id: roomModal.roomId || uid(),
+      name: n,
+      baseRent: +f.baseRent || 0,
+      electricRate: +f.electricRate || 0,
+      waterRate: +f.waterRate || 0,
+      tuyaDeviceId: (f.tuyaDeviceId || '').trim(),
+      primaryTenantId: roomMap[roomModal.roomId]?.primaryTenantId,
+    };
     const nextRooms = roomModal.mode==='edit' ? rooms.map(r=> r.id===roomModal.roomId? payload : r) : [...rooms, payload];
     // If editing an existing room, update unpaid invoices for this room so Payments view shows new rent
     let nextInvoices = invoices;
@@ -107,7 +116,7 @@ export default function Rooms(){
     }
     const s2 = { ...state, rooms: nextRooms, invoices: nextInvoices };
     setState(s2); saveState(s2);
-    setRoomModal({ open:false, mode:'create', roomId:null, form:{ name:'', baseRent:2500000, electricRate:3500, waterRate:12000 }});
+    setRoomModal({ open:false, mode:'create', roomId:null, form:{ name:'', baseRent:2500000, electricRate:3500, waterRate:12000, tuyaDeviceId:'' }});
   };
   const removeRoom = (id)=>{
     if(!confirm('Xóa phòng này? Khách thuê sẽ bị bỏ gán phòng.')) return;
@@ -272,6 +281,7 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
           <div><div className="text-slate-500">Tiền phòng</div><div className="font-medium">{currency(room.baseRent)} đ</div></div>
           <div><div className="text-slate-500">Đơn giá điện</div><div className="font-medium">{currency(room.electricRate)} đ/kWh</div></div>
           <div><div className="text-slate-500">Đơn giá nước</div><div className="font-medium">{currency(room.waterRate)} đ/m³</div></div>
+          <div><div className="text-slate-500">Công tơ Tuya</div><div className="font-medium break-all">{room.tuyaDeviceId || 'Chưa gán'}</div></div>
           <div>
             <div className="text-slate-500">Khách</div>
             {occupants.length? (
@@ -415,6 +425,16 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
                 <label className="text-xs text-slate-500">Giá nước (đ/m³)</label>
                 <input type="number" className="w-full rounded-xl border px-3 py-2" value={roomModal.form.waterRate}
                        onChange={e=>setRoomModal(m=>({...m, form:{...m.form, waterRate:e.target.value}}))} />
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-slate-500">Tuya Device ID của công tơ</label>
+                <input
+                  className="w-full rounded-xl border px-3 py-2"
+                  placeholder="Dán Device ID của công tơ cho phòng này"
+                  value={roomModal.form.tuyaDeviceId}
+                  onChange={e=>setRoomModal(m=>({...m, form:{...m.form, tuyaDeviceId:e.target.value}}))}
+                />
+                <p className="mt-1 text-xs text-slate-500">Để trống nếu chưa gán công tơ. Mỗi Device ID chỉ nên gán cho một phòng.</p>
               </div>
               <div className="col-span-2 flex items-center gap-2">
                 <button className="rounded-xl bg-emerald-600 text-white px-4 py-2">Lưu</button>

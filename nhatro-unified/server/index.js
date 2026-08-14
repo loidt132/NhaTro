@@ -73,6 +73,14 @@ const HAS_FULL_NOCO_CONFIG = Boolean(NOCODB_URL && NOCODB_API_KEY && NOCODB_TABL
 const KEEP_ALIVE_URL = firstEnv('RENDER_KEEP_ALIVE_URL', 'APP_URL', 'RENDER_EXTERNAL_URL', 'VITE_API_ORIGIN').replace(/\/+$/, '');
 const KEEP_ALIVE_INTERVAL_MS = Number(process.env.RENDER_KEEP_ALIVE_INTERVAL_MS || 13 * 60 * 1000);
 const ENABLE_KEEP_ALIVE = String(process.env.RENDER_KEEP_ALIVE_ENABLED || 'true').toLowerCase() !== 'false';
+const TUYA_API_ENDPOINT = firstEnv('TUYA_API_ENDPOINT').replace(/\/+$/, '');
+const TUYA_ACCESS_ID = firstEnv('TUYA_ACCESS_ID');
+const TUYA_ACCESS_SECRET = firstEnv('TUYA_ACCESS_SECRET');
+const TUYA_ENERGY_CODES = firstEnv('TUYA_ENERGY_CODES', 'TUYA_ENERGY_CODE')
+  .split(',')
+  .map((code) => code.trim())
+  .filter(Boolean);
+let tuyaTokenCache = null;
 
 app.get('/', (req, res) => {
   res.send('OK');
@@ -110,6 +118,106 @@ function sanitizeStateForPersistence(nextState = {}) {
     ...nextState,
     invoices,
     payments: Array.from(paymentsByInvoiceId.values()),
+  };
+}
+
+function ensureTuyaReady() {
+  if (!TUYA_API_ENDPOINT || !TUYA_ACCESS_ID || !TUYA_ACCESS_SECRET) {
+    throw new Error('Tuya chưa được cấu hình. Thêm TUYA_API_ENDPOINT, TUYA_ACCESS_ID và TUYA_ACCESS_SECRET trên server.');
+  }
+}
+
+function sha256(value = '') {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function hmacSha256(value, key) {
+  return crypto.createHmac('sha256', key).update(value).digest('hex').toUpperCase();
+}
+
+async function tuyaRequest(method, requestPath, accessToken = '') {
+  ensureTuyaReady();
+  const timestamp = String(Date.now());
+  const stringToSign = `${method}\n${sha256('')}\n\n${requestPath}`;
+  const signPayload = `${TUYA_ACCESS_ID}${accessToken}${timestamp}${stringToSign}`;
+  const response = await fetchApi(`${TUYA_API_ENDPOINT}${requestPath}`, {
+    method,
+    headers: {
+      client_id: TUYA_ACCESS_ID,
+      sign: hmacSha256(signPayload, TUYA_ACCESS_SECRET),
+      sign_method: 'HMAC-SHA256',
+      t: timestamp,
+      ...(accessToken ? { access_token: accessToken } : {}),
+    },
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.success) {
+    throw new Error(payload?.msg || `Tuya API lỗi (${response.status})`);
+  }
+  return payload.result;
+}
+
+async function getTuyaAccessToken() {
+  if (tuyaTokenCache?.accessToken && tuyaTokenCache.expiresAt > Date.now() + 30_000) {
+    return tuyaTokenCache.accessToken;
+  }
+  const result = await tuyaRequest('GET', '/v1.0/token?grant_type=1');
+  if (!result?.access_token) throw new Error('Không nhận được access token từ Tuya.');
+  tuyaTokenCache = {
+    accessToken: result.access_token,
+    expiresAt: Date.now() + Math.max(60, Number(result.expire_time || 3600) - 60) * 1000,
+  };
+  return tuyaTokenCache.accessToken;
+}
+
+function parseTuyaValues(value) {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); } catch { return {}; }
+}
+
+function findTuyaScale(specification, code) {
+  const candidates = [
+    ...(Array.isArray(specification?.status) ? specification.status : []),
+    ...(Array.isArray(specification?.status_set) ? specification.status_set : []),
+    ...(Array.isArray(specification?.properties) ? specification.properties : []),
+  ];
+  const match = candidates.find((item) => item?.code === code);
+  const values = parseTuyaValues(match?.values || match?.value || match?.property);
+  const scale = Number(values?.scale ?? match?.scale);
+  return Number.isInteger(scale) && scale >= 0 ? scale : 0;
+}
+
+async function getTuyaElectricReading(deviceId) {
+  const token = await getTuyaAccessToken();
+  const encodedDeviceId = encodeURIComponent(deviceId);
+  const status = await tuyaRequest('GET', `/v1.0/iot-03/devices/${encodedDeviceId}/status`, token);
+  const statuses = Array.isArray(status) ? status : [];
+  const energyCodes = TUYA_ENERGY_CODES.length
+    ? TUYA_ENERGY_CODES
+    : ['forward_energy_total', 'add_ele', 'total_forward_energy'];
+  const value = energyCodes
+    .map((code) => ({ code, item: statuses.find((statusItem) => statusItem?.code === code) }))
+    .find((entry) => entry.item && Number.isFinite(Number(entry.item.value)));
+
+  if (!value) {
+    const availableCodes = statuses.map((item) => item?.code).filter(Boolean).join(', ');
+    throw new Error(`Không tìm thấy datapoint điện năng tích lũy. Các mã hiện có: ${availableCodes || 'không có'}`);
+  }
+
+  let specification = null;
+  try {
+    specification = await tuyaRequest('GET', `/v1.0/devices/${encodedDeviceId}/specifications`, token);
+  } catch (error) {
+    console.warn('Tuya specifications unavailable:', error.message);
+  }
+  const rawValue = Number(value.item.value);
+  const scale = findTuyaScale(specification, value.code);
+  return {
+    code: value.code,
+    rawValue,
+    scale,
+    electricEnd: rawValue / (10 ** scale),
   };
 }
 
@@ -731,6 +839,32 @@ function authMiddleware(req, res, next) {
   next();
 }
 
+app.post('/api/tuya/statuses', authMiddleware, async (req, res) => {
+  const rooms = Array.isArray(req.body?.rooms) ? req.body.rooms : [];
+  const seenDeviceIds = new Set();
+  const results = [];
+
+  for (const room of rooms) {
+    const roomId = String(room?.id || '').trim();
+    const deviceId = String(room?.tuyaDeviceId || '').trim();
+    if (!roomId || !deviceId) continue;
+
+    if (seenDeviceIds.has(deviceId)) {
+      results.push({ roomId, deviceId, error: 'Công tơ này đã được gán cho một phòng khác.' });
+      continue;
+    }
+    seenDeviceIds.add(deviceId);
+
+    try {
+      results.push({ roomId, deviceId, ...(await getTuyaElectricReading(deviceId)) });
+    } catch (error) {
+      results.push({ roomId, deviceId, error: error?.message || 'Không thể lấy chỉ số từ Tuya.' });
+    }
+  }
+
+  return res.json({ results, capturedAt: new Date().toISOString() });
+});
+
 async function adminMiddleware(req, res, next) {
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
@@ -1069,4 +1203,3 @@ if (require.main === module) {
 }
 
 module.exports = app;
-

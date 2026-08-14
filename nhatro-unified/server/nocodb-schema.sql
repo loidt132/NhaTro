@@ -25,10 +25,14 @@ CREATE TABLE IF NOT EXISTS rooms (
   baseRent BIGINT DEFAULT 0,
   electricRate BIGINT DEFAULT 0,
   waterRate BIGINT DEFAULT 0,
+  tuyaDeviceId VARCHAR(128),
   primaryTenantId VARCHAR(64),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Keep existing rooms tables compatible with the Tuya meter mapping.
+ALTER TABLE rooms ADD COLUMN IF NOT EXISTS tuyaDeviceId VARCHAR(128);
 
 CREATE INDEX IF NOT EXISTS idx_rooms_created_by ON rooms (created_by);
 

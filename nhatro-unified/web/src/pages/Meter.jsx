@@ -6,6 +6,7 @@ import TotalsBar from '../components/TotalsBar';
 import Footer from '../components/Footer';
 import Page from '../components/Page';
 import PaginationControls from '../components/PaginationControls';
+import { getStoredToken } from '../utils/auth';
 
 export default function Meter() {
   const [state, setState] = useState(loadState());
@@ -25,6 +26,7 @@ export default function Meter() {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
+  const [isClosingTuyaMeters, setIsClosingTuyaMeters] = useState(false);
 
   useEffect(() => {
     setPage(1);
@@ -149,6 +151,79 @@ export default function Meter() {
     const nextReadings = (state.readings || []).filter(x => x.id !== id);
     const s2 = { ...state, readings: nextReadings };
     setState(s2); saveState(s2);
+  };
+
+  const closeAllTuyaMeters = async () => {
+    const mappedRooms = (rooms || []).filter((room) => String(room?.tuyaDeviceId || '').trim());
+    if (mappedRooms.length === 0) {
+      alert('Chưa có phòng nào được gán Tuya Device ID. Vào Sửa phòng để gán công tơ trước.');
+      return;
+    }
+    if (!window.confirm(`Chốt chỉ số điện hiện tại cho ${mappedRooms.length} phòng đã gán công tơ Tuya?`)) return;
+
+    setIsClosingTuyaMeters(true);
+    try {
+      const base = (import.meta.env.VITE_API_ORIGIN || '').replace(/\/+$/, '');
+      const response = await fetch(`${base}/api/tuya/statuses`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${getStoredToken()}`,
+        },
+        body: JSON.stringify({ rooms: mappedRooms.map(({ id, tuyaDeviceId }) => ({ id, tuyaDeviceId })) }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Không thể kết nối Tuya.');
+
+      const nowIso = payload.capturedAt || new Date().toISOString();
+      let nextReadings = [...(state.readings || [])];
+      let successCount = 0;
+      const failures = [];
+
+      for (const result of payload.results || []) {
+        if (!Number.isFinite(Number(result.electricEnd))) {
+          failures.push(`${roomMap[result.roomId]?.name || result.roomId}: ${result.error || 'Không có chỉ số'}`);
+          continue;
+        }
+
+        const existing = latestReadingMap.get(`${result.roomId}__${month}`);
+        if (existing) {
+          nextReadings = nextReadings.map((reading) => reading.id === existing.id ? ({
+            ...reading,
+            electricEnd: result.electricEnd,
+            updatedAt: nowIso,
+          }) : reading);
+        } else {
+          const previous = getPreviousReading(result.roomId);
+          nextReadings.unshift({
+            id: uid(),
+            roomId: result.roomId,
+            month,
+            electricStart: Number(previous?.electricEnd ?? result.electricEnd),
+            electricEnd: result.electricEnd,
+            waterStart: null,
+            waterEnd: null,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          });
+        }
+        successCount += 1;
+      }
+
+      if (successCount > 0) {
+        const next = { ...state, readings: nextReadings };
+        setState(next);
+        saveState(next);
+      }
+
+      const summary = [`Đã chốt ${successCount}/${mappedRooms.length} công tơ cho tháng ${month}.`];
+      if (failures.length) summary.push(`Không lấy được:\n${failures.join('\n')}`);
+      alert(summary.join('\n\n'));
+    } catch (error) {
+      alert(error?.message || 'Không thể chốt chỉ số từ Tuya.');
+    } finally {
+      setIsClosingTuyaMeters(false);
+    }
   };
 
   const filteredRooms = useMemo(() => {
@@ -288,9 +363,19 @@ export default function Meter() {
           <div className="text-sm text-slate-600">
             Nhập chỉ số điện/nước theo tháng để tính tiền phòng.
           </div>
-          <button type="button" onClick={openCreateReading} className="h-11 rounded-xl bg-emerald-600 px-4 text-sm font-medium text-white">
-            Thêm chỉ số
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={closeAllTuyaMeters}
+              disabled={isClosingTuyaMeters}
+              className="h-11 rounded-xl bg-sky-600 px-4 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-sky-300"
+            >
+              {isClosingTuyaMeters ? 'Đang lấy từ Tuya…' : 'Chốt tất cả công tơ Tuya'}
+            </button>
+            <button type="button" onClick={openCreateReading} className="h-11 rounded-xl bg-emerald-600 px-4 text-sm font-medium text-white">
+              Thêm chỉ số
+            </button>
+          </div>
         </div>
         {readingsVisible.length > 0 && (
           <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
