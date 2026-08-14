@@ -188,7 +188,50 @@ function findTuyaScale(specification, code) {
   return Number.isInteger(scale) && scale >= 0 ? scale : 0;
 }
 
-async function getTuyaElectricReading(deviceId) {
+function parseMonthKey(value) {
+  if (!/^\d{4}-\d{2}$/.test(String(value || ''))) return null;
+  const year = Number(String(value).slice(0, 4));
+  const month = Number(String(value).slice(5, 7));
+  if (month < 1 || month > 12) return null;
+  return { year, month, key: `${year}-${String(month).padStart(2, '0')}`, apiKey: `${year}${String(month).padStart(2, '0')}` };
+}
+
+function monthKeysInclusive(from, to) {
+  const result = [];
+  for (let year = from.year, month = from.month; year < to.year || (year === to.year && month <= to.month);) {
+    result.push({ year, month, apiKey: `${year}${String(month).padStart(2, '0')}` });
+    month += 1;
+    if (month === 13) { month = 1; year += 1; }
+  }
+  return result;
+}
+
+async function getTuyaMonthlyUsage(token, encodedDeviceId, code, targetMonth, currentMonth) {
+  const allMonths = monthKeysInclusive(targetMonth, currentMonth);
+  const usageByMonth = {};
+  const years = [...new Set(allMonths.map((item) => item.year))];
+
+  for (const year of years) {
+    const yearMonths = allMonths.filter((item) => item.year === year);
+    const startMonth = yearMonths[0].apiKey;
+    const endMonth = yearMonths[yearMonths.length - 1].apiKey;
+    const path = `/v1.0/devices/${encodedDeviceId}/statistics/months?code=${encodeURIComponent(code)}&start_month=${startMonth}&end_month=${endMonth}`;
+    const result = await tuyaRequest('GET', path, token);
+    Object.assign(usageByMonth, result?.months || {});
+  }
+
+  const targetUsage = Number(usageByMonth[targetMonth.apiKey]);
+  if (!Number.isFinite(targetUsage)) {
+    throw new Error(`Tuya không có thống kê kWh cho tháng ${targetMonth.key} (datapoint ${code}).`);
+  }
+
+  const laterUsage = allMonths
+    .filter((item) => item.apiKey > targetMonth.apiKey)
+    .reduce((sum, item) => sum + (Number(usageByMonth[item.apiKey]) || 0), 0);
+  return { targetUsage, laterUsage };
+}
+
+async function getTuyaElectricReading(deviceId, requestedMonth = '') {
   const token = await getTuyaAccessToken();
   const encodedDeviceId = encodeURIComponent(deviceId);
   const status = await tuyaRequest('GET', `/v1.0/iot-03/devices/${encodedDeviceId}/status`, token);
@@ -213,11 +256,34 @@ async function getTuyaElectricReading(deviceId) {
   }
   const rawValue = Number(value.item.value);
   const scale = findTuyaScale(specification, value.code);
+  const currentTotal = rawValue / (10 ** scale);
+  const targetMonth = parseMonthKey(requestedMonth);
+  if (!targetMonth) {
+    return {
+      code: value.code,
+      rawValue,
+      scale,
+      electricEnd: currentTotal,
+    };
+  }
+
+  const now = new Date();
+  const currentMonth = { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 };
+  if (targetMonth.year > currentMonth.year || (targetMonth.year === currentMonth.year && targetMonth.month > currentMonth.month)) {
+    throw new Error('Không thể chốt tháng trong tương lai.');
+  }
+
+  const { targetUsage, laterUsage } = await getTuyaMonthlyUsage(token, encodedDeviceId, value.code, targetMonth, currentMonth);
+  const electricEnd = currentTotal - laterUsage;
+  const electricStart = electricEnd - targetUsage;
   return {
     code: value.code,
     rawValue,
     scale,
-    electricEnd: rawValue / (10 ** scale),
+    electricStart,
+    electricEnd,
+    electricUsage: targetUsage,
+    source: 'tuya-monthly-statistics',
   };
 }
 
@@ -841,6 +907,7 @@ function authMiddleware(req, res, next) {
 
 app.post('/api/tuya/statuses', authMiddleware, async (req, res) => {
   const rooms = Array.isArray(req.body?.rooms) ? req.body.rooms : [];
+  const month = String(req.body?.month || '');
   const seenDeviceIds = new Set();
   const results = [];
 
@@ -856,7 +923,7 @@ app.post('/api/tuya/statuses', authMiddleware, async (req, res) => {
     seenDeviceIds.add(deviceId);
 
     try {
-      results.push({ roomId, deviceId, ...(await getTuyaElectricReading(deviceId)) });
+      results.push({ roomId, deviceId, ...(await getTuyaElectricReading(deviceId, month)) });
     } catch (error) {
       results.push({ roomId, deviceId, error: error?.message || 'Không thể lấy chỉ số từ Tuya.' });
     }
