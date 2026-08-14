@@ -159,7 +159,7 @@ export default function Meter() {
       alert('Chưa có phòng nào được gán Tuya Device ID. Vào Sửa phòng để gán công tơ trước.');
       return;
     }
-    if (!window.confirm(`Chốt chỉ số điện hiện tại cho ${mappedRooms.length} phòng đã gán công tơ Tuya?`)) return;
+    if (!window.confirm(`Lấy dữ liệu kWh tháng ${month} từ Tuya cho ${mappedRooms.length} phòng đã gán công tơ?`)) return;
 
     setIsClosingTuyaMeters(true);
     try {
@@ -170,7 +170,7 @@ export default function Meter() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${getStoredToken()}`,
         },
-        body: JSON.stringify({ rooms: mappedRooms.map(({ id, tuyaDeviceId }) => ({ id, tuyaDeviceId })) }),
+        body: JSON.stringify({ month, rooms: mappedRooms.map(({ id, tuyaDeviceId }) => ({ id, tuyaDeviceId })) }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || 'Không thể kết nối Tuya.');
@@ -182,24 +182,26 @@ export default function Meter() {
 
       for (const result of payload.results || []) {
         if (!Number.isFinite(Number(result.electricEnd))) {
-          failures.push(`${roomMap[result.roomId]?.name || result.roomId}: ${result.error || 'Không có chỉ số'}`);
+          failures.push(`${roomMap[result.roomId]?.name || result.roomId}: ${result.error || 'Không có chỉ số điện cuối'}`);
           continue;
         }
+
+        const electricStart = Number.isFinite(Number(result.electricStart)) ? result.electricStart : null;
 
         const existing = latestReadingMap.get(`${result.roomId}__${month}`);
         if (existing) {
           nextReadings = nextReadings.map((reading) => reading.id === existing.id ? ({
             ...reading,
+            electricStart: electricStart ?? reading.electricStart,
             electricEnd: result.electricEnd,
             updatedAt: nowIso,
           }) : reading);
         } else {
-          const previous = getPreviousReading(result.roomId);
           nextReadings.unshift({
             id: uid(),
             roomId: result.roomId,
             month,
-            electricStart: Number(previous?.electricEnd ?? result.electricEnd),
+            electricStart,
             electricEnd: result.electricEnd,
             waterStart: null,
             waterEnd: null,
