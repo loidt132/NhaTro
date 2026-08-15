@@ -25,6 +25,13 @@ const isUnpaidStatus = (status = '') => {
   return s === STATUS_UNPAID || s === LEGACY_STATUS_UNPAID;
 };
 
+const hasMeterValue = (value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
+const meterSpec = (start, end, unit) => (
+  hasMeterValue(start) && hasMeterValue(end)
+    ? `${start} ${unit} — ${end} ${unit}`
+    : `0 ${unit} — 0 ${unit}`
+);
+
 export default function Payments() {
   const [state, setState] = useState(loadState());
   // Keep in-sync with other parts of the app that call saveState()
@@ -294,8 +301,8 @@ const togglePaid = (id) => {
       tenants: names ? names.split(',').map(s => s.trim()) : [],
       items: [
         { name: 'Tiền phòng', spec: '-', qty: '-', unitPrice: inv.rent, amount: inv.rent },
-        { name: 'Điện',  spec: `${inv.electricEnd} kWh - ${inv.electricStart} kWh`, qty: inv.electricUsage, unitPrice: room?.electricRate ?? 0, amount: inv.electricAmount },
-        { name: 'Nước',  spec: `${inv.waterEnd} m³ - ${inv?.waterStart} m³`,       qty: inv.waterUsage,   unitPrice: room?.waterRate ?? 0, amount: inv.waterAmount },
+        { name: 'Điện', spec: meterSpec(inv.electricStart, inv.electricEnd, 'kWh'), qty: inv.electricUsage ?? 0, unitPrice: room?.electricRate ?? 0, amount: inv.electricAmount ?? 0 },
+        { name: 'Nước', spec: meterSpec(inv.waterStart, inv.waterEnd, 'm³'), qty: inv.waterUsage ?? 0, unitPrice: room?.waterRate ?? 0, amount: inv.waterAmount ?? 0 },
       ],
       total: inv.total,
       paid: isPaidByPayments(inv.id),
@@ -428,10 +435,10 @@ const togglePaid = (id) => {
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between pt-1 border-t border-slate-100">
                 <div className="text-lg font-semibold tabular-nums">{currency(draft.totalDraft)} đ</div>
-                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-                  <button type="button" onClick={() => addInvoiceFromReading(room.id)} className="w-full sm:w-auto rounded-lg border px-3 py-2.5 sm:py-1 text-sm font-medium">Tạo hóa đơn</button>
+                <div className="flex w-full flex-wrap justify-end gap-1.5 sm:w-auto">
+                  <button type="button" onClick={() => addInvoiceFromReading(room.id)} className="h-[29px] rounded-lg border px-2 text-[11px] font-medium">Tạo hóa đơn</button>
                   {!hasReading && (
-                    <Link to="/meter" className="w-full sm:w-auto rounded-lg border px-3 py-2.5 sm:py-1 text-center text-sm font-medium">Nhập chỉ số</Link>
+                    <Link to="/meter" className="h-[29px] rounded-lg border px-2 text-center text-[11px] font-medium leading-[29px]">Nhập chỉ số</Link>
                   )}
                 </div>
               </div>
@@ -468,11 +475,14 @@ const togglePaid = (id) => {
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between pt-1 border-t border-slate-100">
               <div className="text-lg font-semibold tabular-nums shrink-0">{currency(i.total)} đ</div>
-              <div className="flex flex-col gap-2 w-full">
-                <button type="button" onClick={() => togglePaid(i.id)} className="w-full rounded-lg border px-3 py-2.5 sm:py-1.5 text-sm font-medium">{isPaid ? 'Đánh dấu chưa thanh toán' : 'Đánh dấu đã trả'}</button>
-                <button type="button" onClick={() => printPdf(i)} className="w-full rounded-lg border px-3 py-2.5 sm:py-1.5 text-sm font-medium">Xuất PDF</button>
+              <div className="flex w-full flex-wrap justify-end gap-1.5">
+                <button type="button" onClick={() => togglePaid(i.id)} className="h-[29px] rounded-lg border px-2 text-[11px] font-medium">
+                  <span className="sm:hidden">{isPaid ? 'Chưa trả' : 'Đã trả'}</span>
+                  <span className="hidden sm:inline">{isPaid ? 'Đánh dấu chưa thanh toán' : 'Đánh dấu đã trả'}</span>
+                </button>
+                <button type="button" onClick={() => printPdf(i)} className="h-[29px] rounded-lg border px-2 text-[11px] font-medium">Xuất hóa đơn PDF</button>
                 {mismatch && (
-                  <button type="button" onClick={() => updateInvoiceFromReading(i.id)} className="w-full rounded-lg border px-3 py-2.5 sm:py-1.5 text-sm font-medium">Cập nhật từ chỉ số</button>
+                  <button type="button" onClick={() => updateInvoiceFromReading(i.id)} className="h-[29px] rounded-lg border px-2 text-[11px] font-medium"><span className="sm:hidden">Cập nhật</span><span className="hidden sm:inline">Cập nhật từ chỉ số</span></button>
                 )}
               </div>
             </div>

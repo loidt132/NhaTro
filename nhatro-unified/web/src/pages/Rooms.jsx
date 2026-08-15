@@ -309,12 +309,12 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
             ) : <i className="text-slate-400">(trống)</i>}
           </div>
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
           <div className="text-lg font-semibold">{currency(total)} đ</div>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={()=>openEditRoom(room)} className="flex-1 min-w-[6.5rem] rounded-lg border px-3 py-2 text-sm sm:flex-none sm:py-1">Sửa phòng</button>
-            <button onClick={()=>openTenantManager(room.id)} className="flex-1 min-w-[6.5rem] rounded-lg border px-3 py-2 text-sm sm:flex-none sm:py-1">Quản lý khách</button>
-            <button onClick={()=>removeRoom(room.id)} className="flex-1 min-w-[6.5rem] rounded-lg border px-3 py-2 text-sm sm:flex-none sm:py-1">Xóa</button>
+          <div className="flex flex-wrap justify-end gap-1.5">
+            <button onClick={()=>openEditRoom(room)} className="h-[29px] rounded-lg border px-2 text-[11px]">Sửa phòng</button>
+            <button onClick={()=>openTenantManager(room.id)} className="h-[29px] rounded-lg border px-2 text-[11px]">Quản lý khách</button>
+            <button onClick={()=>removeRoom(room.id)} className="h-[29px] rounded-lg border border-rose-200 bg-rose-50 px-2 text-[11px] text-rose-800">Xóa</button>
           </div>
         </div>
       </div>
@@ -504,10 +504,10 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
                           <dd>{t.endDate ? (new Date(t.endDate)).toLocaleDateString('vi-VN') : '—'}</dd>
                         </div>
                       </dl>
-                      <div className="flex flex-col gap-2">
-                        <button type="button" onClick={()=>editTenant(t)} className="w-full rounded-lg border border-slate-200 bg-white py-2.5 text-sm font-medium">Sửa</button>
-                        <button type="button" onClick={()=>setPrimaryTenant(tenantModal.roomId, t.id)} className="w-full rounded-lg border border-emerald-200 bg-emerald-50 py-2.5 text-sm font-medium text-emerald-800">Đặt đại diện thanh toán</button>
-                        <button type="button" onClick={()=>removeTenant(t.id)} className="w-full rounded-lg border border-rose-200 bg-rose-50 py-2.5 text-sm font-medium text-rose-800">Xóa</button>
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        <button type="button" onClick={()=>editTenant(t)} className="h-[29px] rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-medium">Sửa</button>
+                        <button type="button" onClick={()=>setPrimaryTenant(tenantModal.roomId, t.id)} className="h-[29px] rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-medium text-emerald-800">Đặt đại diện</button>
+                        <button type="button" onClick={()=>removeTenant(t.id)} className="h-[29px] rounded-lg border border-rose-200 bg-rose-50 px-2 text-[11px] font-medium text-rose-800">Xóa</button>
                       </div>
                     </div>
                   ))

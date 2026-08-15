@@ -471,9 +471,9 @@ export default function Meter() {
                       <div><span className="text-slate-500">Điện: </span>{(r.electricStart ?? '')} — {r.electricEnd ?? ''} <span className="text-slate-400">({eUse} kWh)</span></div>
                       <div><span className="text-slate-500">Nước: </span>{(r.waterStart ?? '')} — {r.waterEnd ?? ''} <span className="text-slate-400">({wUse} m³)</span></div>
                     </dl>
-                    <div className="mt-3 flex flex-col gap-2">
-                      <button type="button" onClick={() => onEditReading(r)} className="h-11 w-full rounded-lg border border-slate-200 bg-white text-sm font-medium">Sửa</button>
-                      <button type="button" onClick={() => onDeleteReading(r.id)} className="h-11 w-full rounded-lg border border-rose-200 bg-rose-50 text-sm font-medium text-rose-800">Xóa</button>
+                    <div className="mt-3 flex justify-end gap-1.5">
+                      <button type="button" onClick={() => onEditReading(r)} className="h-[29px] rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-medium">Sửa</button>
+                      <button type="button" onClick={() => onDeleteReading(r.id)} className="h-[29px] rounded-lg border border-rose-200 bg-rose-50 px-2 text-[11px] font-medium text-rose-800">Xóa</button>
                     </div>
                   </div>
                 );

@@ -177,16 +177,16 @@ export default function Tenants() {
                 </div>
                 {isPrimary(t) ? <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700">Đại diện</span> : null}
               </div>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button type="button" className="rounded-lg border px-3 py-2 text-sm" onClick={() => editTenant(t)}>
+              <div className="mt-3 flex flex-wrap justify-end gap-1.5">
+                <button type="button" className="h-[29px] rounded-lg border px-2 text-[11px]" onClick={() => editTenant(t)}>
                   Sửa
                 </button>
-                <button type="button" className="rounded-lg border px-3 py-2 text-sm" onClick={() => setPrimaryTenant(t)}>
+                <button type="button" className="h-[29px] rounded-lg border px-2 text-[11px]" onClick={() => setPrimaryTenant(t)}>
                   Đặt đại diện
                 </button>
                 <button
                   type="button"
-                  className="col-span-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
+                  className="h-[29px] rounded-lg border border-rose-200 bg-rose-50 px-2 text-[11px] text-rose-700"
                   onClick={() => removeTenant(t.id)}
                 >
                   Xóa
