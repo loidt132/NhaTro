@@ -294,7 +294,7 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
           <div><div className="text-slate-500">Tiền phòng</div><div className="font-medium">{currency(room.baseRent)} đ</div></div>
           <div><div className="text-slate-500">Đơn giá điện</div><div className="font-medium">{currency(room.electricRate)} đ/kWh</div></div>
           <div><div className="text-slate-500">Đơn giá nước</div><div className="font-medium">{currency(room.waterRate)} đ/m³</div></div>
-          <div><div className="text-slate-500">Công tơ Tuya</div><div className="font-medium break-all">{room.tuyaDeviceId || 'Chưa gán'}</div></div>
+          <div className="hidden lg:block"><div className="text-slate-500">Công tơ Tuya</div><div className="font-medium break-all">{room.tuyaDeviceId || 'Chưa gán'}</div></div>
           <div>
             <div className="text-slate-500">Khách</div>
             {occupants.length? (
@@ -371,6 +371,7 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
               <tr className="text-left text-slate-500">
                 <th className="p-2 whitespace-nowrap">Phòng</th>
                 <th className="p-2 min-w-[8rem]">Khách</th>
+                <th className="p-2 min-w-[10rem]">Công tơ Tuya</th>
                 <th className="p-2 whitespace-nowrap">Tháng</th>
                 <th className="p-2 whitespace-nowrap">Tiền phòng</th>
                 <th className="p-2 whitespace-nowrap">Điện</th>
@@ -385,6 +386,7 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
                 <tr key={room.id} className="border-t border-slate-100">
                   <td className="p-2 font-medium whitespace-nowrap">{room.name}</td>
                   <td className="p-2 max-w-[12rem]">{(occupants.length? occupants.map(t=>t.name).join(', ') : <i className="text-slate-400">(chưa có)</i>)}</td>
+                  <td className="p-2 break-all text-xs text-slate-600">{room.tuyaDeviceId || 'Chưa gán'}</td>
                   <td className="p-2 whitespace-nowrap">{month}</td>
                   <td className="p-2 whitespace-nowrap">{currency(room.baseRent)}</td>
                   <td className="p-2 whitespace-nowrap">{currency(draft.eAmt)} <span className="text-slate-400">({draft.eUse} kWh)</span></td>

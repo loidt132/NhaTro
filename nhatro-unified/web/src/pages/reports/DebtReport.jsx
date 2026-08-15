@@ -24,7 +24,7 @@ export default function DebtReport(){
           <option value="year">Theo năm</option>
         </select>
         <MonthYearPicker mode={mode} value={sel} onChange={setSel} />
-        <button onClick={onExport} className="rounded bg-slate-900 text-white px-3 py-1">Xuất PDF</button>
+        <button onClick={onExport} className="h-[29px] rounded bg-slate-900 px-2 text-[11px] text-white">Xuất PDF</button>
       </div>
       <div className="text-sm text-slate-600">Tổng nợ: <b>{sumDebt.toLocaleString()}</b> đ</div>
     </div>

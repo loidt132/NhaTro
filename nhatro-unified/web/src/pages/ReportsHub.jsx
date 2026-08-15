@@ -17,11 +17,11 @@ export default function ReportsHub(){
     }
   }, [tab]);
   const Tab = ({ id, children }) => (
-    <button onClick={()=>setTab(id)} className={'px-3 py-2 rounded ' + (tab===id? 'bg-emerald-600 text-white':'bg-slate-100')}>{children}</button>
+    <button onClick={()=>setTab(id)} className={'h-[29px] rounded px-2 text-[11px] ' + (tab===id? 'bg-emerald-600 text-white':'bg-slate-100')}>{children}</button>
   );
   return (
     <Page className="space-y-3">
-      <div className="flex gap-2">
+      <div className="flex flex-wrap justify-end gap-1.5">
         <Tab id="rooms">Danh sách phòng</Tab>
         <Tab id="tenants">Danh sách khách</Tab>
         <Tab id="payments">Báo cáo thanh toán</Tab>

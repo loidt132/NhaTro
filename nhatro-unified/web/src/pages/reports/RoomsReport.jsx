@@ -15,7 +15,7 @@ export default function RoomsReport(){
   const onExport = ()=> exportReportPdf({ title: 'DANH SÁCH PHÒNG', subtitle: summary.join(' | '), columns: ['#','Phòng','Tiền phòng','Giá điện','Giá nước','Khách'], rows, summary, fileName: 'rooms-report.pdf' });
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between"><h3 className="font-semibold">Danh sách phòng</h3><button onClick={onExport} className="rounded bg-slate-900 text-white px-3 py-1">Xuất PDF</button></div>
+      <div className="flex items-center justify-between"><h3 className="font-semibold">Danh sách phòng</h3><button onClick={onExport} className="h-[29px] rounded bg-slate-900 px-2 text-[11px] text-white">Xuất PDF</button></div>
       <div className="text-sm text-slate-600">Tổng số phòng: <b>{rooms.length}</b> • Đang có người thuê: <b>{occupied}</b></div>
     </div>
   );
