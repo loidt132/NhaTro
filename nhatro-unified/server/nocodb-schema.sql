@@ -63,8 +63,8 @@ CREATE TABLE IF NOT EXISTS readings (
   modified_by VARCHAR(64) NOT NULL,
   roomId VARCHAR(64) NOT NULL,
   month VARCHAR(7) NOT NULL,
-  electricStart BIGINT DEFAULT 0,
-  electricEnd BIGINT DEFAULT 0,
+  electricStart NUMERIC(14,3) DEFAULT 0,
+  electricEnd NUMERIC(14,3) DEFAULT 0,
   waterStart BIGINT DEFAULT 0,
   waterEnd BIGINT DEFAULT 0,
   createdAt TIMESTAMP,
@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS readings (
 -- Keep older readings tables compatible with the current application payload.
 ALTER TABLE readings ADD COLUMN IF NOT EXISTS createdAt TIMESTAMP;
 ALTER TABLE readings ADD COLUMN IF NOT EXISTS updatedAt TIMESTAMP;
+ALTER TABLE readings ALTER COLUMN electricStart TYPE NUMERIC(14,3) USING electricStart::numeric;
+ALTER TABLE readings ALTER COLUMN electricEnd TYPE NUMERIC(14,3) USING electricEnd::numeric;
 
 CREATE INDEX IF NOT EXISTS idx_readings_created_by ON readings (created_by);
 CREATE INDEX IF NOT EXISTS idx_readings_room_month ON readings (roomId, month);
@@ -89,9 +91,9 @@ CREATE TABLE IF NOT EXISTS invoices (
   tenantId VARCHAR(64),
   month VARCHAR(7) NOT NULL,
   rent BIGINT DEFAULT 0,
-  electricUsage BIGINT DEFAULT 0,
-  electricStart BIGINT DEFAULT 0,
-  electricEnd BIGINT DEFAULT 0,
+  electricUsage NUMERIC(14,3) DEFAULT 0,
+  electricStart NUMERIC(14,3) DEFAULT 0,
+  electricEnd NUMERIC(14,3) DEFAULT 0,
   electricAmount BIGINT DEFAULT 0,
   waterUsage BIGINT DEFAULT 0,
   waterStart BIGINT DEFAULT 0,
@@ -107,6 +109,10 @@ CREATE TABLE IF NOT EXISTS invoices (
 
 CREATE INDEX IF NOT EXISTS idx_invoices_created_by ON invoices (created_by);
 CREATE INDEX IF NOT EXISTS idx_invoices_room_month ON invoices (roomId, month);
+
+ALTER TABLE invoices ALTER COLUMN electricUsage TYPE NUMERIC(14,3) USING electricUsage::numeric;
+ALTER TABLE invoices ALTER COLUMN electricStart TYPE NUMERIC(14,3) USING electricStart::numeric;
+ALTER TABLE invoices ALTER COLUMN electricEnd TYPE NUMERIC(14,3) USING electricEnd::numeric;
 
 CREATE TABLE IF NOT EXISTS payments (
   id VARCHAR(64) PRIMARY KEY,

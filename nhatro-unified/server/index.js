@@ -80,6 +80,7 @@ const TUYA_ENERGY_CODES = firstEnv('TUYA_ENERGY_CODES', 'TUYA_ENERGY_CODE')
   .split(',')
   .map((code) => code.trim())
   .filter(Boolean);
+const TUYA_DEBUG_CURL = firstEnv('TUYA_DEBUG_CURL').toLowerCase() === 'true';
 let tuyaTokenCache = null;
 
 app.get('/', (req, res) => {
@@ -135,20 +136,51 @@ function hmacSha256(value, key) {
   return crypto.createHmac('sha256', key).update(value).digest('hex').toUpperCase();
 }
 
+// Tuya includes the complete request path (including its query string) in the
+// signature.  Query parameters must be in a stable, alphabetical order; the
+// monthly statistics endpoint has several parameters and otherwise returns
+// "sign invalid" even when the access token is valid.
+function normalizeTuyaRequestPath(requestPath) {
+  const url = new URL(requestPath, 'https://tuya.local');
+  const entries = Array.from(url.searchParams.entries())
+    .sort(([leftKey, leftValue], [rightKey, rightValue]) => (
+      leftKey.localeCompare(rightKey) || leftValue.localeCompare(rightValue)
+    ));
+  const query = new URLSearchParams(entries).toString();
+  return `${url.pathname}${query ? `?${query}` : ''}`;
+}
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'"'"'`)}'`;
+}
+
+function logTuyaCurl(method, url, headers) {
+  if (!TUYA_DEBUG_CURL) return;
+  const headerArgs = Object.entries(headers)
+    .map(([name, value]) => `-H ${shellQuote(`${name}: ${value}`)}`)
+    .join(' ');
+  console.info(`\n[Tuya debug] Copy this cURL to test the exact request (the t/sign/access_token values expire quickly):\n` +
+    `curl.exe -X ${method} ${shellQuote(url)} ${headerArgs}\n`);
+}
+
 async function tuyaRequest(method, requestPath, accessToken = '') {
   ensureTuyaReady();
+  const signedPath = normalizeTuyaRequestPath(requestPath);
   const timestamp = String(Date.now());
-  const stringToSign = `${method}\n${sha256('')}\n\n${requestPath}`;
+  const stringToSign = `${method}\n${sha256('')}\n\n${signedPath}`;
   const signPayload = `${TUYA_ACCESS_ID}${accessToken}${timestamp}${stringToSign}`;
-  const response = await fetchApi(`${TUYA_API_ENDPOINT}${requestPath}`, {
+  const headers = {
+    client_id: TUYA_ACCESS_ID,
+    sign: hmacSha256(signPayload, TUYA_ACCESS_SECRET),
+    sign_method: 'HMAC-SHA256',
+    t: timestamp,
+    ...(accessToken ? { access_token: accessToken } : {}),
+  };
+  const url = `${TUYA_API_ENDPOINT}${signedPath}`;
+  logTuyaCurl(method, url, headers);
+  const response = await fetchApi(url, {
     method,
-    headers: {
-      client_id: TUYA_ACCESS_ID,
-      sign: hmacSha256(signPayload, TUYA_ACCESS_SECRET),
-      sign_method: 'HMAC-SHA256',
-      t: timestamp,
-      ...(accessToken ? { access_token: accessToken } : {}),
-    },
+    headers,
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || !payload?.success) {
@@ -231,7 +263,7 @@ async function getTuyaMonthlyUsage(token, encodedDeviceId, code, targetMonth, cu
   return { targetUsage, laterUsage };
 }
 
-async function getTuyaElectricReading(deviceId, requestedMonth = '') {
+async function getTuyaElectricReading(deviceId, requestedMonth = '', useMonthlyUsage = false) {
   const token = await getTuyaAccessToken();
   const encodedDeviceId = encodeURIComponent(deviceId);
   const status = await tuyaRequest('GET', `/v1.0/iot-03/devices/${encodedDeviceId}/status`, token);
@@ -258,12 +290,15 @@ async function getTuyaElectricReading(deviceId, requestedMonth = '') {
   const scale = findTuyaScale(specification, value.code);
   const currentTotal = rawValue / (10 ** scale);
   const targetMonth = parseMonthKey(requestedMonth);
-  if (!targetMonth) {
+  // Monthly statistics require a separate Tuya permission. When disabled, only
+  // return the current total and let the landlord enter the start reading.
+  if (!useMonthlyUsage || !targetMonth) {
     return {
       code: value.code,
       rawValue,
       scale,
       electricEnd: currentTotal,
+      source: 'tuya-current-total',
     };
   }
 
@@ -908,6 +943,7 @@ function authMiddleware(req, res, next) {
 app.post('/api/tuya/statuses', authMiddleware, async (req, res) => {
   const rooms = Array.isArray(req.body?.rooms) ? req.body.rooms : [];
   const month = String(req.body?.month || '');
+  const useMonthlyUsage = req.body?.useMonthlyUsage === true;
   const seenDeviceIds = new Set();
   const results = [];
 
@@ -923,7 +959,7 @@ app.post('/api/tuya/statuses', authMiddleware, async (req, res) => {
     seenDeviceIds.add(deviceId);
 
     try {
-      results.push({ roomId, deviceId, ...(await getTuyaElectricReading(deviceId, month)) });
+      results.push({ roomId, deviceId, ...(await getTuyaElectricReading(deviceId, month, useMonthlyUsage)) });
     } catch (error) {
       results.push({ roomId, deviceId, error: error?.message || 'Không thể lấy chỉ số từ Tuya.' });
     }

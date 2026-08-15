@@ -52,6 +52,7 @@ export default function Settings({ user = null }) {
         qrNoteTemplate: normalizedQrNoteTemplate,
         occupancyMode: s.occupancyMode || 'month',
         meterRoomScope: s.meterRoomScope || 'occupied',
+        useTuyaMonthlyUsage: s.useTuyaMonthlyUsage === true,
       },
     };
     setState(next);
@@ -205,6 +206,18 @@ export default function Settings({ user = null }) {
               <option value="all">Tất cả phòng</option>
             </select>
           </div>
+          <label className="flex items-start gap-3 rounded-xl border border-slate-200 p-3 text-sm text-slate-700 md:col-span-2">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4"
+              checked={s.useTuyaMonthlyUsage === true}
+              onChange={(e) => setS({ ...s, useTuyaMonthlyUsage: e.target.checked })}
+            />
+            <span>
+              <span className="block font-medium text-slate-900">Lấy số điện tiêu thụ theo tháng từ Tuya</span>
+              <span className="mt-0.5 block text-xs text-slate-500">Tắt mặc định. Khi tắt, hệ thống chỉ lấy số điện cuối hiện tại; bạn tự nhập số điện đầu.</span>
+            </span>
+          </label>
         </div>
       </div>
       <div className="rounded-2xl border bg-white p-4 shadow-sm">

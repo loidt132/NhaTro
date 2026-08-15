@@ -110,6 +110,9 @@ function applyDefaults(s) {
     landlordAddress: '',
     occupancyMode: 'month',
     meterRoomScope: 'occupied',
+    // Tuya monthly usage requires an additional permission. Keep it opt-in so
+    // the starting electric meter can be entered manually by default.
+    useTuyaMonthlyUsage: false,
   };
   return {
     rooms: s.rooms || [],
@@ -199,6 +202,7 @@ export function loadState() {
       landlordAddress: '',
       occupancyMode: 'month',
       meterRoomScope: 'occupied',
+      useTuyaMonthlyUsage: false,
     }
   });
 }

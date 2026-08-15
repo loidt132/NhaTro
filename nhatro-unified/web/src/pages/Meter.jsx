@@ -27,6 +27,7 @@ export default function Meter() {
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
   const [isClosingTuyaMeters, setIsClosingTuyaMeters] = useState(false);
+  const [closingTuyaRoomId, setClosingTuyaRoomId] = useState('');
 
   useEffect(() => {
     setPage(1);
@@ -133,14 +134,15 @@ export default function Meter() {
   };
 
   const onEditReading = (r) => {
+    const previousReading = getPreviousReading(r.roomId);
     setReadingModal({
       open: true,
       form: {
         id: r.id,
         roomId: r.roomId,
-        electricStart: r.electricStart?.toString() ?? '',
+        electricStart: r.electricStart?.toString() ?? previousReading?.electricEnd?.toString() ?? '',
         electricEnd: r.electricEnd?.toString() ?? '',
-        waterStart: r.waterStart?.toString() ?? '',
+        waterStart: r.waterStart?.toString() ?? previousReading?.waterEnd?.toString() ?? '',
         waterEnd: r.waterEnd?.toString() ?? ''
       }
     });
@@ -153,15 +155,22 @@ export default function Meter() {
     setState(s2); saveState(s2);
   };
 
-  const closeAllTuyaMeters = async () => {
-    const mappedRooms = (rooms || []).filter((room) => String(room?.tuyaDeviceId || '').trim());
+  const closeTuyaMeters = async (targetRooms = null) => {
+    const mappedRooms = (targetRooms || rooms || []).filter((room) => String(room?.tuyaDeviceId || '').trim());
     if (mappedRooms.length === 0) {
       alert('Chưa có phòng nào được gán Tuya Device ID. Vào Sửa phòng để gán công tơ trước.');
       return;
     }
-    if (!window.confirm(`Lấy dữ liệu kWh tháng ${month} từ Tuya cho ${mappedRooms.length} phòng đã gán công tơ?`)) return;
+    const useTuyaMonthlyUsage = settings?.useTuyaMonthlyUsage === true;
+    const isSingleRoom = mappedRooms.length === 1;
+    const targetLabel = isSingleRoom ? `phòng ${mappedRooms[0].name || ''}` : `${mappedRooms.length} phòng đã gán công tơ`;
+    const confirmation = useTuyaMonthlyUsage
+      ? `Lấy dữ liệu kWh tháng ${month} từ Tuya cho ${targetLabel}?`
+      : `Lấy chỉ số điện cuối hiện tại từ Tuya cho ${targetLabel}? Số điện đầu sẽ mặc định là số cuối của kỳ trước.`;
+    if (!window.confirm(confirmation)) return;
 
     setIsClosingTuyaMeters(true);
+    setClosingTuyaRoomId(isSingleRoom ? mappedRooms[0].id : '');
     try {
       const base = (import.meta.env.VITE_API_ORIGIN || '').replace(/\/+$/, '');
       const response = await fetch(`${base}/api/tuya/statuses`, {
@@ -170,7 +179,11 @@ export default function Meter() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${getStoredToken()}`,
         },
-        body: JSON.stringify({ month, rooms: mappedRooms.map(({ id, tuyaDeviceId }) => ({ id, tuyaDeviceId })) }),
+        body: JSON.stringify({
+          month,
+          useMonthlyUsage: useTuyaMonthlyUsage,
+          rooms: mappedRooms.map(({ id, tuyaDeviceId }) => ({ id, tuyaDeviceId })),
+        }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || 'Không thể kết nối Tuya.');
@@ -186,7 +199,10 @@ export default function Meter() {
           continue;
         }
 
-        const electricStart = Number.isFinite(Number(result.electricStart)) ? result.electricStart : null;
+        const previousElectricEnd = getPreviousReading(result.roomId)?.electricEnd;
+        const electricStart = Number.isFinite(Number(result.electricStart))
+          ? result.electricStart
+          : (Number.isFinite(Number(previousElectricEnd)) ? previousElectricEnd : null);
 
         const existing = latestReadingMap.get(`${result.roomId}__${month}`);
         if (existing) {
@@ -225,8 +241,11 @@ export default function Meter() {
       alert(error?.message || 'Không thể chốt chỉ số từ Tuya.');
     } finally {
       setIsClosingTuyaMeters(false);
+      setClosingTuyaRoomId('');
     }
   };
+
+  const closeAllTuyaMeters = () => closeTuyaMeters();
 
   const filteredRooms = useMemo(() => {
     const scope = settings?.meterRoomScope || 'occupied';
@@ -372,13 +391,51 @@ export default function Meter() {
               disabled={isClosingTuyaMeters}
               className="h-11 rounded-xl bg-sky-600 px-4 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-sky-300"
             >
-              {isClosingTuyaMeters ? 'Đang lấy từ Tuya…' : 'Chốt tất cả công tơ Tuya'}
+              {isClosingTuyaMeters ? 'Đang lấy từ Tuya…' : 'Lấy chỉ số từ Tuya'}
             </button>
             <button type="button" onClick={openCreateReading} className="h-11 rounded-xl bg-emerald-600 px-4 text-sm font-medium text-white">
               Thêm chỉ số
             </button>
           </div>
         </div>
+        {unrecordedRooms.length > 0 && (
+          <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
+            <div className="mb-3 font-semibold">Chốt từng phòng — {month}</div>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {unrecordedRooms.map((room) => {
+                const previousReading = getPreviousReading(room.id);
+                const canCloseFromTuya = String(room.tuyaDeviceId || '').trim().length > 0;
+                const isClosingThisRoom = closingTuyaRoomId === room.id;
+                return (
+                  <div key={room.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                    <div className="font-medium text-slate-900">{room.name}</div>
+                    <div className="mt-1 text-xs text-slate-500">Số đầu mặc định: {previousReading?.electricEnd ?? 'Chưa có kỳ trước'}</div>
+                    <div className="mt-3 flex gap-2">
+                      {canCloseFromTuya ? (
+                        <button
+                          type="button"
+                          onClick={() => closeTuyaMeters([room])}
+                          disabled={isClosingTuyaMeters}
+                          className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-medium text-white disabled:cursor-not-allowed disabled:bg-sky-300"
+                        >
+                          {isClosingThisRoom ? 'Đang chốt…' : 'Chốt từ Tuya'}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setReadingModal({ open: true, form: applyLatestPreviousStartValues(room.id, { ...EMPTY_FORM, roomId: room.id }) })}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium"
+                        >
+                          Nhập tay
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
         {readingsVisible.length > 0 && (
           <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
             <div className="mb-3 font-semibold">Danh sách chỉ số — {month}</div>
