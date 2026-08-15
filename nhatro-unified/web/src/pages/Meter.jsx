@@ -23,6 +23,7 @@ export default function Meter() {
   }, []);
   const { rooms, tenants, readings = [], invoices, payments, settings } = state;
   const [month, setMonth] = useState(monthKey());
+  const isCurrentMonth = month === monthKey();
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
@@ -156,6 +157,10 @@ export default function Meter() {
   };
 
   const closeTuyaMeters = async (targetRooms = null) => {
+    if (!isCurrentMonth) {
+      alert('Tạm thời Tuya chỉ hỗ trợ lấy chỉ số của tháng hiện tại. Vui lòng chọn tháng hiện tại hoặc nhập chỉ số kỳ cũ bằng tay.');
+      return;
+    }
     const mappedRooms = (targetRooms || rooms || []).filter((room) => String(room?.tuyaDeviceId || '').trim());
     if (mappedRooms.length === 0) {
       alert('Chưa có phòng nào được gán Tuya Device ID. Vào Sửa phòng để gán công tơ trước.');
@@ -385,20 +390,27 @@ export default function Meter() {
             Nhập chỉ số điện/nước theo tháng để tính tiền phòng.
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <button
-              type="button"
-              onClick={closeAllTuyaMeters}
-              disabled={isClosingTuyaMeters}
-              className="h-11 rounded-xl bg-sky-600 px-4 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-sky-300"
-            >
-              {isClosingTuyaMeters ? 'Đang lấy từ Tuya…' : 'Lấy chỉ số từ Tuya'}
-            </button>
+            {isCurrentMonth && (
+              <button
+                type="button"
+                onClick={closeAllTuyaMeters}
+                disabled={isClosingTuyaMeters}
+                className="h-11 rounded-xl bg-sky-600 px-4 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-sky-300"
+              >
+                {isClosingTuyaMeters ? 'Đang lấy từ Tuya…' : 'Lấy chỉ số từ Tuya'}
+              </button>
+            )}
             <button type="button" onClick={openCreateReading} className="h-11 rounded-xl bg-emerald-600 px-4 text-sm font-medium text-white">
               Thêm chỉ số
             </button>
           </div>
         </div>
-        {unrecordedRooms.length > 0 && (
+        {!isCurrentMonth && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Tuya hiện chỉ cho phép lấy chỉ số tháng hiện tại. Với tháng {month}, vui lòng nhập/chỉnh chỉ số bằng tay.
+          </div>
+        )}
+        {isCurrentMonth && unrecordedRooms.length > 0 && (
           <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
             <div className="mb-3 font-semibold">Chốt từng phòng — {month}</div>
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">

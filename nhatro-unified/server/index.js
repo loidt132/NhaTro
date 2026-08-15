@@ -128,6 +128,23 @@ function ensureTuyaReady() {
   }
 }
 
+function maskTuyaAccessId(value = '') {
+  const id = String(value || '');
+  if (!id) return 'missing';
+  if (id.length <= 8) return `${id.slice(0, 2)}…${id.slice(-2)}`;
+  return `${id.slice(0, 4)}…${id.slice(-4)}`;
+}
+
+function tuyaLogPath(requestPath = '') {
+  return String(requestPath)
+    .replace(/(\/devices\/)[^/?]+/i, '$1:deviceId')
+    .replace(/([?&](?:access_token|sign|client_id)=)[^&]+/gi, '$1***');
+}
+
+function logTuyaConfiguration() {
+  console.log(`[tuya] endpoint=${TUYA_API_ENDPOINT || 'missing'} accessId=${maskTuyaAccessId(TUYA_ACCESS_ID)} accessSecret=${TUYA_ACCESS_SECRET ? 'configured' : 'missing'} monthlyUsage=${TUYA_ENERGY_CODES.length ? TUYA_ENERGY_CODES.join(',') : 'default codes'}`);
+}
+
 function sha256(value = '') {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
@@ -177,15 +194,22 @@ async function tuyaRequest(method, requestPath, accessToken = '') {
     ...(accessToken ? { access_token: accessToken } : {}),
   };
   const url = `${TUYA_API_ENDPOINT}${signedPath}`;
+  const startedAt = Date.now();
+  console.log(`[tuya] request ${method} ${tuyaLogPath(signedPath)} token=${accessToken ? 'yes' : 'no'}`);
   logTuyaCurl(method, url, headers);
-  const response = await fetchApi(url, {
-    method,
-    headers,
-  });
+  let response;
+  try {
+    response = await fetchApi(url, { method, headers });
+  } catch (error) {
+    console.error(`[tuya] network error ${method} ${tuyaLogPath(signedPath)} after ${Date.now() - startedAt}ms: ${error.message}`);
+    throw error;
+  }
   const payload = await response.json().catch(() => null);
   if (!response.ok || !payload?.success) {
+    console.error(`[tuya] failed ${method} ${tuyaLogPath(signedPath)} status=${response.status} code=${payload?.code ?? 'unknown'} message=${payload?.msg || 'unknown'} duration=${Date.now() - startedAt}ms`);
     throw new Error(payload?.msg || `Tuya API lỗi (${response.status})`);
   }
+  console.log(`[tuya] success ${method} ${tuyaLogPath(signedPath)} status=${response.status} duration=${Date.now() - startedAt}ms`);
   return payload.result;
 }
 
@@ -1298,6 +1322,7 @@ if (require.main === module) {
     }
     console.log(`Auth storage: ${shouldUseNocoAuth() ? 'NocoDB' : 'users.json'}`);
     console.log(`Room count source: ${hasNocoRoomsConfig() ? 'NocoDB' : 'local state files only'}`);
+    logTuyaConfiguration();
     if (shouldUseNocoAuth() && !hasNocoRoomsConfig()) {
       console.warn('Missing NOCODB_TABLE_ROOMS / VITE_TABLE_ROOMS — user room counts will stay 0.');
     }
