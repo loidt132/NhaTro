@@ -134,8 +134,8 @@ export default function Tenants() {
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
         <h2 className="text-lg font-semibold">Quản lý khách thuê</h2>
         <p className="mt-1 text-sm text-slate-500">Thêm, sửa, xóa và phân phòng khách thuê.</p>
-        <div className="mt-3">
-          <button type="button" onClick={openCreateTenant} className="rounded-xl bg-emerald-600 px-4 py-2 text-white">
+        <div className="mt-3 flex justify-end">
+          <button type="button" onClick={openCreateTenant} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white">
             Thêm khách thuê
           </button>
         </div>
@@ -208,7 +208,7 @@ export default function Tenants() {
                 <th className="p-2">Bắt đầu</th>
                 <th className="p-2">Kết thúc</th>
                 <th className="p-2">Đại diện</th>
-                <th className="p-2">Tác vụ</th>
+                <th className="p-2 text-right">Tác vụ</th>
               </tr>
             </thead>
             <tbody>
@@ -222,7 +222,7 @@ export default function Tenants() {
                   <td className="p-2">{t.endDate || ''}</td>
                   <td className="p-2">{isPrimary(t) ? '★' : ''}</td>
                   <td className="p-2">
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap justify-end gap-1.5">
                       <button type="button" className="rounded border px-2 py-1" onClick={() => editTenant(t)}>
                         Sửa
                       </button>
@@ -325,11 +325,11 @@ export default function Tenants() {
                 </div>
               </div>
 
-              <div className="pt-2 border-t border-slate-100 flex flex-col-reverse sm:flex-row sm:items-center gap-2">
-                <button type="button" className="w-full sm:w-auto rounded-xl border px-4 py-3 sm:py-2" onClick={closeTenantModal}>
+              <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-2">
+                <button type="button" className="rounded-xl border px-4 py-2 text-sm" onClick={closeTenantModal}>
                   Hủy
                 </button>
-                <button type="submit" className="w-full sm:w-auto rounded-xl bg-emerald-600 px-4 py-3 sm:py-2 text-white font-medium">
+                <button type="submit" className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white">
                   {tenantModal.form.id ? 'Cập nhật' : 'Thêm mới'}
                 </button>
               </div>

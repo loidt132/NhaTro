@@ -486,7 +486,7 @@ export default function Meter() {
                     <th className="p-2">Phòng</th>
                     <th className="p-2">Điện</th>
                     <th className="p-2">Nước</th>
-                    <th className="p-2">Tác vụ</th>
+                    <th className="p-2 text-right">Tác vụ</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -499,7 +499,7 @@ export default function Meter() {
                         <td className="p-2">{(r.electricStart ?? '') + ' — ' + (r.electricEnd ?? '')} <span className="text-slate-400">({eUse} kWh)</span></td>
                         <td className="p-2">{(r.waterStart ?? '') + ' — ' + (r.waterEnd ?? '')} <span className="text-slate-400">({wUse} m³)</span></td>
                         <td className="p-2">
-                          <div className="flex flex-wrap gap-1.5">
+                          <div className="flex flex-wrap justify-end gap-1.5">
                             <button type="button" onClick={() => onEditReading(r)} className="rounded border px-2 py-1 text-xs sm:text-sm">Sửa</button>
                             <button type="button" onClick={() => onDeleteReading(r.id)} className="rounded border px-2 py-1 text-xs sm:text-sm">Xóa</button>
                           </div>
@@ -562,11 +562,11 @@ export default function Meter() {
               <input placeholder="Nước đầu (m³)" className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={readingModal.form.waterStart} onChange={e=>setReadingModal((prev)=>({ ...prev, form:{...prev.form, waterStart:e.target.value}}))}/>
               <input placeholder="Nước cuối (m³)" className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={readingModal.form.waterEnd} onChange={e=>setReadingModal((prev)=>({ ...prev, form:{...prev.form, waterEnd:e.target.value}}))}/>
 
-              <div className="pt-2 border-t border-slate-100 flex flex-col-reverse sm:flex-row sm:items-center gap-2">
-                <button type="button" className="w-full sm:w-auto rounded-xl border px-4 py-3 sm:py-2" onClick={closeReadingModal}>
+              <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-2">
+                <button type="button" className="rounded-xl border px-4 py-2 text-sm" onClick={closeReadingModal}>
                   Hủy
                 </button>
-                <button type="submit" className="w-full sm:w-auto rounded-xl bg-emerald-600 px-4 py-3 sm:py-2 text-white font-medium">
+                <button type="submit" className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white">
                   Lưu chỉ số
                 </button>
               </div>

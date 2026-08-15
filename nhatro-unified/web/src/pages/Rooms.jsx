@@ -378,7 +378,7 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
                 <th className="p-2 whitespace-nowrap">Nước</th>
                 <th className="p-2 whitespace-nowrap">Tổng</th>
                 <th className="p-2 whitespace-nowrap">Trạng thái</th>
-                <th className="p-2 whitespace-nowrap">Tác vụ</th>
+                <th className="p-2 text-right whitespace-nowrap">Tác vụ</th>
               </tr>
             </thead>
             <tbody>
@@ -394,7 +394,7 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
                   <td className="p-2 font-semibold whitespace-nowrap">{currency(invoice? invoice.total : draft.totalDraft)}</td>
                   <td className="p-2">{invoice ? <span className={'rounded-full px-2 py-1 text-xs whitespace-nowrap ' + (invoice.status === 'Đã thanh toán' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700')}>{invoice.status}</span> : <span className="rounded-full px-2 py-1 text-xs bg-amber-100 text-amber-700 whitespace-nowrap">Chưa tạo HĐ</span>}</td>
                   <td className="p-2">
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap justify-end gap-1.5">
                       <button type="button" onClick={()=>openEditRoom(room)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Sửa phòng</button>
                       <button type="button" onClick={()=>openTenantManager(room.id)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Quản lý khách</button>
                       <button type="button" onClick={()=>removeRoom(room.id)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Xóa</button>
@@ -451,9 +451,9 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
                 />
                 <p className="mt-1 text-xs text-slate-500">Để trống nếu chưa gán công tơ. Mỗi Device ID chỉ nên gán cho một phòng.</p>
               </div>
-              <div className="col-span-2 flex items-center gap-2">
-                <button className="rounded-xl bg-emerald-600 text-white px-4 py-2">Lưu</button>
-                <button type="button" onClick={()=>setRoomModal(m=>({...m, open:false}))} className="rounded-xl border px-4 py-2">Hủy</button>
+              <div className="col-span-2 flex flex-wrap justify-end gap-2">
+                <button type="button" onClick={()=>setRoomModal(m=>({...m, open:false}))} className="rounded-xl border px-4 py-2 text-sm">Hủy</button>
+                <button className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white">Lưu</button>
               </div>
             </form>
           </div>
@@ -527,7 +527,7 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
                       <th className="p-2 text-left whitespace-nowrap">Từ ngày</th>
                       <th className="p-2 text-left whitespace-nowrap">Đến ngày</th>
                       <th className="p-2 text-left whitespace-nowrap">Đại diện TT</th>
-                      <th className="p-2 text-left whitespace-nowrap">Tác vụ</th>
+                      <th className="p-2 text-right whitespace-nowrap">Tác vụ</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -540,7 +540,7 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
                         <td className="p-2 align-top whitespace-nowrap">{t.endDate? (new Date(t.endDate)).toLocaleDateString('vi-VN') : ''}</td>
                         <td className="p-2 align-top">{roomMap[tenantModal.roomId]?.primaryTenantId===t.id? '★' : ''}</td>
                         <td className="p-2 align-top">
-                          <div className="flex flex-wrap gap-1.5">
+                          <div className="flex flex-wrap justify-end gap-1.5">
                             <button type="button" onClick={()=>editTenant(t)} className="rounded border px-2 py-1 text-xs sm:text-sm">Sửa</button>
                             <button type="button" onClick={()=>removeTenant(t.id)} className="rounded border px-2 py-1 text-xs sm:text-sm">Xóa</button>
                             <button type="button" onClick={()=>setPrimaryTenant(tenantModal.roomId, t.id)} className="rounded border px-2 py-1 text-xs sm:text-sm">Đặt đại diện</button>
@@ -569,9 +569,9 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
                   </div>
                 </div>
 
-                <div className="sm:col-span-2 flex flex-col-reverse sm:flex-row sm:items-center gap-2 pt-1">
-                  <button type="submit" className="w-full sm:w-auto rounded-xl bg-emerald-600 text-white px-4 py-3 sm:py-2 text-base sm:text-sm font-medium">{tenantModal.form.id? 'Cập nhật khách':'Thêm khách'}</button>
-                  {tenantModal.form.id && (<button type="button" className="w-full sm:w-auto rounded-xl border px-4 py-3 sm:py-2 text-base sm:text-sm" onClick={()=>setTenantModal(m=>({...m, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' }}))}>Hủy sửa</button>)}
+                <div className="sm:col-span-2 flex flex-wrap justify-end gap-2 pt-1">
+                  {tenantModal.form.id && (<button type="button" className="rounded-xl border px-4 py-2 text-sm" onClick={()=>setTenantModal(m=>({...m, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' }}))}>Hủy sửa</button>)}
+                  <button type="submit" className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white">{tenantModal.form.id? 'Cập nhật khách':'Thêm khách'}</button>
                 </div>
               </form>
 
