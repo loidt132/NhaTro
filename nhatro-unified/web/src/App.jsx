@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { loadState, resetStateSession } from './utils/state';
+import { getAdminViewUserId, loadState, reloadStateForAdminView, resetStateSession, setAdminViewUserId } from './utils/state';
 import { clearAuth, fetchCurrentUser, getStoredToken, loginAccount, registerAccount, setStoredToken } from './utils/auth';
 import Sidebar from './components/Sidebar';
 import Rooms from './pages/Rooms';
@@ -17,6 +17,9 @@ export default function App() {
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState('');
   const [user, setUser] = useState(null);
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminViewUserId, setAdminViewUserIdState] = useState(() => getAdminViewUserId());
+  const [adminViewLoading, setAdminViewLoading] = useState(false);
   const [roomCount, setRoomCount] = useState(() => (loadState().rooms || []).length);
 
   useEffect(() => {
@@ -36,6 +39,26 @@ export default function App() {
       })
       .finally(() => setAuthReady(true));
   }, []);
+
+  useEffect(() => {
+    if (String(user?.role || '').toLowerCase() !== 'admin') return;
+    const token = getStoredToken();
+    fetch('/api/admin/users', { headers: { Authorization: `Bearer ${token}` } })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => setAdminUsers(data?.users || []))
+      .catch(() => setAdminUsers([]));
+  }, [user]);
+
+  const changeAdminView = async (userId) => {
+    setAdminViewUserId(userId);
+    setAdminViewUserIdState(userId);
+    setAdminViewLoading(true);
+    try {
+      await reloadStateForAdminView();
+    } finally {
+      setAdminViewLoading(false);
+    }
+  };
 
   useEffect(() => {
     const sync = () => setRoomCount((loadState().rooms || []).length);
@@ -126,6 +149,12 @@ export default function App() {
                 <div className="font-medium text-slate-800">{user.name}</div>
                 <div className="text-xs text-slate-500">{user.email || user.phone}</div>
               </div>
+              {String(user?.role || '').toLowerCase() === 'admin' && (
+                <select disabled={adminViewLoading} value={adminViewUserId} onChange={(event) => changeAdminView(event.target.value)} className="w-32 max-w-48 rounded-xl border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-900 disabled:opacity-60 sm:w-48 sm:text-sm">
+                  <option value="">Xem: tài khoản tôi</option>
+                  {adminUsers.filter((account) => String(account.id) !== String(user.id)).map((account) => <option key={account.id} value={account.id}>Xem: {account.name || account.email || account.phone}</option>)}
+                </select>
+              )}
               <button
                 type="button"
                 onClick={handleLogout}

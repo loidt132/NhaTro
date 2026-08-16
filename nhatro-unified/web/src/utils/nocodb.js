@@ -11,10 +11,14 @@ const TABLES = {
   readings: import.meta.env.VITE_TABLE_READINGS,
   invoices: import.meta.env.VITE_TABLE_INVOICES,
   payments: import.meta.env.VITE_TABLE_PAYMENTS,
+  rentPeriods: import.meta.env.VITE_TABLE_RENT_PERIODS,
+  paymentAllocations: import.meta.env.VITE_TABLE_PAYMENT_ALLOCATIONS,
+  deposits: import.meta.env.VITE_TABLE_DEPOSITS,
+  depositTransactions: import.meta.env.VITE_TABLE_DEPOSIT_TRANSACTIONS,
   settings: import.meta.env.VITE_TABLE_SETTINGS,
 };
 
-const DATA_TABLE_KEYS = ['rooms', 'tenants', 'readings', 'invoices', 'payments'];
+const DATA_TABLE_KEYS = ['rooms', 'tenants', 'readings', 'invoices', 'payments', 'rentPeriods', 'paymentAllocations', 'deposits', 'depositTransactions'];
 const SYSTEM_COLUMNS = new Set([
   'Id',
   'ID',
@@ -562,6 +566,8 @@ export const api = {
   getReadings: () => hasTableConfig('readings') ? fetchTableRows('readings', buildOwnedQuery(currentUserId(), 'limit=1000')) : Promise.resolve([]),
   getInvoices: () => hasTableConfig('invoices') ? fetchTableRows('invoices', buildOwnedQuery(currentUserId(), 'limit=1000')) : Promise.resolve([]),
   getPayments: () => hasTableConfig('payments') ? fetchTableRows('payments', buildOwnedQuery(currentUserId(), 'limit=1000')) : Promise.resolve([]),
+  getRentPeriods: () => hasTableConfig('rentPeriods') ? fetchTableRows('rentPeriods', buildOwnedQuery(currentUserId(), 'limit=1000')) : Promise.resolve([]),
+  getPaymentAllocations: () => hasTableConfig('paymentAllocations') ? fetchTableRows('paymentAllocations', buildOwnedQuery(currentUserId(), 'limit=1000')) : Promise.resolve([]),
   getSettings: () => hasTableConfig('settings') ? fetchTableRows('settings', buildOwnedQuery(currentUserId(), 'limit=1000')) : Promise.resolve([]),
 };
 
