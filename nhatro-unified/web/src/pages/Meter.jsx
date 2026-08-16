@@ -3,6 +3,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { loadState, saveState, monthKey, uid, calcTotalsWithAdvance, hydrateState } from '../utils/state';
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
+import TopStats from '../components/TopStats';
 import Footer from '../components/Footer';
 import Page from '../components/Page';
 import PaginationControls from '../components/PaginationControls';
@@ -279,6 +280,14 @@ export default function Meter() {
     const recIds = new Set(recordedRooms.map(r => r.id));
     return filteredRooms.filter(r => !recIds.has(r.id));
   }, [filteredRooms, recordedRooms]);
+  const unrecordedTuyaRooms = useMemo(
+    () => unrecordedRooms.filter((room) => String(room.tuyaDeviceId || '').trim().length > 0),
+    [unrecordedRooms]
+  );
+  const hasTuyaMeter = useMemo(
+    () => rooms.some((room) => String(room.tuyaDeviceId || '').trim().length > 0),
+    [rooms]
+  );
 
   // readings for the selected month, filtered by search query
   const readingsVisible = useMemo(() => {
@@ -373,10 +382,20 @@ export default function Meter() {
   };
 
   const { sumAdvance, sumPaid, sumDebt } = calcTotalsWithAdvance(invoices, payments, rentPeriods, paymentAllocations, month);
+  const activeTenantCount = useMemo(() => tenants.filter(isActiveTenant).length, [tenants, month, settings?.occupancyMode]);
+  const invoicesForMonth = useMemo(() => invoices.filter((invoice) => invoice.month === month).length, [invoices, month]);
+  const unpaidForMonth = useMemo(() => invoices.filter((invoice) => {
+    if (invoice.month !== month) return false;
+    const period = rentPeriods.find((item) => String(item.roomId) === String(invoice.roomId) && item.month === invoice.month);
+    const advance = Math.min(Number(invoice.rent) || 0, period ? paymentAllocations.filter((item) => String(item.rentPeriodId || '') === String(period.id)).reduce((sum, item) => sum + (Number(item.amount) || 0), 0) : 0);
+    const paid = payments.filter((item) => String(item.invoiceId || '') === String(invoice.id)).reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    return advance + paid < (Number(invoice.total) || 0);
+  }).length, [invoices, payments, rentPeriods, paymentAllocations, month]);
 
   return (
     <Page className="space-y-4">
-      <TotalsBar sumAdvance={sumAdvance} sumPaid={sumPaid} sumDebt={sumDebt} />
+      <TopStats rooms={rooms.length} tenants={activeTenantCount} invoices={invoicesForMonth} debts={unpaidForMonth} invoiceTo={`/payments?status=invoice&month=${month}`} debtTo={`/payments?status=debt&month=${month}`} />
+      <TotalsBar sumAdvance={sumAdvance} sumPaid={sumPaid} sumDebt={sumDebt} month={month} />
       <SearchBar
         month={month}
         onMonthChange={setMonth}
@@ -390,7 +409,7 @@ export default function Meter() {
             Nhập chỉ số điện/nước theo tháng để tính tiền phòng.
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            {isCurrentMonth && (
+            {isCurrentMonth && hasTuyaMeter && (
               <button
                 type="button"
                 onClick={closeAllTuyaMeters}
@@ -410,37 +429,26 @@ export default function Meter() {
             Tuya hiện chỉ cho phép lấy chỉ số tháng hiện tại. Với tháng {month}, vui lòng nhập/chỉnh chỉ số bằng tay.
           </div>
         )}
-        {isCurrentMonth && unrecordedRooms.length > 0 && (
+        {isCurrentMonth && unrecordedTuyaRooms.length > 0 && (
           <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
             <div className="mb-3 font-semibold">Chốt từng phòng — {month}</div>
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-              {unrecordedRooms.map((room) => {
+              {unrecordedTuyaRooms.map((room) => {
                 const previousReading = getPreviousReading(room.id);
-                const canCloseFromTuya = String(room.tuyaDeviceId || '').trim().length > 0;
                 const isClosingThisRoom = closingTuyaRoomId === room.id;
                 return (
                   <div key={room.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
                     <div className="font-medium text-slate-900">{room.name}</div>
                     <div className="mt-1 text-xs text-slate-500">Số đầu mặc định: {previousReading?.electricEnd ?? 'Chưa có kỳ trước'}</div>
                     <div className="mt-3 flex gap-2">
-                      {canCloseFromTuya ? (
-                        <button
-                          type="button"
-                          onClick={() => closeTuyaMeters([room])}
-                          disabled={isClosingTuyaMeters}
-                          className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-medium text-white disabled:cursor-not-allowed disabled:bg-sky-300"
-                        >
-                          {isClosingThisRoom ? 'Đang chốt…' : 'Chốt từ Tuya'}
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setReadingModal({ open: true, form: applyLatestPreviousStartValues(room.id, { ...EMPTY_FORM, roomId: room.id }) })}
-                          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium"
-                        >
-                          Nhập tay
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => closeTuyaMeters([room])}
+                        disabled={isClosingTuyaMeters}
+                        className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-medium text-white disabled:cursor-not-allowed disabled:bg-sky-300"
+                      >
+                        {isClosingThisRoom ? 'Đang chốt…' : 'Chốt từ Tuya'}
+                      </button>
                     </div>
                   </div>
                 );

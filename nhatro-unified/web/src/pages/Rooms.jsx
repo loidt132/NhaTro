@@ -366,8 +366,8 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
 
   return (
     <Page className="space-y-4">
-      <TopStats rooms={rooms.length} tenants={tenantsActiveCount} invoices={invoicesForMonth} debts={unpaidForMonth} />
-      <TotalsBar sumAdvance={sumAdvance} sumPaid={sumPaid} sumDebt={sumDebt} />
+      <TopStats rooms={rooms.length} tenants={tenantsActiveCount} invoices={invoicesForMonth} debts={unpaidForMonth} invoiceTo={`/payments?status=invoice&month=${month}`} debtTo={`/payments?status=debt&month=${month}`} />
+      <TotalsBar sumAdvance={sumAdvance} sumPaid={sumPaid} sumDebt={sumDebt} month={month} />
       <SearchBar month={month} onMonthChange={setMonth} query={query} onQueryChange={setQuery} />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

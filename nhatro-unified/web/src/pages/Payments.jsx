@@ -1,9 +1,10 @@
 // src/pages/Payments.jsx
 import React, { useMemo, useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { loadState, saveState, currency, monthKey, calcTotalsWithAdvance, uid, hydrateState } from '../utils/state';
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
+import TopStats from '../components/TopStats';
 import ViewSwitch from '../components/ViewSwitch';
 import Footer from '../components/Footer';
 import Page from '../components/Page';
@@ -39,6 +40,7 @@ const addMonths = (ym, count) => {
 };
 
 export default function Payments() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [state, setState] = useState(loadState());
   // Keep in-sync with other parts of the app that call saveState()
   useEffect(() => {
@@ -49,7 +51,8 @@ export default function Payments() {
     return () => window.removeEventListener('boarding_state_updated', handler);
   }, []);
   const { invoices, rooms, tenants, settings, payments, readings, rentPeriods = [], paymentAllocations = [], deposits = [], depositTransactions = [] } = state;
-  const [month, setMonth] = useState(monthKey());
+  const [month, setMonth] = useState(() => searchParams.get('month') || monthKey());
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || 'all');
   const [collectionModal, setCollectionModal] = useState({ open: false, type: 'advance', roomId: '', months: 3, amount: '', note: '' });
   const [view, setView] = useState('cards');
   const [query, setQuery] = useState('');
@@ -59,6 +62,13 @@ export default function Payments() {
   useEffect(() => {
     setPage(1);
   }, [month, query, perPage]);
+
+  useEffect(() => {
+    const requestedMonth = searchParams.get('month');
+    const requestedStatus = searchParams.get('status') || 'all';
+    if (requestedMonth && requestedMonth !== month) setMonth(requestedMonth);
+    if (requestedStatus !== statusFilter) setStatusFilter(requestedStatus);
+  }, [searchParams]);
 
   const todayYmd = new Date().toISOString().slice(0,10);
   const getMonthBounds = (ym)=>{
@@ -135,15 +145,19 @@ console.log('get data by month ', month);
 
   const filteredItems = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return items;
     return items.filter(({ room, names, invoice }) => {
-      const roomHit = room.name?.toLowerCase().includes(q);
-      const namesHit = names?.toLowerCase().includes(q);
+      const roomHit = !q || room.name?.toLowerCase().includes(q);
+      const namesHit = !q || names?.toLowerCase().includes(q);
       const status = invoice?.status ?? 'Chưa tạo HĐ';
-      const statusHit = status.toLowerCase().includes(q);
-      return roomHit || namesHit || statusHit;
+      const statusHit = !q || status.toLowerCase().includes(q);
+      const directPaid = invoice ? (payments || []).filter((payment) => String(payment.invoiceId || '') === String(invoice.id)).reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0) : 0;
+      const period = invoice ? rentPeriods.find((item) => String(item.roomId) === String(invoice.roomId) && item.month === invoice.month) : null;
+      const advance = invoice && period ? Math.min(Number(invoice.rent) || 0, paymentAllocations.filter((item) => String(item.rentPeriodId || '') === String(period.id)).reduce((sum, item) => sum + (Number(item.amount) || 0), 0)) : 0;
+      const remaining = invoice ? Math.max(0, (Number(invoice.total) || 0) - advance - directPaid) : 0;
+      const matchesStatus = statusFilter === 'all' || (statusFilter === 'invoice' && invoice) || (statusFilter === 'debt' && invoice && remaining > 0) || (statusFilter === 'paid' && invoice && directPaid > 0) || (statusFilter === 'advance' && invoice && advance > 0) || (statusFilter === 'no-advance' && advance === 0);
+      return (roomHit || namesHit || statusHit) && matchesStatus;
     });
-  }, [items, query]);
+  }, [items, query, statusFilter, payments, rentPeriods, paymentAllocations]);
 console.log('filtered items', { query, filteredItems });
 
  const totalPages = Math.max(1, Math.ceil(filteredItems.length / perPage));
@@ -496,6 +510,12 @@ const togglePaid = (id) => {
     () => calcTotalsWithAdvance(invoices, payments, rentPeriods, paymentAllocations, month),
     [invoices, payments, rentPeriods, paymentAllocations, month]
   );
+  const activeTenantCount = useMemo(() => tenants.filter(isActiveTenant).length, [tenants, month, settings?.occupancyMode]);
+  const invoicesForMonth = useMemo(() => invoices.filter((invoice) => invoice.month === month).length, [invoices, month]);
+  const unpaidForMonth = useMemo(
+    () => invoices.filter((invoice) => invoice.month === month && !isPaidByPayments(invoice)).length,
+    [invoices, payments, rentPeriods, paymentAllocations, month]
+  );
 
   const Table = () => (
     <>
@@ -682,8 +702,19 @@ const togglePaid = (id) => {
 
   return (
     <Page className="space-y-4">
-      <TotalsBar sumAdvance={sumAdvance} sumPaid={sumPaid} sumDebt={sumDebt} />
+      <TopStats rooms={rooms.length} tenants={activeTenantCount} invoices={invoicesForMonth} debts={unpaidForMonth} invoiceTo={`/payments?status=invoice&month=${month}`} debtTo={`/payments?status=debt&month=${month}`} />
+      <TotalsBar sumAdvance={sumAdvance} sumPaid={sumPaid} sumDebt={sumDebt} month={month} />
       <SearchBar month={month} onMonthChange={setMonth} query={query} onQueryChange={setQuery} />
+      <div className="flex justify-end">
+        <select value={statusFilter} onChange={(event) => { const next = event.target.value; setStatusFilter(next); setSearchParams({ ...(month ? { month } : {}), ...(next !== 'all' ? { status: next } : {}) }); }} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+          <option value="all">Tất cả</option>
+          <option value="invoice">Đã có hóa đơn</option>
+          <option value="debt">Còn nợ</option>
+          <option value="paid">Đã thu hóa đơn</option>
+          <option value="advance">Đã đóng trước</option>
+          <option value="no-advance">Chưa đóng trước</option>
+        </select>
+      </div>
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={() => setCollectionModal({ open: true, type: 'advance', roomId: '', months: 3, amount: '', note: '' })} className="rounded-xl bg-emerald-600 px-4 py-2 font-medium text-white">Ghi nhận đóng trước / cọc</button>
       </div>
