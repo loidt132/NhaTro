@@ -68,6 +68,14 @@ const NOCODB_URL = firstEnv('NOCODB_URL', 'VITE_NOCODB_URL').replace(/\/+$/, '')
 const NOCODB_API_KEY = firstEnv('NOCODB_API_KEY', 'VITE_NOCODB_API_KEY');
 const NOCODB_TABLE_USERS = firstEnv('NOCODB_TABLE_USERS', 'TABLE_USERS', 'VITE_TABLE_USERS', 'VITE_NOCODB_TABLE_USERS');
 const NOCODB_TABLE_ROOMS = firstEnv('NOCODB_TABLE_ROOMS', 'TABLE_ROOMS', 'VITE_TABLE_ROOMS');
+const NOCODB_TABLE_TENANTS = firstEnv('NOCODB_TABLE_TENANTS', 'TABLE_TENANTS', 'VITE_TABLE_TENANTS');
+const NOCODB_TABLE_READINGS = firstEnv('NOCODB_TABLE_READINGS', 'TABLE_READINGS', 'VITE_TABLE_READINGS');
+const NOCODB_TABLE_INVOICES = firstEnv('NOCODB_TABLE_INVOICES', 'TABLE_INVOICES', 'VITE_TABLE_INVOICES');
+const NOCODB_TABLE_PAYMENTS = firstEnv('NOCODB_TABLE_PAYMENTS', 'TABLE_PAYMENTS', 'VITE_TABLE_PAYMENTS');
+const NOCODB_TABLE_RENT_PERIODS = firstEnv('NOCODB_TABLE_RENT_PERIODS', 'TABLE_RENT_PERIODS', 'VITE_TABLE_RENT_PERIODS');
+const NOCODB_TABLE_PAYMENT_ALLOCATIONS = firstEnv('NOCODB_TABLE_PAYMENT_ALLOCATIONS', 'TABLE_PAYMENT_ALLOCATIONS', 'VITE_TABLE_PAYMENT_ALLOCATIONS');
+const NOCODB_TABLE_DEPOSITS = firstEnv('NOCODB_TABLE_DEPOSITS', 'TABLE_DEPOSITS', 'VITE_TABLE_DEPOSITS');
+const NOCODB_TABLE_DEPOSIT_TRANSACTIONS = firstEnv('NOCODB_TABLE_DEPOSIT_TRANSACTIONS', 'TABLE_DEPOSIT_TRANSACTIONS', 'VITE_TABLE_DEPOSIT_TRANSACTIONS');
 const HAS_ANY_NOCO_CONFIG = Boolean(NOCODB_URL || NOCODB_API_KEY || NOCODB_TABLE_USERS);
 const HAS_FULL_NOCO_CONFIG = Boolean(NOCODB_URL && NOCODB_API_KEY && NOCODB_TABLE_USERS);
 const KEEP_ALIVE_URL = firstEnv('RENDER_KEEP_ALIVE_URL', 'APP_URL', 'RENDER_EXTERNAL_URL', 'VITE_API_ORIGIN').replace(/\/+$/, '');
@@ -88,6 +96,19 @@ app.get('/', (req, res) => {
 });
 
 function sanitizeStateForPersistence(nextState = {}) {
+  // Advance payments are independent transactions and can be allocated across
+  // multiple rental months. Do not apply the legacy one-payment-per-invoice rule.
+  if (Array.isArray(nextState.paymentAllocations) || Array.isArray(nextState.rentPeriods) || Array.isArray(nextState.deposits)) {
+    return {
+      ...nextState,
+      invoices: Array.isArray(nextState.invoices) ? nextState.invoices : [],
+      payments: Array.isArray(nextState.payments) ? nextState.payments : [],
+      rentPeriods: Array.isArray(nextState.rentPeriods) ? nextState.rentPeriods : [],
+      paymentAllocations: Array.isArray(nextState.paymentAllocations) ? nextState.paymentAllocations : [],
+      deposits: Array.isArray(nextState.deposits) ? nextState.deposits : [],
+      depositTransactions: Array.isArray(nextState.depositTransactions) ? nextState.depositTransactions : [],
+    };
+  }
   const invoices = Array.isArray(nextState.invoices) ? nextState.invoices : [];
   const payments = Array.isArray(nextState.payments) ? nextState.payments : [];
   const invoiceById = new Map(
@@ -518,6 +539,38 @@ function nocoUsersUrl(suffix = '') {
 
 function nocoRoomsUrl(suffix = '') {
   return `${NOCODB_URL}/api/v2/tables/${encodeURIComponent(NOCODB_TABLE_ROOMS)}/records${suffix}`;
+}
+
+function nocoTableUrl(tableId, suffix = '') {
+  return `${NOCODB_URL}/api/v2/tables/${encodeURIComponent(tableId)}/records${suffix}`;
+}
+
+function stripNocoSystemColumns(row = {}) {
+  const clean = { ...row };
+  ['Id', 'ID', 'created_at', 'updated_at', 'CreatedAt', 'UpdatedAt', 'created_by', 'modified_by', 'ncRecordId'].forEach((key) => delete clean[key]);
+  return clean;
+}
+
+async function fetchNocoRowsOwnedBy(tableId, userId) {
+  if (!tableId) return [];
+  const where = encodeURIComponent(`(created_by,eq,${userId})`);
+  const data = await nocoFetchJson(nocoTableUrl(tableId, `?where=${where}&limit=1000`));
+  return (data?.list || []).map(stripNocoSystemColumns);
+}
+
+async function loadNocoStateForUser(userId) {
+  const [rooms, tenants, readings, invoices, payments, rentPeriods, paymentAllocations, deposits, depositTransactions] = await Promise.all([
+    fetchNocoRowsOwnedBy(NOCODB_TABLE_ROOMS, userId),
+    fetchNocoRowsOwnedBy(NOCODB_TABLE_TENANTS, userId),
+    fetchNocoRowsOwnedBy(NOCODB_TABLE_READINGS, userId),
+    fetchNocoRowsOwnedBy(NOCODB_TABLE_INVOICES, userId),
+    fetchNocoRowsOwnedBy(NOCODB_TABLE_PAYMENTS, userId),
+    fetchNocoRowsOwnedBy(NOCODB_TABLE_RENT_PERIODS, userId),
+    fetchNocoRowsOwnedBy(NOCODB_TABLE_PAYMENT_ALLOCATIONS, userId),
+    fetchNocoRowsOwnedBy(NOCODB_TABLE_DEPOSITS, userId),
+    fetchNocoRowsOwnedBy(NOCODB_TABLE_DEPOSIT_TRANSACTIONS, userId),
+  ]);
+  return { rooms, tenants, readings, invoices, payments, rentPeriods, paymentAllocations, deposits, depositTransactions };
 }
 
 function hasNocoRoomsConfig() {
@@ -1301,6 +1354,27 @@ app.get('/api/admin/users/:userId/rooms', adminMiddleware, async (req, res) => {
   } catch (error) {
     console.error('admin/users rooms error', error);
     return res.json({ roomCount: 0 });
+  }
+});
+
+// Read-only state preview for an account selected by an administrator.
+app.get('/api/admin/users/:userId/state', adminMiddleware, (req, res) => {
+  try {
+    if (shouldUseNocoAuth()) {
+      return loadNocoStateForUser(req.params.userId)
+        .then((state) => res.json({ state }))
+        .catch((error) => {
+          console.error('admin/users NocoDB state get error', error);
+          return res.status(500).json({ error: 'Không thể tải dữ liệu tài khoản từ NocoDB' });
+        });
+    }
+    const { statePath } = statePathsForUser(req.params.userId);
+    if (!fs.existsSync(statePath)) return res.json({ state: {} });
+    const raw = fs.readFileSync(statePath, 'utf8');
+    return res.json({ state: sanitizeStateForPersistence(raw ? JSON.parse(raw) : {}) });
+  } catch (error) {
+    console.error('admin/users state get error', error);
+    return res.status(500).json({ error: 'Không thể tải dữ liệu tài khoản' });
   }
 });
 

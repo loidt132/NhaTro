@@ -25,6 +25,22 @@ function currentStateKey() {
 // In-memory state snapshot (synchronous access for existing code paths)
 let memoryState = null;
 let activeStateKey = '';
+let adminViewUserId = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('nhatro_admin_view_user_id') || '' : '';
+
+export function getAdminViewUserId() {
+  return adminViewUserId;
+}
+
+export function setAdminViewUserId(userId = '') {
+  adminViewUserId = String(userId || '');
+  try {
+    if (adminViewUserId) sessionStorage.setItem('nhatro_admin_view_user_id', adminViewUserId);
+    else sessionStorage.removeItem('nhatro_admin_view_user_id');
+  } catch (e) { /* storage is optional */ }
+  memoryState = null;
+  isReady = false;
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('boarding_state_updated'));
+}
 
 
 function shouldUseNocoState() {
@@ -33,6 +49,16 @@ function shouldUseNocoState() {
 
 async function loadStateFromServer(options = {}) {
   const { tables = null } = options;
+  if (adminViewUserId) {
+    try {
+      const resp = await fetch(apiUrl(`/api/admin/users/${encodeURIComponent(adminViewUserId)}/state`), { headers: authHeaders() });
+      if (!resp.ok) throw new Error('Không thể tải dữ liệu tài khoản đã chọn');
+      const json = await resp.json();
+      return json?.state || null;
+    } catch (e) {
+      return null;
+    }
+  }
   if (shouldUseNocoState()) {
     try {
       const state = await loadStateFromNoco({ tables });
@@ -120,6 +146,10 @@ function applyDefaults(s) {
     readings: s.readings || [],
     invoices: s.invoices || [],
     payments: s.payments || [],
+    rentPeriods: s.rentPeriods || [],
+    paymentAllocations: s.paymentAllocations || [],
+    deposits: s.deposits || [],
+    depositTransactions: s.depositTransactions || [],
     settings: { ...defaultSettings, ...(s.settings || {}) }
   };
 }
@@ -192,6 +222,10 @@ export function loadState() {
     readings: [],
     invoices: [],
     payments: [],
+    rentPeriods: [],
+    paymentAllocations: [],
+    deposits: [],
+    depositTransactions: [],
     settings: {
       bankCode: 'VCB',
       accountNo: '',
@@ -207,6 +241,8 @@ export function loadState() {
   });
 }
 export function resetStateSession() {
+  adminViewUserId = '';
+  try { sessionStorage.removeItem('nhatro_admin_view_user_id'); } catch (e) {}
   activeStateKey = currentStateKey();
   memoryState = null;
   isReady = false;
@@ -217,13 +253,17 @@ export function resetStateSession() {
 }
 
 export async function hydrateState(options = {}) {
-  const { tables = null } = options;
-  if (isHydrating) return;
+  const { tables = null, force = false } = options;
+  if (isHydrating && !force) return;
   ensureSessionBoundary();
   isHydrating = true;
+  const requestedAdminViewUserId = adminViewUserId;
   try {
     // Load from server / NocoDB only, scoped by requested tables.
     const serverState = await loadStateFromServer({ tables });
+    // A user may have switched the admin preview while this request was in
+    // flight. Never overwrite the newly selected account with stale data.
+    if (requestedAdminViewUserId !== adminViewUserId) return;
     const nextState = mergeStateSlices(memoryState, serverState, tables);
     if (serverState && hasStateChanged(nextState, memoryState, tables)) {
       memoryState = nextState;
@@ -239,6 +279,10 @@ export async function hydrateState(options = {}) {
     isHydrating = false;
   }
 }
+
+export async function reloadStateForAdminView() {
+  return hydrateState({ force: true });
+}
 function seed(){
   const uid = () => Math.random().toString(36).slice(2);
   const monthKey = (d=new Date())=>{ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); return `${y}-${m}`; };
@@ -246,11 +290,24 @@ function seed(){
   const r2={ id:uid(), name:'P102', baseRent:2700000, electricRate:3500, waterRate:12000 };
   const t1={ id:uid(), name:'Nguyen Van A', cccd:'012345678901', phone:'0901234567', roomId:r1.id };
   const readings=[{ id:uid(), roomId:r1.id, month:monthKey(), electricStart:100, electricEnd:120, waterStart:30, waterEnd:32, createdAt:new Date().toISOString() }];
-  const s={ rooms:[r1,r2], tenants:[t1], readings, invoices:[], payments:[], settings:{ bankCode:'VCB', accountNo:'', accountName:'', qrNoteTemplate:'Tien phong {room} {month}', landlordName:'', landlordPhone:'', landlordAddress:'', occupancyMode:'month', meterRoomScope:'occupied' }, __meta: { lastModified: new Date().toISOString() } };
+  const s={ rooms:[r1,r2], tenants:[t1], readings, invoices:[], payments:[], rentPeriods:[], paymentAllocations:[], deposits:[], depositTransactions:[], settings:{ bankCode:'VCB', accountNo:'', accountName:'', qrNoteTemplate:'Tien phong {room} {month}', landlordName:'', landlordPhone:'', landlordAddress:'', occupancyMode:'month', meterRoomScope:'occupied' }, __meta: { lastModified: new Date().toISOString() } };
   return s;
 }
 
 function normalizeStateBeforePersist(state = {}) {
+  // A payment can be allocated to multiple rental months. Keep every payment
+  // and allocation; invoiceId-only payments from older data remain valid.
+  if (Array.isArray(state.paymentAllocations) || Array.isArray(state.rentPeriods)) {
+    return {
+      ...state,
+      invoices: Array.isArray(state.invoices) ? state.invoices : [],
+      payments: Array.isArray(state.payments) ? state.payments : [],
+      rentPeriods: Array.isArray(state.rentPeriods) ? state.rentPeriods : [],
+      paymentAllocations: Array.isArray(state.paymentAllocations) ? state.paymentAllocations : [],
+      deposits: Array.isArray(state.deposits) ? state.deposits : [],
+      depositTransactions: Array.isArray(state.depositTransactions) ? state.depositTransactions : [],
+    };
+  }
   const invoices = Array.isArray(state.invoices) ? state.invoices : [];
   const sourcePayments = Array.isArray(state.payments) ? state.payments : [];
   const invoiceById = new Map(
@@ -298,6 +355,7 @@ function normalizeStateBeforePersist(state = {}) {
 
 export function saveState(next){ 
   try{
+    if (adminViewUserId) return;
     ensureSessionBoundary();
     const prevState = memoryState;
     const normalized = normalizeStateBeforePersist(next);
@@ -306,7 +364,7 @@ export function saveState(next){
     memoryState = withMeta;
     (async ()=>{
       // Persist only changed tables (no whole-state sync).
-      const tableKeys = ['rooms', 'tenants', 'readings', 'invoices', 'payments', 'settings'];
+      const tableKeys = ['rooms', 'tenants', 'readings', 'invoices', 'payments', 'rentPeriods', 'paymentAllocations', 'deposits', 'depositTransactions', 'settings'];
       const changed = [];
       for (const key of tableKeys) {
         const a = prevState?.[key];

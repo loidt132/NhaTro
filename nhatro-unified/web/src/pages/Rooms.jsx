@@ -7,7 +7,7 @@ import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
 import ViewSwitch from '../components/ViewSwitch';
 import Page from '../components/Page';
-import { loadState, hydrateState, saveState, monthKey, currency, uid, calcTotals } from '../utils/state';
+import { getAdminViewUserId, loadState, hydrateState, saveState, monthKey, currency, uid, calcTotals } from '../utils/state';
 import Footer from '../components/Footer';
 import PaginationControls from '../components/PaginationControls';
 function compareByName(a = '', b = '') {
@@ -32,7 +32,7 @@ export default function Rooms(){
     setState(loadState());
 
     // Chỉ load dữ liệu cần cho trang Rooms (không background load all).
-    hydrateState({ tables: ['rooms', 'tenants', 'readings', 'invoices', 'payments'] });
+    hydrateState({ tables: ['rooms', 'tenants', 'readings', 'invoices', 'payments', 'rentPeriods', 'paymentAllocations', 'deposits'] });
 
     const refresh = () => {
       const newState = loadState();
@@ -56,8 +56,9 @@ export default function Rooms(){
     };
   }, []);
 
-  const { rooms = [], tenants = [], readings = [], invoices = [], payments = [] } = state || {};
+  const { rooms = [], tenants = [], readings = [], invoices = [], payments = [], rentPeriods = [], paymentAllocations = [], deposits = [], depositTransactions = [] } = state || {};
   const user = currentUser;
+  const isAdminViewing = Boolean(getAdminViewUserId());
   const maxRoomLimit = user?.maxRoomLimit === 0 ? null : user?.maxRoomLimit ?? null;
   const roomLimitReached = maxRoomLimit !== null && rooms.length >= maxRoomLimit;
   const roomLimitStatus = maxRoomLimit !== null ? `${rooms.length}/${maxRoomLimit}` : 'Không giới hạn';
@@ -70,6 +71,20 @@ export default function Rooms(){
     return map;
   }, [tenants]);
   const unpaidCount = invoices.filter(i=> i.status !== 'Đã thanh toán').length;
+  const advanceBalanceOfRoom = (roomId) => rentPeriods
+    .filter((period) => period.roomId === roomId && period.month >= month)
+    .reduce((sum, period) => sum + paymentAllocations.filter((allocation) => String(allocation.rentPeriodId) === String(period.id)).reduce((allocated, allocation) => allocated + (Number(allocation.amount) || 0), 0), 0);
+  const depositBalanceOfRoom = (roomId) => deposits
+    .filter((deposit) => deposit.roomId === roomId && deposit.status === 'held')
+    .reduce((sum, deposit) => sum + (Number(deposit.remainingAmount ?? deposit.amount) || 0), 0);
+  const refundedDepositOfRoom = (roomId) => {
+    const depositIds = new Set(deposits.filter((deposit) => deposit.roomId === roomId).map((deposit) => String(deposit.id)));
+    return depositTransactions.filter((transaction) => depositIds.has(String(transaction.depositId)) && transaction.type === 'refunded').reduce((sum, transaction) => sum + (Number(transaction.amount) || 0), 0);
+  };
+  const advanceRangeOfRoom = (roomId) => {
+    const months = rentPeriods.filter((period) => period.roomId === roomId && paymentAllocations.some((allocation) => String(allocation.rentPeriodId) === String(period.id) && (Number(allocation.amount) || 0) > 0)).map((period) => period.month).sort();
+    return months.length ? `${months[0]} → ${months[months.length - 1]}` : 'Chưa đóng trước';
+  };
 
   const latestReadingOf = (roomId, ym) => {
     const list = (readings||[]).filter(r=> r.roomId===roomId && r.month===ym).sort((a,b)=> new Date(b.createdAt)-new Date(a.createdAt));
@@ -283,6 +298,10 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
     const badge = status==='Đã thanh toán' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700';
     const total = inv?.total ?? room.baseRent ?? 0;
     const primary = occupants.find(t=> t.id===room.primaryTenantId) || occupants[0];
+    const advanceBalance = advanceBalanceOfRoom(room.id);
+    const depositBalance = depositBalanceOfRoom(room.id);
+    const refundedDeposit = refundedDepositOfRoom(room.id);
+    const advanceRange = advanceRangeOfRoom(room.id);
 
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm flex flex-col gap-3 min-w-0">
@@ -294,7 +313,10 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
           <div><div className="text-slate-500">Tiền phòng</div><div className="font-medium">{currency(room.baseRent)} đ</div></div>
           <div><div className="text-slate-500">Đơn giá điện</div><div className="font-medium">{currency(room.electricRate)} đ/kWh</div></div>
           <div><div className="text-slate-500">Đơn giá nước</div><div className="font-medium">{currency(room.waterRate)} đ/m³</div></div>
-          <div className="hidden lg:block"><div className="text-slate-500">Công tơ Tuya</div><div className="font-medium break-all">{room.tuyaDeviceId || 'Chưa gán'}</div></div>
+          <div><div className="text-slate-500">Đóng trước</div><div className="font-medium text-emerald-700">{currency(advanceBalance)} đ</div></div>
+          <div><div className="text-slate-500">Kỳ đóng trước</div><div className="font-medium text-emerald-700">{advanceRange}</div></div>
+          <div><div className="text-slate-500">Tiền cọc đang giữ</div><div className="font-medium text-amber-700">{currency(depositBalance)} đ</div></div>
+          <div><div className="text-slate-500">Đã hoàn cọc</div><div className="font-medium text-slate-700">{currency(refundedDeposit)} đ</div></div>
           <div>
             <div className="text-slate-500">Khách</div>
             {occupants.length? (
@@ -311,11 +333,11 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
           <div className="text-lg font-semibold">{currency(total)} đ</div>
-          <div className="flex flex-wrap justify-end gap-1.5">
+          {!isAdminViewing && <div className="flex flex-wrap justify-end gap-1.5">
             <button onClick={()=>openEditRoom(room)} className="h-[29px] rounded-lg border px-2 text-[11px]">Sửa phòng</button>
             <button onClick={()=>openTenantManager(room.id)} className="h-[29px] rounded-lg border px-2 text-[11px]">Quản lý khách</button>
             <button onClick={()=>removeRoom(room.id)} className="h-[29px] rounded-lg border border-rose-200 bg-rose-50 px-2 text-[11px] text-rose-800">Xóa</button>
-          </div>
+          </div>}
         </div>
       </div>
     );
@@ -339,14 +361,14 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
         <div className="text-sm text-slate-500">Giới hạn phòng: {roomLimitStatus}</div>
         <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
           <ViewSwitch value={view} onChange={setView} />
-          <button
+          {!isAdminViewing && <button
             type="button"
             onClick={openCreateRoom}
             disabled={roomLimitReached}
             className={`rounded-xl px-4 py-2 text-sm sm:text-base ${roomLimitReached ? 'bg-slate-300 text-slate-600 cursor-not-allowed' : 'bg-emerald-600 text-white'}`}
           >
             Thêm phòng
-          </button>
+          </button>}
         </div>
       </div>
     <div className="mt-3">
@@ -371,12 +393,15 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
               <tr className="text-left text-slate-500">
                 <th className="p-2 whitespace-nowrap">Phòng</th>
                 <th className="p-2 min-w-[8rem]">Khách</th>
-                <th className="p-2 min-w-[10rem]">Công tơ Tuya</th>
                 <th className="p-2 whitespace-nowrap">Tháng</th>
                 <th className="p-2 whitespace-nowrap">Tiền phòng</th>
                 <th className="p-2 whitespace-nowrap">Điện</th>
                 <th className="p-2 whitespace-nowrap">Nước</th>
                 <th className="p-2 whitespace-nowrap">Tổng</th>
+                <th className="p-2 whitespace-nowrap">Đóng trước</th>
+                <th className="p-2 whitespace-nowrap">Kỳ đóng trước</th>
+                <th className="p-2 whitespace-nowrap">Tiền cọc</th>
+                <th className="p-2 whitespace-nowrap">Hoàn cọc</th>
                 <th className="p-2 whitespace-nowrap">Trạng thái</th>
                 <th className="p-2 text-right whitespace-nowrap">Tác vụ</th>
               </tr>
@@ -386,19 +411,22 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
                 <tr key={room.id} className="border-t border-slate-100">
                   <td className="p-2 font-medium whitespace-nowrap">{room.name}</td>
                   <td className="p-2 max-w-[12rem]">{(occupants.length? occupants.map(t=>t.name).join(', ') : <i className="text-slate-400">(chưa có)</i>)}</td>
-                  <td className="p-2 break-all text-xs text-slate-600">{room.tuyaDeviceId || 'Chưa gán'}</td>
                   <td className="p-2 whitespace-nowrap">{month}</td>
                   <td className="p-2 whitespace-nowrap">{currency(room.baseRent)}</td>
                   <td className="p-2 whitespace-nowrap">{currency(draft.eAmt)} <span className="text-slate-400">({draft.eUse} kWh)</span></td>
                   <td className="p-2 whitespace-nowrap">{currency(draft.wAmt)} <span className="text-slate-400">({draft.wUse} m³)</span></td>
                   <td className="p-2 font-semibold whitespace-nowrap">{currency(invoice? invoice.total : draft.totalDraft)}</td>
+                  <td className="p-2 whitespace-nowrap text-emerald-700">{currency(advanceBalanceOfRoom(room.id))}</td>
+                  <td className="p-2 whitespace-nowrap text-emerald-700">{advanceRangeOfRoom(room.id)}</td>
+                  <td className="p-2 whitespace-nowrap text-amber-700">{currency(depositBalanceOfRoom(room.id))}</td>
+                  <td className="p-2 whitespace-nowrap">{currency(refundedDepositOfRoom(room.id))}</td>
                   <td className="p-2">{invoice ? <span className={'rounded-full px-2 py-1 text-xs whitespace-nowrap ' + (invoice.status === 'Đã thanh toán' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700')}>{invoice.status}</span> : <span className="rounded-full px-2 py-1 text-xs bg-amber-100 text-amber-700 whitespace-nowrap">Chưa tạo HĐ</span>}</td>
                   <td className="p-2">
-                    <div className="flex flex-wrap justify-end gap-1.5">
+                    {!isAdminViewing && <div className="flex flex-wrap justify-end gap-1.5">
                       <button type="button" onClick={()=>openEditRoom(room)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Sửa phòng</button>
                       <button type="button" onClick={()=>openTenantManager(room.id)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Quản lý khách</button>
                       <button type="button" onClick={()=>removeRoom(room.id)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Xóa</button>
-                    </div>
+                    </div>}
                   </td>
                 </tr>
               ))}
