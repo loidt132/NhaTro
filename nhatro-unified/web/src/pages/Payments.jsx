@@ -190,14 +190,38 @@ console.log('filtered items', { query, filteredItems });
 
   const isPaidByPayments = (invoice) => paidAmountOf(invoice) >= (Number(invoice?.total) || 0);
   const hasDirectPaymentFor = (invoice) => (payments ?? []).some((payment) => String(payment.invoiceId || '') === String(invoice?.id));
-  const suggestedAdvanceAmount = (roomId, months) => (Number(roomMap[roomId]?.baseRent) || 0) * (Number(months) || 1);
+  const advanceRemainingForMonth = (roomId, ym = month) => {
+    const room = roomMap[roomId];
+    const period = rentPeriods.find((item) => String(item.roomId) === String(roomId) && item.month === ym);
+    const requiredRent = Number(period?.rent ?? room?.baseRent) || 0;
+    const allocated = period ? paymentAllocations
+      .filter((allocation) => String(allocation.rentPeriodId || '') === String(period.id))
+      .reduce((sum, allocation) => sum + (Number(allocation.amount) || 0), 0) : 0;
+    return Math.max(0, requiredRent - allocated);
+  };
+  const advancePaymentStartMonth = (roomId) => {
+    for (let index = 0; index < 60; index += 1) {
+      const candidateMonth = addMonths(month, index + 1);
+      if (advanceRemainingForMonth(roomId, candidateMonth) > 0) return candidateMonth;
+    }
+    return month;
+  };
+  const suggestedAdvanceAmount = (roomId, months) => {
+    const startMonth = advancePaymentStartMonth(roomId);
+    return Array.from({ length: Math.max(1, Number(months) || 1) }, (_, index) => advanceRemainingForMonth(roomId, addMonths(startMonth, index + 1)))
+      .reduce((sum, remaining) => sum + remaining, 0);
+  };
   const depositBalanceOfRoom = (roomId) => deposits
     .filter((deposit) => deposit.roomId === roomId && deposit.status === 'held')
     .reduce((sum, deposit) => sum + (Number(deposit.remainingAmount ?? deposit.amount) || 0), 0);
   const eligibleRoomsForCollection = () => {
     if (collectionModal.type === 'deposit') return rooms.filter((room) => depositBalanceOfRoom(room.id) === 0);
     if (collectionModal.type === 'refund') return rooms.filter((room) => depositBalanceOfRoom(room.id) > 0);
-    return rooms;
+    // A room is offered in the month before its prepaid range ends, so the
+    // landlord can collect the next month without ever charging a covered
+    // month twice. Example: paid through October -> shown in October for November.
+    const nextMonth = addMonths(month, 2);
+    return rooms.filter((room) => advancePaymentStartMonth(room.id) <= nextMonth && (tenantsByRoom[room.id] || []).length > 0);
   };
 
   const receiveAdvancePayment = () => {
@@ -212,8 +236,9 @@ console.log('filtered items', { query, filteredItems });
     const nextPeriods = [...rentPeriods];
     const nextAllocations = [...paymentAllocations];
     const allocations = [];
+    const startMonth = advancePaymentStartMonth(room.id);
     for (let index = 0; index < count; index += 1) {
-      const periodMonth = addMonths(month, index + 1);
+      const periodMonth = addMonths(startMonth, index + 1);
       let period = nextPeriods.find((item) => item.roomId === room.id && item.month === periodMonth);
       if (!period) {
         period = { id: uid(), roomId: room.id, tenantId: tenant.id, month: periodMonth, rent: room.baseRent ?? 0, createdAt: now, updatedAt: now };
@@ -229,7 +254,7 @@ console.log('filtered items', { query, filteredItems });
     }
     if (amountToAllocate > 0) return alert(`Số tiền vượt phần tiền phòng còn phải đóng của ${count} tháng. Hãy tăng số tháng hoặc giảm số tiền.`);
     if (!allocations.length) return alert('Các tháng đã chọn đã được đóng đủ tiền phòng.');
-    const payment = { id: uid(), roomId: room.id, tenantId: tenant.id, amount: allocations.reduce((sum, item) => sum + item.amount, 0), method: 'Tiền mặt', note: collectionModal.note || `Đóng trước tiền phòng ${month} đến ${addMonths(month, count)}`, paidAt: now, createdAt: now, updatedAt: now };
+    const payment = { id: uid(), roomId: room.id, tenantId: tenant.id, amount: allocations.reduce((sum, item) => sum + item.amount, 0), method: 'Tiền mặt', note: collectionModal.note || `Đóng trước tiền phòng ${startMonth} đến ${addMonths(startMonth, count)}`, paidAt: now, createdAt: now, updatedAt: now };
     allocations.forEach((allocation) => { allocation.paymentId = payment.id; });
     const s2 = { ...state, payments: [payment, ...payments], rentPeriods: nextPeriods, paymentAllocations: [...allocations, ...nextAllocations] };
     setState(s2);
@@ -703,10 +728,11 @@ const togglePaid = (id) => {
             <label className="mt-4 block text-sm font-medium text-slate-700">Phòng
               <select value={collectionModal.roomId} onChange={(e) => setCollectionModal((modal) => ({ ...modal, roomId: e.target.value }))} className="mt-1 block w-full rounded-xl border px-3 py-2">
                 <option value="">Chọn phòng</option>
-                {eligibleRoomsForCollection().map((room) => <option key={room.id} value={room.id}>{room.name}{collectionModal.type === 'refund' ? ` — còn cọc ${currency(depositBalanceOfRoom(room.id))} đ` : ''}</option>)}
+                {eligibleRoomsForCollection().map((room) => <option key={room.id} value={room.id}>{room.name}{collectionModal.type === 'advance' ? ` — đóng từ ${advancePaymentStartMonth(room.id)}` : collectionModal.type === 'refund' ? ` — còn cọc ${currency(depositBalanceOfRoom(room.id))} đ` : ''}</option>)}
               </select>
               {collectionModal.type === 'deposit' && <span className="mt-1 block text-xs text-slate-500">Chỉ hiển thị phòng chưa có tiền cọc đang giữ.</span>}
               {collectionModal.type === 'refund' && <span className="mt-1 block text-xs text-slate-500">Chỉ hiển thị phòng đang có tiền cọc. Hoàn thấp hơn tiền cọc sẽ tự ghi nhận phần chênh lệch là cấn trừ.</span>}
+              {collectionModal.type === 'advance' && <span className="mt-1 block text-xs text-slate-500">Chỉ hiển thị phòng cần đóng trước trong tháng này hoặc tháng kế tiếp; khoản thu sẽ tự bắt đầu từ tháng chưa đóng đầu tiên.</span>}
             </label>
             {collectionModal.type === 'advance' ? (
               <>
@@ -718,7 +744,7 @@ const togglePaid = (id) => {
                   <input type="number" min="0" value={collectionModal.amount} onChange={(e) => setCollectionModal((modal) => ({ ...modal, amount: e.target.value }))} className="mt-1 block w-full rounded-xl border px-3 py-2" placeholder={`Tự tính: ${currency(suggestedAdvanceAmount(collectionModal.roomId, collectionModal.months))}`} />
                 </label>
                 <button type="button" onClick={() => setCollectionModal((modal) => ({ ...modal, amount: suggestedAdvanceAmount(modal.roomId, modal.months) }))} className="mt-2 text-sm font-medium text-emerald-700">Dùng số tiền tự tính: {currency(suggestedAdvanceAmount(collectionModal.roomId, collectionModal.months))} đ</button>
-                <p className="mt-3 text-sm text-slate-500">Phân bổ từ {month} đến {addMonths(month, collectionModal.months)}. Khi lên từng hóa đơn tháng, khoản này tự được cấn trừ.</p>
+                <p className="mt-3 text-sm text-slate-500">{collectionModal.roomId ? `Phân bổ từ ${advancePaymentStartMonth(collectionModal.roomId)} đến ${addMonths(advancePaymentStartMonth(collectionModal.roomId), collectionModal.months)}.` : 'Chọn phòng để xem kỳ phân bổ.'} Khi lên từng hóa đơn tháng, khoản này tự được cấn trừ.</p>
               </>
             ) : (
               <label className="mt-4 block text-sm font-medium text-slate-700">{collectionModal.type === 'refund' ? 'Số tiền hoàn cọc (VNĐ)' : 'Số tiền cọc (VNĐ)'}
