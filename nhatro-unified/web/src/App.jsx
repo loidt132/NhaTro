@@ -152,7 +152,7 @@ export default function App() {
               {String(user?.role || '').toLowerCase() === 'admin' && (
                 <select disabled={adminViewLoading} value={adminViewUserId} onChange={(event) => changeAdminView(event.target.value)} className="w-32 max-w-48 rounded-xl border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-900 disabled:opacity-60 sm:w-48 sm:text-sm">
                   <option value="">Xem: tài khoản tôi</option>
-                  {adminUsers.filter((account) => String(account.id) !== String(user.id)).map((account) => <option key={account.id} value={account.id}>Xem: {account.name || account.email || account.phone}</option>)}
+                  {adminUsers.filter((account) => String(account.id) !== String(user.id) && account.isActive !== false).map((account) => <option key={account.id} value={account.id}>Xem: {account.name || account.email || account.phone}</option>)}
                 </select>
               )}
               <button

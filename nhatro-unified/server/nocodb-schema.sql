@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
   password_salt TEXT NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   role VARCHAR(32) DEFAULT 'user',
+  isActive BOOLEAN NOT NULL DEFAULT TRUE,
   maxRoomLimit INT
 );
 

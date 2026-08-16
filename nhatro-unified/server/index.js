@@ -626,6 +626,12 @@ function readUserValue(row, variants) {
   return '';
 }
 
+function normalizeUserActive(value) {
+  if (value === false || value === 0) return false;
+  if (typeof value === 'string' && ['false', '0', 'inactive', 'disabled'].includes(value.trim().toLowerCase())) return false;
+  return true;
+}
+
 function mapNocoUser(row) {
   const maxRoomValue = readUserValue(row, ['maxRoomLimit', 'max_room_limit', 'maxroomlimit']);
   const parsedMaxRoom = Number(maxRoomValue);
@@ -640,6 +646,7 @@ function mapNocoUser(row) {
     passwordSalt: readUserValue(row, ['password_salt', 'passwordSalt', 'passwordsalt']),
     createdAt: readUserValue(row, ['created_at', 'createdAt', 'createdat']),
     role: readUserValue(row, ['role']) || 'user',
+    isActive: normalizeUserActive(readUserValue(row, ['isActive', 'is_active', 'active'])),
     maxRoomLimit: Number.isFinite(parsedMaxRoom) ? parsedMaxRoom : null,
   };
 }
@@ -663,6 +670,7 @@ async function createNocoUserRecord(user) {
       password_salt: user.passwordSalt,
       created_at: user.createdAt,
       role: user.role,
+      isActive: user.isActive !== false,
       maxRoomLimit: user.maxRoomLimit,
     },
     {
@@ -674,6 +682,7 @@ async function createNocoUserRecord(user) {
       passwordSalt: user.passwordSalt,
       createdAt: user.createdAt,
       role: user.role,
+      isActive: user.isActive !== false,
       maxRoomLimit: user.maxRoomLimit,
     },
     {
@@ -685,6 +694,7 @@ async function createNocoUserRecord(user) {
       passwordsalt: user.passwordSalt,
       createdat: user.createdAt,
       role: user.role,
+      isActive: user.isActive !== false,
       maxRoomLimit: user.maxRoomLimit,
     },
     {
@@ -695,6 +705,7 @@ async function createNocoUserRecord(user) {
       password: user.password || user.passwordHash,
       created_at: user.createdAt,
       role: user.role,
+      isActive: user.isActive !== false,
       maxRoomLimit: user.maxRoomLimit,
     },
     {
@@ -705,6 +716,7 @@ async function createNocoUserRecord(user) {
       pass: user.password || user.passwordHash,
       created_at: user.createdAt,
       role: user.role,
+      isActive: user.isActive !== false,
       maxRoomLimit: user.maxRoomLimit,
     },
     {
@@ -718,6 +730,7 @@ async function createNocoUserRecord(user) {
       password_salt: user.passwordSalt,
       created_at: user.createdAt,
       role: user.role,
+      isActive: user.isActive !== false,
       maxRoomLimit: user.maxRoomLimit,
     },
   ];
@@ -764,6 +777,7 @@ async function updateNocoUserRecord(rowId, updates = {}) {
 
   const payload = { Id: targetRowId };
   if (updates.role !== undefined) payload.role = updates.role;
+  if (updates.isActive !== undefined) payload.isActive = updates.isActive;
   if (updates.maxRoomLimit !== undefined) payload.maxRoomLimit = updates.maxRoomLimit;
 
   if (Object.keys(payload).length <= 1) {
@@ -1114,6 +1128,7 @@ app.post('/api/auth/register', async (req, res) => {
       ...createPasswordRecord(password),
       createdAt: new Date().toISOString(),
       role: 'user',
+      isActive: true,
       maxRoomLimit: 20,
     };
 
@@ -1159,6 +1174,9 @@ app.post('/api/auth/login', async (req, res) => {
     console.log('Login attempt for identifier:', identifier, 'normalized email:', normalizedIdentifier, 'normalized phone:', normalizedIdentifierPhone);
     if (!user || !verifyPassword(user, password)) {
       return res.status(401).json({ error: 'Sai thông tin đăng nhập' });
+    }
+    if (user.isActive === false) {
+      return res.status(403).json({ error: 'Tài khoản hiện đang ngừng hoạt động' });
     }
 console.log('User authenticated:', { id: user.id, email: user.email, phone: user.phone, role: user.role, maxRoomLimit: user.maxRoomLimit });
     const token = createAuthToken(user);
@@ -1264,6 +1282,7 @@ app.get('/api/admin/users', adminMiddleware, async (req, res) => {
       email: user.email,
       phone: user.phone,
       role: user.role || 'user',
+      isActive: user.isActive !== false,
       maxRoomLimit: user.maxRoomLimit,
       createdAt: user.createdAt,
       roomCount: roomCounts[String(user.id)] || 0,
@@ -1278,7 +1297,7 @@ app.get('/api/admin/users', adminMiddleware, async (req, res) => {
 // Update user role and room limit (admin only)
 app.put('/api/admin/users/:userId', adminMiddleware, async (req, res) => {
   const { userId } = req.params;
-  const { role, maxRoomLimit } = req.body || {};
+  const { role, maxRoomLimit, isActive } = req.body || {};
 
   if (!userId) {
     return res.status(400).json({ error: 'Missing userId' });
@@ -1300,9 +1319,13 @@ app.put('/api/admin/users/:userId', adminMiddleware, async (req, res) => {
     if (sameUserId(userId, req.userId) && role === 'user') {
       return res.status(400).json({ error: 'Cannot remove your own admin status' });
     }
+    if (sameUserId(userId, req.userId) && isActive === false) {
+      return res.status(400).json({ error: 'Không thể ngừng hoạt động tài khoản admin hiện tại' });
+    }
 
     const updatedUser = { ...users[userIndex] };
     if (role) updatedUser.role = role;
+    if (isActive !== undefined) updatedUser.isActive = isActive !== false;
     if (maxRoomLimit !== undefined) {
       if (maxRoomLimit === null) {
         updatedUser.maxRoomLimit = null;
@@ -1324,6 +1347,7 @@ app.put('/api/admin/users/:userId', adminMiddleware, async (req, res) => {
       }
       await updateNocoUserRecord(rowId, {
         role: updatedUser.role,
+        isActive: updatedUser.isActive !== false,
         maxRoomLimit: updatedUser.maxRoomLimit ?? null,
       });
     } else {
@@ -1337,6 +1361,7 @@ app.put('/api/admin/users/:userId', adminMiddleware, async (req, res) => {
         email: updatedUser.email,
         phone: updatedUser.phone,
         role: updatedUser.role,
+        isActive: updatedUser.isActive !== false,
         maxRoomLimit: updatedUser.maxRoomLimit,
       },
     });
