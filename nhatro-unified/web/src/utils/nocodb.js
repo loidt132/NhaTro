@@ -462,10 +462,10 @@ export function isNocoConfigured() {
 }
 
 export async function loadStateFromNoco(options = {}) {
-  const { tables = null } = options;
+  const { tables = null, userId: requestedUserId = '' } = options;
   if (!isNocoConfigured()) return null;
 
-  const userId = currentUserId();
+  const userId = requestedUserId || currentUserId();
   if (!userId) return null;
 
   try {

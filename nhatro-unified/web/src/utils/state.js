@@ -50,6 +50,14 @@ function shouldUseNocoState() {
 async function loadStateFromServer(options = {}) {
   const { tables = null } = options;
   if (adminViewUserId) {
+    if (shouldUseNocoState()) {
+      try {
+        const state = await loadStateFromNoco({ tables, userId: adminViewUserId });
+        if (state) return state;
+      } catch (e) {
+        // Fall back to the admin server endpoint for non-Noco/local storage.
+      }
+    }
     try {
       const resp = await fetch(apiUrl(`/api/admin/users/${encodeURIComponent(adminViewUserId)}/state`), { headers: authHeaders() });
       if (!resp.ok) throw new Error('Không thể tải dữ liệu tài khoản đã chọn');
