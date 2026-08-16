@@ -415,3 +415,36 @@ export function calcTotals(invoices=[], payments=[], ym){
   const sumDebt = filtered.reduce((a,i)=> a + Math.max(0,(+i.total||0) - paidOf(i)), 0);
   return { sumPaid, sumDebt };
 }
+
+// Keep rent paid in advance separate from money collected against an invoice.
+// An advance is recorded against a RentPeriod, while invoice payments are
+// recorded directly with invoiceId.  Both screens use this helper so their
+// monthly figures and remaining balances cannot drift apart.
+export function calcTotalsWithAdvance(invoices=[], payments=[], rentPeriods=[], paymentAllocations=[], ym){
+  const filteredInvoices = ym ? invoices.filter((invoice) => isInMonth(invoice, ym)) : invoices;
+  const periodAllocations = (period) => (paymentAllocations || [])
+    .filter((allocation) => String(allocation.rentPeriodId || '') === String(period?.id || ''))
+    .reduce((sum, allocation) => sum + (Number(allocation.amount) || 0), 0);
+  const advanceOfInvoice = (invoice) => {
+    const period = (rentPeriods || []).find((item) => String(item.roomId) === String(invoice.roomId) && item.month === invoice.month);
+    // A rent-period allocation can only settle the rent component, never utilities.
+    return Math.min(Number(invoice.rent) || 0, period ? periodAllocations(period) : 0);
+  };
+  const directPaidOf = (invoice) => (payments || [])
+    .filter((payment) => String(payment.invoiceId || '') === String(invoice.id))
+    .reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+
+  // Show advances for the selected month even when its invoice has not been
+  // generated yet. This is the actual prepaid monthly-rent amount.
+  const periodsInMonth = ym ? (rentPeriods || []).filter((period) => period.month === ym) : (rentPeriods || []);
+  const sumAdvance = periodsInMonth.reduce((sum, period) => sum + Math.min(Number(period.rent) || 0, periodAllocations(period)), 0);
+  const sumPaid = filteredInvoices.reduce((sum, invoice) => {
+    const remainingAfterAdvance = Math.max(0, (Number(invoice.total) || 0) - advanceOfInvoice(invoice));
+    return sum + Math.min(remainingAfterAdvance, directPaidOf(invoice));
+  }, 0);
+  const sumDebt = filteredInvoices.reduce((sum, invoice) => {
+    const settled = advanceOfInvoice(invoice) + directPaidOf(invoice);
+    return sum + Math.max(0, (Number(invoice.total) || 0) - settled);
+  }, 0);
+  return { sumAdvance, sumPaid, sumDebt };
+}

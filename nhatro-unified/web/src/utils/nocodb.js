@@ -256,8 +256,8 @@ async function fetchJsonWithStatus(url, options = {}) {
   throw new Error('NocoDB request retry exhausted');
 }
 
-async function fetchTableRows(tableKey, query = '') {
-  const userId = currentUserId();
+async function fetchTableRows(tableKey, query = '', userIdOverride = '') {
+  const userId = userIdOverride || currentUserId();
 
   // 👇 thêm filter isDeleted=false
   const where = `(isDeleted,neq,true)`;
@@ -501,7 +501,7 @@ export async function loadStateFromNoco(options = {}) {
         continue;
       }
       try {
-        tableData[key] = await fetchTableRows(key, buildOwnedQuery(userId, 'limit=1000'));
+        tableData[key] = await fetchTableRows(key, buildOwnedQuery(userId, 'limit=1000'), userId);
       } catch (error) {
         console.error(`load ${key} from NocoDB failed`, error);
         tableData[key] = [];

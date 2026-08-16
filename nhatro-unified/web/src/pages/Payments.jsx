@@ -1,7 +1,7 @@
 // src/pages/Payments.jsx
 import React, { useMemo, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { loadState, saveState, currency, monthKey, calcTotals, uid, hydrateState } from '../utils/state';
+import { loadState, saveState, currency, monthKey, calcTotalsWithAdvance, uid, hydrateState } from '../utils/state';
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
 import ViewSwitch from '../components/ViewSwitch';
@@ -162,17 +162,23 @@ console.log('filtered items', { query, filteredItems });
     const allocated = period
       ? paymentAllocations.filter((item) => String(item.rentPeriodId) === String(period.id)).reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
       : 0;
-    return legacyPaid + allocated;
+    return legacyPaid + Math.min(Number(invoice.rent) || 0, allocated);
   };
 
   const advanceAllocatedOf = (invoice) => {
     if (!invoice) return 0;
     const period = rentPeriods.find((item) => item.roomId === invoice.roomId && item.month === invoice.month);
     if (!period) return 0;
-    return paymentAllocations
+    const allocated = paymentAllocations
       .filter((item) => String(item.rentPeriodId) === String(period.id))
       .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    return Math.min(Number(invoice.rent) || 0, allocated);
   };
+
+  const directPaidOf = (invoice) => (payments ?? [])
+    .filter((payment) => String(payment.invoiceId || '') === String(invoice?.id || ''))
+    .reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+  const remainingOf = (invoice) => Math.max(0, (Number(invoice?.total) || 0) - advanceAllocatedOf(invoice) - directPaidOf(invoice));
 
   const advanceRangeOfRoom = (roomId) => {
     const months = rentPeriods
@@ -461,12 +467,10 @@ const togglePaid = (id) => {
     });
   };
 
-  const { sumPaid, sumDebt } = useMemo(() => {
-    const monthInvoices = invoices.filter((invoice) => invoice.month === month);
-    const paid = monthInvoices.reduce((sum, invoice) => sum + Math.min(Number(invoice.total) || 0, paidAmountOf(invoice)), 0);
-    const debt = monthInvoices.reduce((sum, invoice) => sum + Math.max(0, (Number(invoice.total) || 0) - paidAmountOf(invoice)), 0);
-    return { sumPaid: paid, sumDebt: debt };
-  }, [invoices, payments, rentPeriods, paymentAllocations, month]);
+  const { sumAdvance, sumPaid, sumDebt } = useMemo(
+    () => calcTotalsWithAdvance(invoices, payments, rentPeriods, paymentAllocations, month),
+    [invoices, payments, rentPeriods, paymentAllocations, month]
+  );
 
   const Table = () => (
     <>
@@ -484,7 +488,7 @@ const togglePaid = (id) => {
                 <th className="p-2 whitespace-nowrap">Tiền phòng</th>
                 <th className="p-2 whitespace-nowrap">Điện</th>
                 <th className="p-2 whitespace-nowrap">Nước</th>
-                <th className="p-2 whitespace-nowrap">Tổng</th>
+                <th className="p-2 whitespace-nowrap">Còn thu</th>
                 <th className="p-2 whitespace-nowrap">Trạng thái</th>
                 <th className="p-2 whitespace-nowrap">Tác vụ</th>
               </tr>
@@ -523,7 +527,7 @@ const togglePaid = (id) => {
                 }
                 const i = invoice;
                 const isPaid = isPaidByPayments(i);
-                const paidAmount = paidAmountOf(i);
+                const advanceAllocated = advanceAllocatedOf(i);
                 const hasDirectPayment = hasDirectPaymentFor(i);
                 const advanceRange = advanceRangeOfRoom(room.id);
                 const statusText = isPaid ? STATUS_PAID : STATUS_UNPAID;
@@ -542,11 +546,11 @@ const togglePaid = (id) => {
                     <td className="p-2 whitespace-nowrap">{currency(i.rent)}</td>
                     <td className="p-2 whitespace-nowrap">{currency(i.electricAmount)} <span className="text-slate-400">({i.electricUsage} kWh)</span></td>
                     <td className="p-2 whitespace-nowrap">{currency(i.waterAmount)} <span className="text-slate-400">({i.waterUsage} m³)</span></td>
-                    <td className="p-2 font-semibold whitespace-nowrap">{currency(i.total)}</td>
+                    <td className="p-2 font-semibold whitespace-nowrap">{currency(remainingOf(i))}</td>
                     <td className="p-2">
                       <span className={'rounded-full px-2 py-1 text-xs whitespace-nowrap ' + (isPaid ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700') }>{statusText}</span>
-                      {paidAmount > 0 && <div className="mt-1 text-xs text-emerald-700">Đã cấn trừ: {currency(paidAmount)}</div>}
-                      {advanceRange && <div className="mt-1 text-xs text-emerald-700">Đóng trước: {advanceRange}</div>}
+                      {advanceAllocated > 0 && <div className="mt-1 text-xs text-emerald-700">Đã cấn trừ đóng trước: {currency(advanceAllocated)} · Còn lại: {currency(Math.max(0, (Number(i.total) || 0) - advanceAllocated))}</div>}
+                      {advanceAllocated > 0 && advanceRange && <div className="mt-1 text-xs text-emerald-700">Đóng trước: {advanceRange}</div>}
                       {mismatch && (
                         <div className="mt-1 text-xs text-amber-700">Chỉ số đã đổi</div>
                       )}
@@ -602,7 +606,7 @@ const togglePaid = (id) => {
         }
         const i = invoice;
         const isPaid = isPaidByPayments(i);
-        const paidAmount = paidAmountOf(i);
+        const advanceAllocated = advanceAllocatedOf(i);
         const hasDirectPayment = hasDirectPaymentFor(i);
         const advanceRange = advanceRangeOfRoom(room.id);
         const status = isPaid ? STATUS_PAID : STATUS_UNPAID;
@@ -630,11 +634,11 @@ const togglePaid = (id) => {
               <div className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:gap-2"><span className="text-slate-500">Điện</span><span className="min-w-0 text-right sm:text-left break-words">{i.electricUsage} kWh × {currency(room.electricRate ?? 0)} = <b className="tabular-nums">{currency(i.electricAmount)}</b></span></div>
               <div className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:gap-2"><span className="text-slate-500">Nước</span><span className="min-w-0 text-right sm:text-left break-words">{i.waterUsage} m³ × {currency(room.waterRate ?? 0)} = <b className="tabular-nums">{currency(i.waterAmount)}</b></span></div>
               <div className="text-xs text-slate-500">Trạng thái: {status}</div>
-              {paidAmount > 0 && <div className="text-xs text-emerald-700">Đã cấn trừ đóng trước: {currency(paidAmount)} · Còn lại: {currency(Math.max(0, (Number(i.total) || 0) - paidAmount))}</div>}
-              {advanceRange && <div className="text-xs text-emerald-700">Đóng trước cho các tháng: {advanceRange}</div>}
+              {advanceAllocated > 0 && <div className="text-xs text-emerald-700">Đã cấn trừ đóng trước: {currency(advanceAllocated)} · Còn lại: {currency(Math.max(0, (Number(i.total) || 0) - advanceAllocated))}</div>}
+              {advanceAllocated > 0 && advanceRange && <div className="text-xs text-emerald-700">Đóng trước cho các tháng: {advanceRange}</div>}
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between pt-1 border-t border-slate-100">
-              <div className="text-lg font-semibold tabular-nums shrink-0">{currency(i.total)} đ</div>
+              <div className="shrink-0 text-right"><div className="text-xs text-slate-500">Còn thu</div><div className="text-lg font-semibold tabular-nums">{currency(remainingOf(i))} đ</div></div>
               <div className="flex w-full flex-wrap justify-end gap-1.5">
                 <button type="button" disabled={isPaid && !hasDirectPayment} onClick={() => togglePaid(i.id)} className="h-[29px] rounded-lg border px-2 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-50">
                   <span>{hasDirectPayment ? 'Hoàn tác thanh toán' : isPaid ? 'Đã cấn đóng trước' : 'Thu phần còn lại'}</span>
@@ -653,7 +657,7 @@ const togglePaid = (id) => {
 
   return (
     <Page className="space-y-4">
-      <TotalsBar sumPaid={sumPaid} sumDebt={sumDebt} />
+      <TotalsBar sumAdvance={sumAdvance} sumPaid={sumPaid} sumDebt={sumDebt} />
       <SearchBar month={month} onMonthChange={setMonth} query={query} onQueryChange={setQuery} />
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={() => setCollectionModal({ open: true, type: 'advance', roomId: '', months: 3, amount: '', note: '' })} className="rounded-xl bg-emerald-600 px-4 py-2 font-medium text-white">Ghi nhận đóng trước / cọc</button>

@@ -1,6 +1,6 @@
 // src/pages/Meter.jsx
 import React, { useMemo, useState, useEffect } from 'react';
-import { loadState, saveState, monthKey, uid, calcTotals, hydrateState } from '../utils/state';
+import { loadState, saveState, monthKey, uid, calcTotalsWithAdvance, hydrateState } from '../utils/state';
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
 import Footer from '../components/Footer';
@@ -15,13 +15,13 @@ export default function Meter() {
     window.addEventListener('boarding_state_updated', handler);
     // Phase 1 (core for the Meter page)
     hydrateState({ tables: ['rooms', 'tenants', 'readings', 'settings'] });
-    // Phase 2 (optional, only for TotalsBar)
+    // Phase 2 (optional, only for monthly totals)
     setTimeout(() => {
-      hydrateState({ tables: ['invoices', 'payments'] });
+      hydrateState({ tables: ['invoices', 'payments', 'rentPeriods', 'paymentAllocations'] });
     }, 0);
     return () => window.removeEventListener('boarding_state_updated', handler);
   }, []);
-  const { rooms, tenants, readings = [], invoices, payments, settings } = state;
+  const { rooms, tenants, readings = [], invoices = [], payments = [], rentPeriods = [], paymentAllocations = [], settings } = state;
   const [month, setMonth] = useState(monthKey());
   const isCurrentMonth = month === monthKey();
   const [query, setQuery] = useState('');
@@ -372,11 +372,11 @@ export default function Meter() {
     closeReadingModal();
   };
 
-  const { sumPaid, sumDebt } = calcTotals(invoices, payments, month);
+  const { sumAdvance, sumPaid, sumDebt } = calcTotalsWithAdvance(invoices, payments, rentPeriods, paymentAllocations, month);
 
   return (
     <Page className="space-y-4">
-      <TotalsBar sumPaid={sumPaid} sumDebt={sumDebt} />
+      <TotalsBar sumAdvance={sumAdvance} sumPaid={sumPaid} sumDebt={sumDebt} />
       <SearchBar
         month={month}
         onMonthChange={setMonth}
