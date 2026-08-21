@@ -58,6 +58,7 @@ export default function UserManagement({ isAdmin = false }) {
         },
         body: JSON.stringify({
           role: editingForm.role,
+          isActive: editingForm.isActive,
           maxRoomLimit: editingForm.maxRoomLimit === '' ? null : Number(editingForm.maxRoomLimit) || null,
         }),
       });
@@ -79,6 +80,7 @@ export default function UserManagement({ isAdmin = false }) {
     setEditingUserId(user.id);
     setEditingForm({
       role: user.role,
+      isActive: user.isActive !== false,
       maxRoomLimit: user.maxRoomLimit === null ? '' : String(user.maxRoomLimit),
     });
   }
@@ -128,6 +130,7 @@ export default function UserManagement({ isAdmin = false }) {
                 <th className="p-3 text-left">Số ĐT</th>
                 <th className="p-3 text-center">Phòng</th>
                 <th className="p-3 text-center">Vai trò</th>
+                <th className="p-3 text-center">Trạng thái</th>
                 <th className="p-3 text-center">Giới hạn phòng</th>
                 <th className="p-3 text-center">Tác vụ</th>
               </tr>
@@ -151,6 +154,12 @@ export default function UserManagement({ isAdmin = false }) {
                         >
                           <option value="user">User</option>
                           <option value="admin">Admin</option>
+                        </select>
+                      </td>
+                      <td className="p-3">
+                        <select className="w-full rounded-lg border px-2 py-1 text-sm" value={editingForm.isActive ? 'active' : 'inactive'} onChange={(e) => setEditingForm({ ...editingForm, isActive: e.target.value === 'active' })}>
+                          <option value="active">Active</option>
+                          <option value="inactive">Inactive</option>
                         </select>
                       </td>
                       <td className="p-3">
@@ -196,6 +205,9 @@ export default function UserManagement({ isAdmin = false }) {
                         >
                           {user.role === 'admin' ? 'Admin' : 'User'}
                         </span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className={`inline-block rounded-full px-2 py-1 text-xs font-medium ${user.isActive === false ? 'bg-slate-100 text-slate-500' : 'bg-emerald-100 text-emerald-700'}`}>{user.isActive === false ? 'Inactive' : 'Active'}</span>
                       </td>
                       <td className="p-3 text-center">
                         {user.maxRoomLimit === null || user.maxRoomLimit === undefined ? (
