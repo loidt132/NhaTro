@@ -21,6 +21,7 @@ export default function Rooms(){
   const [isLoading, setIsLoading] = useState(true);
   const [month, setMonth] = useState(monthKey());
   const [query, setQuery] = useState('');
+  const [roomStatusFilter, setRoomStatusFilter] = useState('all');
   const [roomModal, setRoomModal] = useState({ open:false, mode:'create', roomId:null, form:{ name:'', baseRent:2500000, electricRate:3500, waterRate:12000, tuyaDeviceId:'' } });
   const [tenantModal, setTenantModal] = useState({ open:false, roomId:null, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' } });
   const [view, setView] = useState('cards'); // 'table' or 'cards'
@@ -244,9 +245,15 @@ export default function Rooms(){
   const visibleRooms = useMemo(() => {
     const q = (query || '').toLowerCase();
     const base = (rooms || []).filter(r => {
+      const occupants = activeTenantByRoom[r.id] || [];
+      const hasTenant = occupants.length > 0;
+      const hasDeposit = depositBalanceOfRoom(r.id) > 0;
+      if (roomStatusFilter === 'empty' && hasTenant) return false;
+      if (roomStatusFilter === 'occupied' && !hasTenant) return false;
+      if (roomStatusFilter === 'deposit' && !hasDeposit) return false;
       if (!q) return true;
       const nameHit = (r.name || '').toLowerCase().includes(q);
-      const tenantsForRoom = activeTenantByRoom[r.id] || [];
+      const tenantsForRoom = occupants;
       const tenantHit = tenantsForRoom.some(t => {
         const tn = (t.name || '').toLowerCase();
         const tc = (t.cccd || '').toLowerCase();
@@ -256,7 +263,7 @@ export default function Rooms(){
       return nameHit || tenantHit;
     });
     return base.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  }, [rooms, query, activeTenantByRoom]);
+  }, [rooms, query, roomStatusFilter, activeTenantByRoom, deposits]);
 
   // items for room table (used to display payments-style table on Rooms page)
   const roomItems = useMemo(() =>
@@ -298,7 +305,7 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
 
   useEffect(() => {
     setPage(1);
-  }, [query, perPage]);
+  }, [query, roomStatusFilter, perPage]);
 
 
 
@@ -369,6 +376,21 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
       <TopStats rooms={rooms.length} tenants={tenantsActiveCount} invoices={invoicesForMonth} debts={unpaidForMonth} invoiceTo={`/payments?status=invoice&month=${month}`} debtTo={`/payments?status=debt&month=${month}`} />
       <TotalsBar sumAdvance={sumAdvance} sumPaid={sumPaid} sumDebt={sumDebt} month={month} />
       <SearchBar month={month} onMonthChange={setMonth} query={query} onQueryChange={setQuery} />
+
+      <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor="room-status-filter" className="text-sm font-medium text-slate-600">Trạng thái phòng</label>
+        <select
+          id="room-status-filter"
+          value={roomStatusFilter}
+          onChange={(e) => setRoomStatusFilter(e.target.value)}
+          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+        >
+          <option value="all">Tất cả</option>
+          <option value="empty">Phòng trống</option>
+          <option value="occupied">Có khách</option>
+          <option value="deposit">Đã đặt cọc</option>
+        </select>
+      </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-sm text-slate-500">Giới hạn phòng: {roomLimitStatus}</div>
