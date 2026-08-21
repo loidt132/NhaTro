@@ -377,24 +377,21 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
       <TotalsBar sumAdvance={sumAdvance} sumPaid={sumPaid} sumDebt={sumDebt} month={month} />
       <SearchBar month={month} onMonthChange={setMonth} query={query} onQueryChange={setQuery} />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor="room-status-filter" className="text-sm font-medium text-slate-600">Trạng thái phòng</label>
-        <select
-          id="room-status-filter"
-          value={roomStatusFilter}
-          onChange={(e) => setRoomStatusFilter(e.target.value)}
-          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-        >
-          <option value="all">Tất cả</option>
-          <option value="empty">Phòng trống</option>
-          <option value="occupied">Có khách</option>
-          <option value="deposit">Đã đặt cọc</option>
-        </select>
-      </div>
-
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-sm text-slate-500">Giới hạn phòng: {roomLimitStatus}</div>
         <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+          <label htmlFor="room-status-filter" className="sr-only">Trạng thái phòng</label>
+          <select
+            id="room-status-filter"
+            value={roomStatusFilter}
+            onChange={(e) => setRoomStatusFilter(e.target.value)}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+          >
+            <option value="all">Tất cả</option>
+            <option value="empty">Phòng trống</option>
+            <option value="occupied">Có khách</option>
+            <option value="deposit">Đã đặt cọc</option>
+          </select>
           <ViewSwitch value={view} onChange={setView} />
           {!isAdminViewing && <button
             type="button"
