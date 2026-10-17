@@ -2,6 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
+const multer = require('multer');
+const cloudinary = require('cloudinary').v2;
+const { createWorker } = require('tesseract.js');
 const fetchApi =
   typeof global.fetch === 'function'
     ? global.fetch.bind(global)
@@ -76,8 +79,46 @@ const NOCODB_TABLE_RENT_PERIODS = firstEnv('NOCODB_TABLE_RENT_PERIODS', 'TABLE_R
 const NOCODB_TABLE_PAYMENT_ALLOCATIONS = firstEnv('NOCODB_TABLE_PAYMENT_ALLOCATIONS', 'TABLE_PAYMENT_ALLOCATIONS', 'VITE_TABLE_PAYMENT_ALLOCATIONS');
 const NOCODB_TABLE_DEPOSITS = firstEnv('NOCODB_TABLE_DEPOSITS', 'TABLE_DEPOSITS', 'VITE_TABLE_DEPOSITS');
 const NOCODB_TABLE_DEPOSIT_TRANSACTIONS = firstEnv('NOCODB_TABLE_DEPOSIT_TRANSACTIONS', 'TABLE_DEPOSIT_TRANSACTIONS', 'VITE_TABLE_DEPOSIT_TRANSACTIONS');
+const NOCODB_TABLE_METER_SUBMISSIONS = firstEnv('NOCODB_TABLE_METER_SUBMISSIONS', 'TABLE_METER_SUBMISSIONS', 'VITE_TABLE_METER_SUBMISSIONS');
 const HAS_ANY_NOCO_CONFIG = Boolean(NOCODB_URL || NOCODB_API_KEY || NOCODB_TABLE_USERS);
 const HAS_FULL_NOCO_CONFIG = Boolean(NOCODB_URL && NOCODB_API_KEY && NOCODB_TABLE_USERS);
+
+const CLOUDINARY_CLOUD_NAME = firstEnv('CLOUDINARY_CLOUD_NAME');
+const CLOUDINARY_API_KEY = firstEnv('CLOUDINARY_API_KEY');
+const CLOUDINARY_API_SECRET = firstEnv('CLOUDINARY_API_SECRET');
+const HAS_CLOUDINARY_CONFIG = Boolean(CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET);
+if (HAS_CLOUDINARY_CONFIG) {
+  cloudinary.config({
+    cloud_name: CLOUDINARY_CLOUD_NAME,
+    api_key: CLOUDINARY_API_KEY,
+    api_secret: CLOUDINARY_API_SECRET,
+  });
+}
+
+const FIREBASE_SERVICE_ACCOUNT_JSON = firstEnv('FIREBASE_SERVICE_ACCOUNT_JSON');
+let firebaseAdminApp = null;
+function getFirebaseAdmin() {
+  if (!FIREBASE_SERVICE_ACCOUNT_JSON) return null;
+  if (firebaseAdminApp) return firebaseAdminApp;
+  const admin = require('firebase-admin');
+  const serviceAccount = JSON.parse(FIREBASE_SERVICE_ACCOUNT_JSON);
+  firebaseAdminApp = admin.apps.length
+    ? admin.app()
+    : admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+  firebaseAdminApp.auth = () => admin.auth(firebaseAdminApp);
+  return firebaseAdminApp;
+}
+
+const meterPhotoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!/^image\//.test(file.mimetype || '')) {
+      return cb(new Error('Chỉ chấp nhận file ảnh'));
+    }
+    cb(null, true);
+  },
+});
 const KEEP_ALIVE_URL = firstEnv('RENDER_KEEP_ALIVE_URL', 'APP_URL', 'RENDER_EXTERNAL_URL', 'VITE_API_ORIGIN').replace(/\/+$/, '');
 const KEEP_ALIVE_INTERVAL_MS = Number(process.env.RENDER_KEEP_ALIVE_INTERVAL_MS || 13 * 60 * 1000);
 const ENABLE_KEEP_ALIVE = String(process.env.RENDER_KEEP_ALIVE_ENABLED || 'true').toLowerCase() !== 'false';
@@ -558,6 +599,84 @@ async function fetchNocoRowsOwnedBy(tableId, userId) {
   return (data?.list || []).map(stripNocoSystemColumns);
 }
 
+async function findTenantRecordsByPhone(phone) {
+  if (!NOCODB_TABLE_TENANTS || !phone) return [];
+  const where = encodeURIComponent(`(phone,eq,${phone})`);
+  const data = await nocoFetchJson(nocoTableUrl(NOCODB_TABLE_TENANTS, `?where=${where}&limit=50`));
+  return (data?.list || []).map(stripNocoSystemColumns).map((row, index) => ({
+    ...row,
+    rowId: (data.list[index]?.Id ?? data.list[index]?.ID) ?? null,
+  }));
+}
+
+async function uploadBufferToCloudinary(buffer, folder) {
+  if (!HAS_CLOUDINARY_CONFIG) {
+    throw new Error('Cloudinary chưa được cấu hình. Thêm CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET trên server.');
+  }
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder, resource_type: 'image' },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve(result);
+      }
+    );
+    stream.end(buffer);
+  });
+}
+
+let meterOcrWorkerPromise = null;
+async function getMeterOcrWorker() {
+  if (!meterOcrWorkerPromise) {
+    meterOcrWorkerPromise = (async () => {
+      const worker = await createWorker('eng');
+      await worker.setParameters({ tessedit_char_whitelist: '0123456789.,' });
+      return worker;
+    })();
+  }
+  return meterOcrWorkerPromise;
+}
+
+function parseMeterValueFromOcrText(text = '') {
+  const matches = String(text || '').match(/\d[\d.,]*\d|\d/g) || [];
+  if (matches.length === 0) return null;
+  // Prefer the longest digit run — meter dials usually show the most digits.
+  const best = matches.sort((a, b) => b.replace(/[.,]/g, '').length - a.replace(/[.,]/g, '').length)[0];
+  const numeric = Number(best.replace(/,/g, ''));
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+async function runMeterOcr(buffer) {
+  const worker = await getMeterOcrWorker();
+  const { data } = await worker.recognize(buffer);
+  const text = data?.text || '';
+  return { ocrRawText: text.trim(), ocrValue: parseMeterValueFromOcrText(text) };
+}
+
+async function findOrCreateTenantUser(tenantRecord, phone) {
+  const users = await listNocoUsers();
+  const existing = users.find((u) => String(u.linkedTenantId || '') === String(tenantRecord.id));
+  if (existing) return existing;
+
+  const nextUser = {
+    id: uid(),
+    name: String(tenantRecord.name || '').trim() || 'Khách thuê',
+    email: '',
+    phone,
+    ...createPasswordRecord(crypto.randomBytes(16).toString('hex')),
+    createdAt: new Date().toISOString(),
+    role: 'tenant',
+    isActive: true,
+    maxRoomLimit: null,
+    landlordId: tenantRecord.created_by,
+    linkedTenantId: tenantRecord.id,
+    linkedRoomId: tenantRecord.roomId || '',
+  };
+
+  await createNocoUserRecord(nextUser);
+  return nextUser;
+}
+
 async function loadNocoStateForUser(userId) {
   const [rooms, tenants, readings, invoices, payments, rentPeriods, paymentAllocations, deposits, depositTransactions] = await Promise.all([
     fetchNocoRowsOwnedBy(NOCODB_TABLE_ROOMS, userId),
@@ -648,6 +767,9 @@ function mapNocoUser(row) {
     role: readUserValue(row, ['role']) || 'user',
     isActive: normalizeUserActive(readUserValue(row, ['isActive', 'is_active', 'active'])),
     maxRoomLimit: Number.isFinite(parsedMaxRoom) ? parsedMaxRoom : null,
+    landlordId: readUserValue(row, ['landlordId', 'landlord_id']),
+    linkedTenantId: readUserValue(row, ['linkedTenantId', 'linked_tenant_id']),
+    linkedRoomId: readUserValue(row, ['linkedRoomId', 'linked_room_id']),
   };
 }
 
@@ -660,6 +782,12 @@ async function listNocoUsers() {
 async function createNocoUserRecord(user) {
   ensureNocoAuthReady();
   const normalizedName = String(user.name || '').trim() || user.email || user.phone || 'User';
+  // Present only for role='tenant' accounts; harmless extra columns otherwise.
+  const tenantLinkFields = {
+    landlordId: user.landlordId || '',
+    linkedTenantId: user.linkedTenantId || '',
+    linkedRoomId: user.linkedRoomId || '',
+  };
   const payloads = [
     {
       id: user.id,
@@ -672,6 +800,7 @@ async function createNocoUserRecord(user) {
       role: user.role,
       isActive: user.isActive !== false,
       maxRoomLimit: user.maxRoomLimit,
+      ...tenantLinkFields,
     },
     {
       id: user.id,
@@ -684,6 +813,7 @@ async function createNocoUserRecord(user) {
       role: user.role,
       isActive: user.isActive !== false,
       maxRoomLimit: user.maxRoomLimit,
+      ...tenantLinkFields,
     },
     {
       id: user.id,
@@ -696,6 +826,7 @@ async function createNocoUserRecord(user) {
       role: user.role,
       isActive: user.isActive !== false,
       maxRoomLimit: user.maxRoomLimit,
+      ...tenantLinkFields,
     },
     {
       id: user.id,
@@ -707,6 +838,7 @@ async function createNocoUserRecord(user) {
       role: user.role,
       isActive: user.isActive !== false,
       maxRoomLimit: user.maxRoomLimit,
+      ...tenantLinkFields,
     },
     {
       id: user.id,
@@ -718,6 +850,7 @@ async function createNocoUserRecord(user) {
       role: user.role,
       isActive: user.isActive !== false,
       maxRoomLimit: user.maxRoomLimit,
+      ...tenantLinkFields,
     },
     {
       id: user.id,
@@ -732,6 +865,7 @@ async function createNocoUserRecord(user) {
       role: user.role,
       isActive: user.isActive !== false,
       maxRoomLimit: user.maxRoomLimit,
+      ...tenantLinkFields,
     },
   ];
 
@@ -1001,6 +1135,10 @@ function createAuthToken(user) {
     userId: user.id,
     email: user.email || '',
     phone: user.phone || '',
+    role: user.role || 'user',
+    landlordId: user.landlordId || '',
+    linkedTenantId: user.linkedTenantId || '',
+    linkedRoomId: user.linkedRoomId || '',
     exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
   });
 }
@@ -1197,6 +1335,83 @@ console.log('User authenticated:', { id: user.id, email: user.email, phone: user
   }
 });
 
+// Tenant login: verify a Firebase Phone Auth ID token, match the phone number
+// against an existing `tenants` record created by some landlord, and issue
+// this app's own JWT for a (auto-created) role='tenant' user.
+app.post('/api/auth/tenant/verify-phone', async (req, res) => {
+  const { idToken } = req.body || {};
+  if (!idToken) {
+    return res.status(400).json({ error: 'Thiếu idToken' });
+  }
+  if (!shouldUseNocoAuth()) {
+    return res.status(501).json({ error: 'Đăng nhập khách thuê chưa được cấu hình trên server.' });
+  }
+
+  const firebaseAdmin = getFirebaseAdmin();
+  if (!firebaseAdmin) {
+    return res.status(501).json({ error: 'Firebase Phone Auth chưa được cấu hình trên server (thiếu FIREBASE_SERVICE_ACCOUNT_JSON).' });
+  }
+
+  try {
+    const decoded = await firebaseAdmin.auth().verifyIdToken(idToken);
+    const phone = normalizePhone(decoded.phone_number || '');
+    if (!phone) {
+      return res.status(400).json({ error: 'Không xác thực được số điện thoại từ Firebase.' });
+    }
+
+    const tenantRecords = await findTenantRecordsByPhone(phone);
+    if (tenantRecords.length === 0) {
+      return res.status(404).json({ error: 'Không tìm thấy hồ sơ khách thuê với số điện thoại này. Vui lòng liên hệ chủ trọ để được thêm vào hệ thống trước.' });
+    }
+
+    const tenantRecord = tenantRecords[0];
+    const tenantUser = await findOrCreateTenantUser(tenantRecord, phone);
+    const token = createAuthToken(tenantUser);
+
+    return res.json({
+      token,
+      user: {
+        id: tenantUser.id,
+        name: tenantUser.name,
+        phone: tenantUser.phone,
+        role: 'tenant',
+        landlordId: tenantUser.landlordId || '',
+        linkedTenantId: tenantUser.linkedTenantId || '',
+        linkedRoomId: tenantUser.linkedRoomId || '',
+      },
+    });
+  } catch (error) {
+    console.error('tenant verify-phone error', error);
+    return res.status(401).json({ error: 'Xác thực OTP thất bại hoặc đã hết hạn.' });
+  }
+});
+
+// Shared meter-photo OCR endpoint used by both landlord and tenant sessions.
+// Uploads the photo to Cloudinary and reads the digits off it with Tesseract;
+// it never writes to NocoDB itself — the caller decides where the reading goes.
+app.post('/api/meter/ocr-upload', authMiddleware, meterPhotoUpload.single('photo'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'Thiếu file ảnh (field "photo").' });
+  }
+
+  try {
+    const folder = `nhatro/meter-readings/${req.userId}`;
+    const [uploadResult, ocrResult] = await Promise.all([
+      uploadBufferToCloudinary(req.file.buffer, folder),
+      runMeterOcr(req.file.buffer),
+    ]);
+
+    return res.json({
+      photoUrl: uploadResult.secure_url,
+      ocrRawText: ocrResult.ocrRawText,
+      ocrValue: ocrResult.ocrValue,
+    });
+  } catch (error) {
+    console.error('meter ocr-upload error', error);
+    return res.status(500).json({ error: error.message || 'Không thể xử lý ảnh công tơ.' });
+  }
+});
+
 app.get('/api/auth/me', authMiddleware, async (req, res) => {
   try {
     const users = await loadAllUsers();
@@ -1211,10 +1426,14 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
     return res.json({
       user: {
         id: user.id,
+        name: user.name,
         email: user.email,
         phone: user.phone,
         role: user.role || 'user',
         maxRoomLimit: user.maxRoomLimit,
+        landlordId: user.landlordId || '',
+        linkedTenantId: user.linkedTenantId || '',
+        linkedRoomId: user.linkedRoomId || '',
       },
     });
   } catch (error) {

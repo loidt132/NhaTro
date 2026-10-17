@@ -16,8 +16,17 @@ const TABLES = {
   deposits: import.meta.env.VITE_TABLE_DEPOSITS,
   depositTransactions: import.meta.env.VITE_TABLE_DEPOSIT_TRANSACTIONS,
   settings: import.meta.env.VITE_TABLE_SETTINGS,
+  meterSubmissions: import.meta.env.VITE_TABLE_METER_SUBMISSIONS,
 };
 
+// meterSubmissions is deliberately NOT in DATA_TABLE_KEYS: that list drives the
+// full-array diff+soft-delete sync in syncCollectionTable/saveStateToNoco, and
+// (a) a tenant writes submissions with created_by = landlordId, not their own
+// id, which that self-ownership pipeline can't express, and (b) the landlord's
+// local `state` array is not guaranteed to hold every submission at save time,
+// so a full sync could soft-delete rows it doesn't know about. It is read and
+// written through the dedicated fetchOwnedRows/createOwnedRow/updateOwnedRowByAppId
+// helpers below instead, one row at a time.
 const DATA_TABLE_KEYS = ['rooms', 'tenants', 'readings', 'invoices', 'payments', 'rentPeriods', 'paymentAllocations', 'deposits', 'depositTransactions'];
 const SYSTEM_COLUMNS = new Set([
   'Id',
@@ -570,6 +579,34 @@ export const api = {
   getPaymentAllocations: () => hasTableConfig('paymentAllocations') ? fetchTableRows('paymentAllocations', buildOwnedQuery(currentUserId(), 'limit=1000')) : Promise.resolve([]),
   getSettings: () => hasTableConfig('settings') ? fetchTableRows('settings', buildOwnedQuery(currentUserId(), 'limit=1000')) : Promise.resolve([]),
 };
+
+// Generic single-row helpers for tables that are read/written outside the
+// full-state sync pipeline above (see the meterSubmissions comment near
+// DATA_TABLE_KEYS). `ownerUserId` lets a tenant session write/read rows
+// scoped to their landlord's account instead of their own id.
+export async function fetchOwnedRows(tableKey, ownerUserId, query = 'limit=1000') {
+  if (!hasTableConfig(tableKey) || !ownerUserId) return [];
+  return fetchTableRows(tableKey, buildOwnedQuery(ownerUserId, query), ownerUserId);
+}
+
+function localUid() {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export async function createOwnedRow(tableKey, payload, ownerUserId) {
+  if (!hasTableConfig(tableKey)) throw new Error(`Missing TABLE_ID for ${tableKey}`);
+  if (!ownerUserId) throw new Error('Missing ownerUserId');
+  const record = { id: payload.id || localUid(), ...payload };
+  await createRow(tableKey, withOwnership(record, ownerUserId, false));
+  return record.id;
+}
+
+export async function updateOwnedRowByAppId(tableKey, appId, ownerUserId, payload) {
+  if (!hasTableConfig(tableKey)) throw new Error(`Missing TABLE_ID for ${tableKey}`);
+  const rowId = await findRowIdByAppId(tableKey, appId, ownerUserId);
+  if (!rowId) throw new Error('Không tìm thấy dòng dữ liệu để cập nhật');
+  await updateRow(tableKey, rowId, withOwnership(payload, ownerUserId, true));
+}
 
 export function getNocoConfigStatus() {
   const missing = Object.entries(TABLES)

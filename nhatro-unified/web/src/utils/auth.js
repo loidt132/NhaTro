@@ -93,6 +93,13 @@ export async function loginAccount(payload) {
   });
 }
 
+export async function tenantVerifyPhone(idToken) {
+  return request('/api/auth/tenant/verify-phone', {
+    method: 'POST',
+    body: JSON.stringify({ idToken }),
+  });
+}
+
 export async function fetchCurrentUser(token) {
   return request('/api/auth/me', {
     headers: authHeaders(token),

@@ -9,7 +9,7 @@ function isValidPhone(value = '') {
   return /^[0-9]{9,12}$/.test(digits);
 }
 
-export default function Auth({ onLogin, onRegister, busy = false, error = '' }) {
+export default function Auth({ onLogin, onRegister, onTenantLoginClick, busy = false, error = '' }) {
   const [mode, setMode] = useState('login');
   const [loginForm, setLoginForm] = useState({ identifier: '', password: '' });
   const [registerForm, setRegisterForm] = useState({ name: '', email: '', phone: '', password: '', confirmPassword: '' });
@@ -196,6 +196,16 @@ export default function Auth({ onLogin, onRegister, busy = false, error = '' }) 
                   </button>
                 </form>
               )}
+
+              {onTenantLoginClick ? (
+                <button
+                  type="button"
+                  onClick={onTenantLoginClick}
+                  className="mt-4 w-full text-center text-sm font-medium text-emerald-700 underline underline-offset-2"
+                >
+                  Khách thuê đăng nhập bằng số điện thoại
+                </button>
+              ) : null}
             </div>
           </section>
         </div>

@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  button,
+  [type='button'],
+  [type='submit'],
+  [role='button'] {
+    touch-action: manipulation;
+  }
+}

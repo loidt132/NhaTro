@@ -18,6 +18,12 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users (email);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone_unique ON users (phone);
 
+-- Tenant accounts (role='tenant') link back to the landlord that owns their data
+-- and to the tenants/rooms row they were matched against by phone number.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS landlordId VARCHAR(64);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS linkedTenantId VARCHAR(64);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS linkedRoomId VARCHAR(64);
+
 CREATE TABLE IF NOT EXISTS rooms (
   id VARCHAR(64) PRIMARY KEY,
   created_by VARCHAR(64) NOT NULL,
@@ -147,8 +153,43 @@ ALTER TABLE readings ADD COLUMN IF NOT EXISTS updatedAt TIMESTAMP;
 ALTER TABLE readings ALTER COLUMN electricStart TYPE NUMERIC(14,3) USING electricStart::numeric;
 ALTER TABLE readings ALTER COLUMN electricEnd TYPE NUMERIC(14,3) USING electricEnd::numeric;
 
+-- Optional photo of the meter that the electric/water end reading was read from.
+ALTER TABLE readings ADD COLUMN IF NOT EXISTS electricPhotoUrl TEXT;
+ALTER TABLE readings ADD COLUMN IF NOT EXISTS waterPhotoUrl TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_readings_created_by ON readings (created_by);
 CREATE INDEX IF NOT EXISTS idx_readings_room_month ON readings (roomId, month);
+
+-- Meter photos submitted by a tenant, pending landlord review before they
+-- become the official reading. Landlord-submitted photos never go through
+-- this table — they fill the readings form directly and skip straight to
+-- the readings table above.
+CREATE TABLE IF NOT EXISTS meter_submissions (
+  id VARCHAR(64) PRIMARY KEY,
+  created_by VARCHAR(64) NOT NULL,
+  modified_by VARCHAR(64) NOT NULL,
+  roomId VARCHAR(64) NOT NULL,
+  month VARCHAR(7) NOT NULL,
+  meterType VARCHAR(20) NOT NULL,
+  photoUrl TEXT NOT NULL,
+  ocrRawText TEXT,
+  ocrValue NUMERIC(14,3),
+  finalValue NUMERIC(14,3),
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  submittedByRole VARCHAR(20) NOT NULL DEFAULT 'tenant',
+  submittedByUserId VARCHAR(64),
+  submittedByName VARCHAR(255),
+  reviewedByUserId VARCHAR(64),
+  reviewedAt TIMESTAMP,
+  createdAt TIMESTAMP,
+  updatedAt TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_meter_submissions_created_by ON meter_submissions (created_by);
+CREATE INDEX IF NOT EXISTS idx_meter_submissions_room_month ON meter_submissions (roomId, month);
+CREATE INDEX IF NOT EXISTS idx_meter_submissions_status ON meter_submissions (status);
 
 CREATE TABLE IF NOT EXISTS invoices (
   id VARCHAR(64) PRIMARY KEY,

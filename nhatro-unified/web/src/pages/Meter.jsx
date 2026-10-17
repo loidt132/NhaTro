@@ -7,7 +7,11 @@ import TopStats from '../components/TopStats';
 import Footer from '../components/Footer';
 import Page from '../components/Page';
 import PaginationControls from '../components/PaginationControls';
-import { getStoredToken } from '../utils/auth';
+import { getStoredToken, getAuthSession } from '../utils/auth';
+import { uploadMeterPhoto } from '../utils/meterOcr';
+import { fetchOwnedRows, updateOwnedRowByAppId } from '../utils/nocodb';
+
+const METER_TYPE_LABELS = { electric: 'Điện', water: 'Nước' };
 
 export default function Meter() {
   const [state, setState] = useState(loadState());
@@ -41,9 +45,37 @@ export default function Meter() {
     electricStart: '',
     electricEnd: '',
     waterStart: '',
-    waterEnd: ''
+    waterEnd: '',
+    electricPhotoUrl: '',
+    waterPhotoUrl: '',
   }), []);
   const [readingModal, setReadingModal] = useState({ open: false, form: EMPTY_FORM });
+  const [ocrBusy, setOcrBusy] = useState({ electric: false, water: false });
+  const [ocrError, setOcrError] = useState('');
+
+  const landlordUserId = getAuthSession().userId;
+  const [pendingSubmissions, setPendingSubmissions] = useState([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [pendingEdits, setPendingEdits] = useState({}); // { [submissionId]: valueString }
+  const [pendingBusyId, setPendingBusyId] = useState('');
+
+  const loadPendingSubmissions = async () => {
+    if (!landlordUserId) return;
+    setPendingLoading(true);
+    try {
+      const rows = await fetchOwnedRows('meterSubmissions', landlordUserId);
+      setPendingSubmissions(rows.filter((row) => row.status === 'pending'));
+    } catch (error) {
+      console.error('load meterSubmissions failed', error);
+    } finally {
+      setPendingLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPendingSubmissions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [landlordUserId]);
 
   const getMonthBounds = (ym) => {
     const y = +ym.slice(0, 4);
@@ -119,7 +151,7 @@ export default function Meter() {
     return previousReadingMap.get(roomId) || null;
   };
 
-  const closeReadingModal = () => setReadingModal({ open: false, form: EMPTY_FORM });
+  const closeReadingModal = () => { setReadingModal({ open: false, form: EMPTY_FORM }); setOcrError(''); };
   const openCreateReading = () => {
     const defaultRoomId = unrecordedRooms[0]?.id || '';
     const nextForm = applyLatestPreviousStartValues(defaultRoomId, { ...EMPTY_FORM, roomId: defaultRoomId });
@@ -145,9 +177,113 @@ export default function Meter() {
         electricStart: r.electricStart?.toString() ?? previousReading?.electricEnd?.toString() ?? '',
         electricEnd: r.electricEnd?.toString() ?? '',
         waterStart: r.waterStart?.toString() ?? previousReading?.waterEnd?.toString() ?? '',
-        waterEnd: r.waterEnd?.toString() ?? ''
+        waterEnd: r.waterEnd?.toString() ?? '',
+        electricPhotoUrl: r.electricPhotoUrl || '',
+        waterPhotoUrl: r.waterPhotoUrl || '',
       }
     });
+  };
+
+  const onModalPhotoSelected = async (meterType, file) => {
+    if (!file) return;
+    const roomId = readingModal.form.roomId;
+    if (!roomId) {
+      setOcrError('Chọn phòng trước khi tải ảnh.');
+      return;
+    }
+    setOcrError('');
+    setOcrBusy((prev) => ({ ...prev, [meterType]: true }));
+    try {
+      const result = await uploadMeterPhoto(file, { roomId, month, meterType });
+      setReadingModal((prev) => ({
+        ...prev,
+        form: {
+          ...prev.form,
+          [meterType === 'electric' ? 'electricEnd' : 'waterEnd']: result.ocrValue != null ? String(result.ocrValue) : prev.form[meterType === 'electric' ? 'electricEnd' : 'waterEnd'],
+          [meterType === 'electric' ? 'electricPhotoUrl' : 'waterPhotoUrl']: result.photoUrl,
+        },
+      }));
+    } catch (error) {
+      setOcrError(error?.message || 'Không nhận diện được ảnh công tơ.');
+    } finally {
+      setOcrBusy((prev) => ({ ...prev, [meterType]: false }));
+    }
+  };
+
+  const applyPendingSubmission = async (submission, finalValueOverride) => {
+    const rawValue = finalValueOverride ?? pendingEdits[submission.id] ?? submission.ocrValue;
+    const finalValue = Number(rawValue);
+    if (!Number.isFinite(finalValue) || finalValue < 0) {
+      alert('Chỉ số không hợp lệ.');
+      return;
+    }
+
+    setPendingBusyId(submission.id);
+    try {
+      const nowIso = new Date().toISOString();
+      const isElectric = submission.meterType === 'electric';
+      const existing = latestReadingMap.get(`${submission.roomId}__${submission.month}`);
+      const previous = getPreviousReading(submission.roomId);
+
+      let nextReadings;
+      if (existing) {
+        nextReadings = (state.readings || []).map((r) => r.id === existing.id ? ({
+          ...r,
+          electricEnd: isElectric ? finalValue : r.electricEnd,
+          waterEnd: !isElectric ? finalValue : r.waterEnd,
+          electricPhotoUrl: isElectric ? submission.photoUrl : r.electricPhotoUrl,
+          waterPhotoUrl: !isElectric ? submission.photoUrl : r.waterPhotoUrl,
+          updatedAt: nowIso,
+        }) : r);
+      } else {
+        const newReading = {
+          id: uid(),
+          roomId: submission.roomId,
+          month: submission.month,
+          electricStart: isElectric ? (previous?.electricEnd ?? 0) : 0,
+          electricEnd: isElectric ? finalValue : 0,
+          waterStart: !isElectric ? (previous?.waterEnd ?? 0) : 0,
+          waterEnd: !isElectric ? finalValue : 0,
+          electricPhotoUrl: isElectric ? submission.photoUrl : '',
+          waterPhotoUrl: !isElectric ? submission.photoUrl : '',
+          createdAt: nowIso,
+        };
+        nextReadings = [newReading, ...(state.readings || [])];
+      }
+
+      const nextState = { ...state, readings: nextReadings };
+      setState(nextState);
+      saveState(nextState);
+
+      await updateOwnedRowByAppId('meterSubmissions', submission.id, landlordUserId, {
+        status: 'confirmed',
+        finalValue,
+        reviewedByUserId: landlordUserId,
+        reviewedAt: nowIso,
+      });
+      setPendingSubmissions((prev) => prev.filter((row) => row.id !== submission.id));
+    } catch (error) {
+      alert(error?.message || 'Không thể xác nhận ảnh công tơ.');
+    } finally {
+      setPendingBusyId('');
+    }
+  };
+
+  const rejectPendingSubmission = async (submission) => {
+    if (!window.confirm('Từ chối ảnh công tơ này?')) return;
+    setPendingBusyId(submission.id);
+    try {
+      await updateOwnedRowByAppId('meterSubmissions', submission.id, landlordUserId, {
+        status: 'rejected',
+        reviewedByUserId: landlordUserId,
+        reviewedAt: new Date().toISOString(),
+      });
+      setPendingSubmissions((prev) => prev.filter((row) => row.id !== submission.id));
+    } catch (error) {
+      alert(error?.message || 'Không thể từ chối ảnh công tơ.');
+    } finally {
+      setPendingBusyId('');
+    }
   };
 
   const onDeleteReading = (id) => {
@@ -356,6 +492,8 @@ export default function Meter() {
         electricEnd: +form.electricEnd,
         waterStart: +form.waterStart,
         waterEnd: +form.waterEnd,
+        electricPhotoUrl: form.electricPhotoUrl || r.electricPhotoUrl || '',
+        waterPhotoUrl: form.waterPhotoUrl || r.waterPhotoUrl || '',
         createdAt: r.createdAt || nowIso,
         updatedAt: nowIso
       }) : r);
@@ -371,6 +509,8 @@ export default function Meter() {
         electricEnd: +form.electricEnd,
         waterStart: +form.waterStart,
         waterEnd: +form.waterEnd,
+        electricPhotoUrl: form.electricPhotoUrl || '',
+        waterPhotoUrl: form.waterPhotoUrl || '',
         createdAt: nowIso
       };
       const next = { ...state, readings: [reading, ...(state.readings || [])] };
@@ -520,6 +660,62 @@ export default function Meter() {
             </div>
           </div>
         )}
+
+        {(pendingLoading || pendingSubmissions.length > 0) && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 sm:p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="font-semibold">Chờ duyệt ảnh công tơ {pendingSubmissions.length > 0 ? `(${pendingSubmissions.length})` : ''}</div>
+              <button type="button" onClick={loadPendingSubmissions} className="text-xs text-amber-800 underline">
+                {pendingLoading ? 'Đang tải...' : 'Làm mới'}
+              </button>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {pendingSubmissions.map((submission) => {
+                const isBusy = pendingBusyId === submission.id;
+                const currentValue = pendingEdits[submission.id] ?? (submission.ocrValue != null ? String(submission.ocrValue) : '');
+                return (
+                  <div key={submission.id} className="rounded-lg border border-amber-200 bg-white p-3">
+                    <div className="text-sm font-medium text-slate-900">
+                      {roomMap[submission.roomId]?.name || submission.roomId} — {METER_TYPE_LABELS[submission.meterType] || submission.meterType} — {submission.month}
+                    </div>
+                    <div className="text-xs text-slate-500">Gửi bởi: {submission.submittedByName || 'Khách thuê'}</div>
+                    {submission.photoUrl ? (
+                      <a href={submission.photoUrl} target="_blank" rel="noreferrer">
+                        <img src={submission.photoUrl} alt="Ảnh công tơ" className="mt-2 max-h-40 w-full rounded-lg object-contain bg-slate-50" />
+                      </a>
+                    ) : null}
+                    <div className="mt-2">
+                      <label className="mb-1 block text-xs text-slate-500">Chỉ số (sửa nếu OCR đọc sai)</label>
+                      <input
+                        className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm"
+                        value={currentValue}
+                        onChange={(e) => setPendingEdits((prev) => ({ ...prev, [submission.id]: e.target.value }))}
+                      />
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        type="button"
+                        disabled={isBusy}
+                        onClick={() => applyPendingSubmission(submission)}
+                        className="h-9 flex-1 rounded-lg bg-emerald-600 px-3 text-xs font-medium text-white disabled:opacity-60"
+                      >
+                        {isBusy ? 'Đang xử lý...' : 'Xác nhận'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isBusy}
+                        onClick={() => rejectPendingSubmission(submission)}
+                        className="h-9 rounded-lg border border-rose-200 bg-rose-50 px-3 text-xs font-medium text-rose-800 disabled:opacity-60"
+                      >
+                        Từ chối
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
       <Footer />
 
@@ -562,13 +758,35 @@ export default function Meter() {
                 })()}
               </select>
 
+              {ocrError ? (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{ocrError}</div>
+              ) : null}
+
               <h4 className="font-semibold">Chỉ số điện (kWh)</h4>
               <input placeholder="Điện đầu (kWh)" className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={readingModal.form.electricStart} onChange={e=>setReadingModal((prev)=>({ ...prev, form:{...prev.form, electricStart:e.target.value}}))}/>
-              <input placeholder="Điện cuối (kWh)" className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={readingModal.form.electricEnd} onChange={e=>setReadingModal((prev)=>({ ...prev, form:{...prev.form, electricEnd:e.target.value}}))}/>
+              <div className="flex gap-2">
+                <input placeholder="Điện cuối (kWh)" className="h-12 flex-1 rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={readingModal.form.electricEnd} onChange={e=>setReadingModal((prev)=>({ ...prev, form:{...prev.form, electricEnd:e.target.value}}))}/>
+                <label className={`flex h-12 sm:h-10 items-center justify-center rounded-lg border border-slate-200 px-3 text-xs sm:text-sm whitespace-nowrap ${ocrBusy.electric ? 'opacity-60' : 'cursor-pointer'}`}>
+                  {ocrBusy.electric ? 'Đang đọc...' : 'Tải ảnh & nhận diện'}
+                  <input type="file" accept="image/*" capture="environment" className="hidden" disabled={ocrBusy.electric} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; onModalPhotoSelected('electric', f); }} />
+                </label>
+              </div>
+              {readingModal.form.electricPhotoUrl ? (
+                <a href={readingModal.form.electricPhotoUrl} target="_blank" rel="noreferrer" className="block text-xs text-emerald-700 underline">Xem ảnh công tơ điện đã tải</a>
+              ) : null}
 
               <h4 className="font-semibold">Chỉ số nước (m³)</h4>
               <input placeholder="Nước đầu (m³)" className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={readingModal.form.waterStart} onChange={e=>setReadingModal((prev)=>({ ...prev, form:{...prev.form, waterStart:e.target.value}}))}/>
-              <input placeholder="Nước cuối (m³)" className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={readingModal.form.waterEnd} onChange={e=>setReadingModal((prev)=>({ ...prev, form:{...prev.form, waterEnd:e.target.value}}))}/>
+              <div className="flex gap-2">
+                <input placeholder="Nước cuối (m³)" className="h-12 flex-1 rounded-lg border border-slate-200 px-3 text-base sm:h-10 sm:text-sm" value={readingModal.form.waterEnd} onChange={e=>setReadingModal((prev)=>({ ...prev, form:{...prev.form, waterEnd:e.target.value}}))}/>
+                <label className={`flex h-12 sm:h-10 items-center justify-center rounded-lg border border-slate-200 px-3 text-xs sm:text-sm whitespace-nowrap ${ocrBusy.water ? 'opacity-60' : 'cursor-pointer'}`}>
+                  {ocrBusy.water ? 'Đang đọc...' : 'Tải ảnh & nhận diện'}
+                  <input type="file" accept="image/*" capture="environment" className="hidden" disabled={ocrBusy.water} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; onModalPhotoSelected('water', f); }} />
+                </label>
+              </div>
+              {readingModal.form.waterPhotoUrl ? (
+                <a href={readingModal.form.waterPhotoUrl} target="_blank" rel="noreferrer" className="block text-xs text-emerald-700 underline">Xem ảnh công tơ nước đã tải</a>
+              ) : null}
 
               <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-2">
                 <button type="button" className="rounded-xl border px-4 py-2 text-sm" onClick={closeReadingModal}>

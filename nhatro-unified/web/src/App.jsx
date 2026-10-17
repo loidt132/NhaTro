@@ -10,12 +10,15 @@ import Payments from './pages/Payments';
 import Settings from './pages/Settings';
 import ReportsHub from './pages/ReportsHub';
 import Auth from './pages/Auth';
+import TenantAuth from './pages/TenantAuth';
+import TenantMeterUpload from './pages/TenantMeterUpload';
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [authView, setAuthView] = useState('landlord'); // 'landlord' | 'tenant'
   const [user, setUser] = useState(null);
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminViewUserId, setAdminViewUserIdState] = useState(() => getAdminViewUserId());
@@ -112,7 +115,39 @@ export default function App() {
   }
 
   if (!user) {
-    return <Auth onLogin={handleLogin} onRegister={handleRegister} busy={authBusy} error={authError} />;
+    if (authView === 'tenant') {
+      return <TenantAuth onAuthSuccess={handleAuthSuccess} onBack={() => setAuthView('landlord')} />;
+    }
+    return (
+      <Auth
+        onLogin={handleLogin}
+        onRegister={handleRegister}
+        onTenantLoginClick={() => setAuthView('tenant')}
+        busy={authBusy}
+        error={authError}
+      />
+    );
+  }
+
+  if (String(user?.role || '').toLowerCase() === 'tenant') {
+    return (
+      <div className="min-h-screen min-h-[100dvh] bg-slate-50 flex flex-col">
+        <header className="sticky top-0 z-10 border-b bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/70">
+          <div className="mx-auto max-w-3xl flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 sm:py-3 pt-[max(0.625rem,env(safe-area-inset-top))]">
+            <div className="min-w-0">
+              <div className="truncate text-lg font-bold leading-tight sm:text-xl">Ảnh công tơ</div>
+              <div className="text-[11px] leading-snug text-slate-500 sm:text-xs">{user.name || user.phone}</div>
+            </div>
+            <button type="button" onClick={handleLogout} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm">
+              Đăng xuất
+            </button>
+          </div>
+        </header>
+        <main className="mx-auto w-full max-w-3xl flex-1 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:px-4 sm:pt-4">
+          <TenantMeterUpload user={user} />
+        </main>
+      </div>
+    );
   }
 
   return (
