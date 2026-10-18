@@ -208,7 +208,13 @@ app.delete("/api/items/:id", requireApiKey, requireHomestayId, async (req, res) 
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`[catalog-service] listening on http://localhost:${PORT}`);
-  console.log(`[catalog-service] storage = NocoDB (${process.env.NOCODB_URL || "NOT CONFIGURED"})`);
-});
+// Vercel imports this module as a serverless function (see api/[...all].js)
+// instead of running it as a long-lived process — don't bind a port there.
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`[catalog-service] listening on http://localhost:${PORT}`);
+    console.log(`[catalog-service] storage = NocoDB (${process.env.NOCODB_URL || "NOT CONFIGURED"})`);
+  });
+}
+
+export default app;
