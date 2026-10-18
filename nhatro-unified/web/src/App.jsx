@@ -24,6 +24,7 @@ export default function App() {
   const [adminViewUserId, setAdminViewUserIdState] = useState(() => getAdminViewUserId());
   const [adminViewLoading, setAdminViewLoading] = useState(false);
   const [roomCount, setRoomCount] = useState(() => (loadState().rooms || []).length);
+  const [saveError, setSaveError] = useState('');
 
   useEffect(() => {
     const token = getStoredToken();
@@ -68,6 +69,12 @@ export default function App() {
     window.addEventListener('boarding_state_updated', sync);
     sync();
     return () => window.removeEventListener('boarding_state_updated', sync);
+  }, []);
+
+  useEffect(() => {
+    const onSaveError = (event) => setSaveError(event.detail?.message || 'Không thể lưu dữ liệu');
+    window.addEventListener('boarding_state_save_error', onSaveError);
+    return () => window.removeEventListener('boarding_state_save_error', onSaveError);
   }, []);
 
   const handleAuthSuccess = ({ token, user: currentUser }) => {
@@ -200,6 +207,16 @@ export default function App() {
             </div>
           </div>
         </header>
+        {saveError && (
+          <div className="mx-auto mt-3 w-full max-w-7xl px-3 sm:px-4">
+            <div className="flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">
+              <span>Lưu dữ liệu thất bại: {saveError}</span>
+              <button type="button" onClick={() => setSaveError('')} className="shrink-0 font-medium text-red-700 hover:underline">
+                Đóng
+              </button>
+            </div>
+          </div>
+        )}
         <main className="mx-auto flex w-full max-w-7xl min-w-0 flex-1 gap-3 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:gap-4 sm:px-4 sm:pt-4">
           <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
           <div className="min-w-0 flex-1">

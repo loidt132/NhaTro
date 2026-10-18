@@ -388,7 +388,7 @@ export function saveState(next){
       } catch (e) {
         memoryState = prevState;
         if (typeof window !== 'undefined' && e?.message) {
-          window.alert(e.message);
+          window.dispatchEvent(new CustomEvent('boarding_state_save_error', { detail: { message: e.message } }));
           window.dispatchEvent(new Event('boarding_state_updated'));
         }
         return;
