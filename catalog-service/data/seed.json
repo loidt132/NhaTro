@@ -1,0 +1,19 @@
+{
+  "categories": [
+    { "id": "cat-food", "name": "Ăn uống" },
+    { "id": "cat-laundry", "name": "Giặt là" },
+    { "id": "cat-misc", "name": "Đồ dùng thêm" }
+  ],
+  "items": [
+    { "id": "item-water", "categoryId": "cat-food", "name": "Nước suối", "unit": "chai", "price": 15000 },
+    { "id": "item-beer", "categoryId": "cat-food", "name": "Bia lon", "unit": "lon", "price": 25000 },
+    { "id": "item-instant-noodle", "categoryId": "cat-food", "name": "Mì tôm", "unit": "gói", "price": 20000 },
+    { "id": "item-laundry-small", "categoryId": "cat-laundry", "name": "Giặt sấy đồ nhẹ", "unit": "lượt", "price": 50000 },
+    { "id": "item-laundry-large", "categoryId": "cat-laundry", "name": "Giặt sấy đồ nặng", "unit": "lượt", "price": 90000 },
+    { "id": "item-toothbrush", "categoryId": "cat-misc", "name": "Bộ bàn chải đánh răng", "unit": "bộ", "price": 10000 },
+    { "id": "item-extra-towel", "categoryId": "cat-misc", "name": "Khăn tắm thêm", "unit": "cái", "price": 20000 },
+    { "id": "sc-extra-guest", "categoryId": null, "name": "Phụ thu khách thứ 3 trở lên", "unit": "khách/lượt", "price": 50000, "kind": "surcharge" },
+    { "id": "sc-late-night", "categoryId": null, "name": "Phụ thu nhận phòng sau 0h", "unit": "lượt", "price": 30000, "kind": "surcharge" },
+    { "id": "sc-pet", "categoryId": null, "name": "Phụ thu mang theo thú cưng", "unit": "lượt", "price": 100000, "kind": "surcharge" }
+  ]
+}
