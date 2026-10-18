@@ -1,4 +1,5 @@
 import fetch from "node-fetch";
+import { encryptRow, decryptRow } from "./cryptoFields.js";
 
 // Thin client over NocoDB's v2 records API — replaces the old JSON-file
 // store.js. One NocoDB project/base per repo (this repo's own base, set via
@@ -130,7 +131,7 @@ export async function listRows(tableKey, { where, limit = 1000, sort } = {}) {
   if (where) params.set("where", where);
   if (sort) params.set("sort", sort);
   const body = await request(`/api/v2/tables/${tableId}/records?${params.toString()}`);
-  return body.list || [];
+  return (body.list || []).map((row) => decryptRow(tableKey, row));
 }
 
 export async function findOneByBusinessId(tableKey, id) {
@@ -147,10 +148,11 @@ export async function createRow(tableKey, data) {
   const tableId = await resolveTableId(tableKey);
   const body = await request(`/api/v2/tables/${tableId}/records`, {
     method: "POST",
-    body: JSON.stringify(data),
+    body: JSON.stringify(encryptRow(tableKey, data)),
   });
   // NocoDB's create response is just { Id } — not the full row — so merge
-  // back what we sent rather than firing a second GET for every insert.
+  // back what we sent (plaintext) rather than firing a second GET for every
+  // insert, and rather than returning the encrypted ciphertext we just sent.
   const created = Array.isArray(body) ? body[0] : body;
   return { ...data, ...created };
 }
@@ -162,7 +164,7 @@ export async function updateRowByBusinessId(tableKey, id, patch) {
   const { field, value } = primaryKeyOf(existing);
   await request(`/api/v2/tables/${tableId}/records`, {
     method: "PATCH",
-    body: JSON.stringify({ [field]: value, ...patch }),
+    body: JSON.stringify({ [field]: value, ...encryptRow(tableKey, patch) }),
   });
   return { ...existing, ...patch };
 }

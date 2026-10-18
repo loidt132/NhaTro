@@ -3,6 +3,8 @@
 // directly, so /api/state works as a real (not local-file) fallback and the
 // server never needs to persist app data to disk — required on Vercel,
 // whose function filesystem is read-only outside /tmp.
+const { encryptRow, decryptRow } = require('./cryptoFields');
+
 const fetchApi =
   typeof global.fetch === 'function'
     ? global.fetch.bind(global)
@@ -159,7 +161,7 @@ async function fetchOwnedRows(key, userId) {
     return [];
   }
   const data = await fetchJson(tableUrl(key, `?where=${buildOwnedWhere(userId)}&limit=1000`));
-  return data?.list || [];
+  return (data?.list || []).map((row) => decryptRow(key, row));
 }
 
 function stableStringify(value) {
@@ -175,12 +177,13 @@ function isSamePayload(a, b) {
 }
 
 async function createRow(key, payload) {
-  await fetchJson(tableUrl(key), { method: 'POST', body: JSON.stringify(payload) });
+  await fetchJson(tableUrl(key), { method: 'POST', body: JSON.stringify(encryptRow(key, payload)) });
 }
 
 async function updateRow(key, rowId, payload) {
+  const encrypted = encryptRow(key, payload);
   const canUseSystemId = !(rowId === null || rowId === undefined || rowId === '');
-  const body = canUseSystemId ? [{ ...payload, Id: rowId }] : [{ ...payload }];
+  const body = canUseSystemId ? [{ ...encrypted, Id: rowId }] : [{ ...encrypted }];
   await fetchJson(tableUrl(key), { method: 'PATCH', body: JSON.stringify(body) });
 }
 

@@ -1222,7 +1222,6 @@ app.post('/api/auth/register', async (req, res) => {
       name: String(name || '').trim(),
       email: normalizedEmail,
       phone: normalizedPhone,
-      password: String(password),
       ...createPasswordRecord(password),
       createdAt: new Date().toISOString(),
       role: 'user',
