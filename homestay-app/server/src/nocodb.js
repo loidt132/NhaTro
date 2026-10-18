@@ -52,15 +52,33 @@ function headers() {
   return { "xc-token": TOKEN, "Content-Type": "application/json" };
 }
 
+// NocoDB's cloud plan rate-limits aggressively, and one stay-detail view
+// fires a burst of ~8-10 calls in parallel (buildStayView's Promise.all's,
+// each room-transfer's two lookups, ...). Retry 429s with backoff instead
+// of failing the whole request — the burst is legitimate load, not abuse.
+const MAX_RETRIES = 4;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function request(path, options = {}) {
   assertConfigured();
-  const res = await fetch(`${BASE}${path}`, { headers: headers(), ...options });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`NocoDB ${options.method || "GET"} ${path} failed: ${res.status} ${text.slice(0, 300)}`);
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${BASE}${path}`, { headers: headers(), ...options });
+    if (res.status === 429 && attempt < MAX_RETRIES) {
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const delay = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 300 * 2 ** attempt;
+      await sleep(delay);
+      continue;
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`NocoDB ${options.method || "GET"} ${path} failed: ${res.status} ${text.slice(0, 300)}`);
+    }
+    if (res.status === 204) return null;
+    return res.json();
   }
-  if (res.status === 204) return null;
-  return res.json();
 }
 
 let discoveredTables = null;
