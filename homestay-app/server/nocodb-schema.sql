@@ -1,5 +1,5 @@
 -- homestay-server schema for NocoDB / SQL import.
--- Multi-tenant: one deployment runs several homesteys (properties), each
+-- Multi-tenant: one deployment runs several homestays (properties), each
 -- isolated by the homestayId column added to every table below except
 -- guests/serviceCharges/roomTransfers/lockEventsLog (only ever reached
 -- through an already-scoped stayId, so adding it there would be redundant).
@@ -10,11 +10,11 @@
 -- file through NocoDB's SQL-import wizard — it silently turns any `xxxId`
 -- column matching another table's name into a LinkToAnotherRecord relation
 -- instead of a plain column, which then drops every value written to it.
--- Add `homesteys` and every `homestayId` column by hand in the NocoDB UI as
+-- Add `homestays` and every `homestayId` column by hand in the NocoDB UI as
 -- plain "Single line text" fields, then run
 -- `npm run fix-links` (scripts/fix-link-columns.js) as a safety net.
 
-CREATE TABLE IF NOT EXISTS homesteys (
+CREATE TABLE IF NOT EXISTS homestays (
   id VARCHAR(64) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

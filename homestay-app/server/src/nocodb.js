@@ -15,7 +15,7 @@ const TOKEN = process.env.NOCODB_API_KEY || "";
 const PROJECT_ID = process.env.NOCODB_PROJECT || "";
 
 const TABLE_TITLES = {
-  homesteys: "homesteys",
+  homestays: "homestays",
   users: "users",
   roomTypes: "roomTypes",
   rooms: "rooms",
@@ -29,7 +29,7 @@ const TABLE_TITLES = {
 };
 
 const TABLE_ENV_VARS = {
-  homesteys: "NOCODB_TABLE_HOMESTEYS",
+  homestays: "NOCODB_TABLE_HOMESTAYS",
   users: "NOCODB_TABLE_USERS",
   roomTypes: "NOCODB_TABLE_ROOM_TYPES",
   rooms: "NOCODB_TABLE_ROOMS",

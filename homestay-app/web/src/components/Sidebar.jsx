@@ -25,7 +25,7 @@ const LINKS = [
   { to: "/settings", icon: "⚙️", label: "Cài đặt" },
 ];
 
-const OWNER_LINK = { to: "/homesteys", icon: "🏘️", label: "Quản lý Homestay" };
+const OWNER_LINK = { to: "/homestays", icon: "🏘️", label: "Quản lý Homestay" };
 
 export default function Sidebar({ isOpen = false, onClose = () => {} }) {
   const { user } = useAuth();

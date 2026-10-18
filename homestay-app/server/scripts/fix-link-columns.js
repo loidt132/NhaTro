@@ -23,7 +23,7 @@ const TARGETS = [
   { tableEnv: "NOCODB_TABLE_ROOM_TRANSFERS", field: "toRoomId" },
   { tableEnv: "NOCODB_TABLE_LOCK_EVENTS_LOG", field: "stayId" },
   // Multi-tenant (per-homestay) columns — same "xxxId matches a table name"
-  // trap applies to homestayId since the new `homesteys` table exists.
+  // trap applies to homestayId since the new `homestays` table exists.
   { tableEnv: "NOCODB_TABLE_USERS", field: "homestayId" },
   { tableEnv: "NOCODB_TABLE_ROOM_TYPES", field: "homestayId" },
   { tableEnv: "NOCODB_TABLE_ROOMS", field: "homestayId" },
