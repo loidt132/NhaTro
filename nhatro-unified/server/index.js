@@ -6,6 +6,7 @@ const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const { createWorker } = require('tesseract.js');
 const stateStore = require('./stateStore');
+const { decryptRow, decryptField, encryptField } = require('./cryptoFields');
 const fetchApi =
   typeof global.fetch === 'function'
     ? global.fetch.bind(global)
@@ -605,12 +606,18 @@ function stripNocoSystemColumns(row = {}) {
 
 async function findTenantRecordsByPhone(phone) {
   if (!NOCODB_TABLE_TENANTS || !phone) return [];
-  const where = encodeURIComponent(`(phone,eq,${phone})`);
-  const data = await nocoFetchJson(nocoTableUrl(NOCODB_TABLE_TENANTS, `?where=${where}&limit=50`));
-  return (data?.list || []).map(stripNocoSystemColumns).map((row, index) => ({
-    ...row,
-    rowId: (data.list[index]?.Id ?? data.list[index]?.ID) ?? null,
-  }));
+  // phone is encrypted at rest (AES-GCM, random IV per value), so it can't
+  // be matched with a NocoDB-side `where` filter — fetch and compare
+  // decrypted values in memory instead.
+  const data = await nocoFetchJson(nocoTableUrl(NOCODB_TABLE_TENANTS, `?limit=1000`));
+  return (data?.list || [])
+    .map(stripNocoSystemColumns)
+    .map((row) => decryptRow('tenants', row))
+    .map((row, index) => ({
+      ...row,
+      rowId: (data.list[index]?.Id ?? data.list[index]?.ID) ?? null,
+    }))
+    .filter((row) => normalizePhone(row.phone) === normalizePhone(phone));
 }
 
 async function uploadBufferToCloudinary(buffer, folder) {
@@ -748,7 +755,7 @@ function mapNocoUser(row) {
     id: readUserValue(row, ['id']),
     name: readUserValue(row, ['name']),
     email: normalizeEmail(readUserValue(row, ['email'])),
-    phone: normalizePhone(readUserValue(row, ['phone'])),
+    phone: normalizePhone(decryptField(readUserValue(row, ['phone']))),
     password: readUserValue(row, ['password', 'pass']),
     passwordHash: readUserValue(row, ['password_hash', 'passwordHash', 'passwordhash']),
     passwordSalt: readUserValue(row, ['password_salt', 'passwordSalt', 'passwordsalt']),
@@ -771,6 +778,10 @@ async function listNocoUsers() {
 async function createNocoUserRecord(user) {
   ensureNocoAuthReady();
   const normalizedName = String(user.name || '').trim() || user.email || user.phone || 'User';
+  // Encrypted once, up front — every payload variant below writes the same
+  // ciphertext, since they're just different guesses at this table's column
+  // names, not different data.
+  const encryptedPhone = encryptField(user.phone);
   // Present only for role='tenant' accounts; harmless extra columns otherwise.
   const tenantLinkFields = {
     landlordId: user.landlordId || '',
@@ -782,7 +793,7 @@ async function createNocoUserRecord(user) {
       id: user.id,
       name: normalizedName,
       email: user.email,
-      phone: user.phone,
+      phone: encryptedPhone,
       password_hash: user.passwordHash,
       password_salt: user.passwordSalt,
       created_at: user.createdAt,
@@ -795,7 +806,7 @@ async function createNocoUserRecord(user) {
       id: user.id,
       name: normalizedName,
       email: user.email,
-      phone: user.phone,
+      phone: encryptedPhone,
       passwordHash: user.passwordHash,
       passwordSalt: user.passwordSalt,
       createdAt: user.createdAt,
@@ -808,7 +819,7 @@ async function createNocoUserRecord(user) {
       id: user.id,
       name: normalizedName,
       email: user.email,
-      phone: user.phone,
+      phone: encryptedPhone,
       passwordhash: user.passwordHash,
       passwordsalt: user.passwordSalt,
       createdat: user.createdAt,
@@ -821,7 +832,7 @@ async function createNocoUserRecord(user) {
       id: user.id,
       name: normalizedName,
       email: user.email,
-      phone: user.phone,
+      phone: encryptedPhone,
       password: user.password || user.passwordHash,
       created_at: user.createdAt,
       role: user.role,
@@ -833,7 +844,7 @@ async function createNocoUserRecord(user) {
       id: user.id,
       name: normalizedName,
       email: user.email,
-      phone: user.phone,
+      phone: encryptedPhone,
       pass: user.password || user.passwordHash,
       created_at: user.createdAt,
       role: user.role,
@@ -845,7 +856,7 @@ async function createNocoUserRecord(user) {
       id: user.id,
       name: normalizedName,
       email: user.email,
-      phone: user.phone,
+      phone: encryptedPhone,
       created_by: user.id,
       modified_by: user.id,
       password_hash: user.passwordHash,

@@ -60,6 +60,7 @@ function decryptField(value) {
 // Which columns get encrypted at rest, per NocoDB collection key (stateStore.js's keys).
 const ENCRYPTED_FIELDS = {
   tenants: ['cccd', 'phone'],
+  users: ['phone'],
 };
 
 function encryptRow(key, row) {
