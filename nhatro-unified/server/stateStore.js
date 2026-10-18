@@ -266,18 +266,24 @@ async function saveSettings(userId, settings = {}) {
   }
 }
 
-async function loadStateForUser(userId) {
-  const entries = await Promise.all(DATA_TABLE_KEYS.map(async (key) => [key, (await fetchOwnedRows(key, userId)).map(stripSystemColumns)]));
+async function loadStateForUser(userId, tables = null) {
+  const wantedKeys = tables && tables.length ? DATA_TABLE_KEYS.filter((key) => tables.includes(key)) : DATA_TABLE_KEYS;
+  const entries = await Promise.all(wantedKeys.map(async (key) => [key, (await fetchOwnedRows(key, userId)).map(stripSystemColumns)]));
   const state = Object.fromEntries(entries);
-  state.settings = await loadSettings(userId);
+  if (!tables || tables.length === 0 || tables.includes('settings')) {
+    state.settings = await loadSettings(userId);
+  }
   return state;
 }
 
-async function saveStateForUser(userId, state = {}) {
-  for (const key of DATA_TABLE_KEYS) {
+async function saveStateForUser(userId, state = {}, tables = null) {
+  const wantedKeys = tables && tables.length ? DATA_TABLE_KEYS.filter((key) => tables.includes(key)) : DATA_TABLE_KEYS;
+  for (const key of wantedKeys) {
     await syncCollection(key, userId, Array.isArray(state[key]) ? state[key] : []);
   }
-  await saveSettings(userId, state.settings || {});
+  if (!tables || tables.length === 0 || tables.includes('settings')) {
+    await saveSettings(userId, state.settings || {});
+  }
 }
 
 module.exports = {

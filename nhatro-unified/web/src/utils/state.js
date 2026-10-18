@@ -1,5 +1,4 @@
 import { getAuthSession, getStoredToken } from './auth';
-import { isNocoConfigured, loadStateFromNoco, saveStateToNoco } from './nocodb';
 
 /** Trống = fetch `/api` cùng origin; dev: `VITE_API_ORIGIN` trong `.env.development`. */
 function resolveApiBase() {
@@ -43,23 +42,18 @@ export function setAdminViewUserId(userId = '') {
 }
 
 
-function shouldUseNocoState() {
-  return isNocoConfigured();
+function tablesQuery(tables) {
+  return tables && tables.length ? `?tables=${encodeURIComponent(tables.join(','))}` : '';
 }
 
 async function loadStateFromServer(options = {}) {
   const { tables = null } = options;
   if (adminViewUserId) {
-    if (shouldUseNocoState()) {
-      try {
-        const state = await loadStateFromNoco({ tables, userId: adminViewUserId });
-        if (state) return state;
-      } catch (e) {
-        // Fall back to the admin server endpoint for non-Noco/local storage.
-      }
-    }
     try {
-      const resp = await fetch(apiUrl(`/api/admin/users/${encodeURIComponent(adminViewUserId)}/state`), { headers: authHeaders() });
+      const resp = await fetch(
+        apiUrl(`/api/admin/users/${encodeURIComponent(adminViewUserId)}/state${tablesQuery(tables)}`),
+        { headers: authHeaders() }
+      );
       if (!resp.ok) throw new Error('Không thể tải dữ liệu tài khoản đã chọn');
       const json = await resp.json();
       return json?.state || null;
@@ -67,17 +61,9 @@ async function loadStateFromServer(options = {}) {
       return null;
     }
   }
-  if (shouldUseNocoState()) {
-    try {
-      const state = await loadStateFromNoco({ tables });
-      if (state) return state;
-    } catch (e) {
-      // noco fails, fallback next
-    }
-  }
 
-  try { 
-    const resp = await fetch(apiUrl('/api/state'), { headers: authHeaders() }); 
+  try {
+    const resp = await fetch(apiUrl(`/api/state${tablesQuery(tables)}`), { headers: authHeaders() });
     if (!resp.ok) return null;
     const json = await resp.json();
     if (json && json.state) return json.state;
@@ -89,48 +75,16 @@ async function loadStateFromServer(options = {}) {
 
 async function saveStateToServer(state, options = {}) {
   const { tables = null } = options;
-  let saved = false;
-  let lastError = null;
-
-  if (shouldUseNocoState()) {
-    try {
-      console.log('save to nocodb', state);
-      const nocoSaved = await saveStateToNoco(state, { tables });
-      if (nocoSaved) {
-        saved = true;
-      } else {
-        throw new Error('NocoDB từ chối lưu dữ liệu. Kiểm tra lại cấu trúc bảng và tên cột.');
-      }
-    } catch (e) {
-      // Khi NocoDB là nguồn dữ liệu chính, không âm thầm ghi sang backend JSON.
-      // Nếu fallback, giao diện có vẻ đã lưu nhưng lần tải sau vẫn mất dữ liệu từ NocoDB.
-      throw e;
-    }
+  const res = await fetch(apiUrl('/api/state'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ state, tables }),
+  });
+  const data = res.ok ? null : await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(data?.error || 'Không thể lưu dữ liệu');
   }
-
-  if (!saved) {
-    try {
-      console.log('save to backend state', state);
-      const res = await fetch(apiUrl('/api/state'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ state }),
-      });
-      const data = res.ok ? null : await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(data?.error || 'Không thể lưu dữ liệu');
-      }
-      saved = true;
-    } catch (e) {
-      lastError = e;
-    }
-  }
-
-  if (!saved && lastError) {
-    throw lastError;
-  }
-
-  return saved;
+  return true;
 }
 
 function applyDefaults(s) {

@@ -56,7 +56,7 @@ export default function Login({ onLoggedIn }) {
         </form>
 
         <p className="mt-4 text-center text-xs text-slate-400">
-          Tài khoản demo: admin/admin123 (quản trị) · nhanvien/nhanvien123 (lễ tân)
+          Để dùng thử, vui lòng liên hệ quản trị viên: 0904697882
         </p>
       </div>
     </div>

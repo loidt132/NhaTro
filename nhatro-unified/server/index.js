@@ -1459,8 +1459,11 @@ app.post('/api/meter-submissions', authMiddleware, async (req, res) => {
   }
 
   try {
-    const users = await loadAllUsers();
-    const tenantUser = users.find((u) => sameUserId(u.id, req.userId));
+    // Just a display label on the review card — not used for ownership or
+    // auth, so it's fine to take it from the client (falling back to the
+    // phone already in the token) instead of paying for a full users-table
+    // fetch on every submission.
+    const submittedByName = String(req.body?.submittedByName || '').trim() || req.authPayload?.phone || '';
     const nowIso = new Date().toISOString();
     const record = {
       id: uid(),
@@ -1474,7 +1477,7 @@ app.post('/api/meter-submissions', authMiddleware, async (req, res) => {
       status: 'pending',
       submittedByRole: 'tenant',
       submittedByUserId: req.userId,
-      submittedByName: tenantUser?.name || tenantUser?.phone || '',
+      submittedByName,
       createdAt: nowIso,
       updatedAt: nowIso,
       created_by: landlordId,
@@ -1564,12 +1567,19 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
   }
 });
 
+function parseTablesParam(raw) {
+  if (!raw) return null;
+  const list = String(raw).split(',').map((t) => t.trim()).filter(Boolean);
+  return list.length ? list : null;
+}
+
 app.get('/api/state', authMiddleware, async (req, res) => {
   if (!stateStore.isConfigured()) {
     return res.json({ state: {} });
   }
   try {
-    const state = await stateStore.loadStateForUser(req.userId);
+    const tables = parseTablesParam(req.query?.tables);
+    const state = await stateStore.loadStateForUser(req.userId, tables);
     return res.json({ state: sanitizeStateForPersistence(state) });
   } catch (error) {
     console.error('state get error', error);
@@ -1586,6 +1596,7 @@ app.post('/api/state', authMiddleware, async (req, res) => {
     return res.status(501).json({ error: 'NocoDB chưa được cấu hình trên server.' });
   }
 
+  const tables = Array.isArray(req.body?.tables) && req.body.tables.length ? req.body.tables : null;
   const sanitizedState = sanitizeStateForPersistence(nextState);
   let currentUser;
 
@@ -1597,7 +1608,7 @@ app.post('/api/state', authMiddleware, async (req, res) => {
   }
 
   const currentLimit = currentUser?.maxRoomLimit;
-  if (currentLimit !== null && currentLimit !== undefined && currentLimit > 0) {
+  if (currentLimit !== null && currentLimit !== undefined && currentLimit > 0 && (!tables || tables.includes('rooms'))) {
     const roomCount = Array.isArray(sanitizedState.rooms)
       ? sanitizedState.rooms.filter((room) => room?.isDeleted !== true).length
       : 0;
@@ -1607,13 +1618,65 @@ app.post('/api/state', authMiddleware, async (req, res) => {
   }
 
   try {
-    await stateStore.saveStateForUser(req.userId, sanitizedState);
+    await stateStore.saveStateForUser(req.userId, sanitizedState, tables);
   } catch (error) {
     console.error('state save error', error);
     return res.status(500).json({ error: error?.message || 'Không thể lưu dữ liệu vào NocoDB' });
   }
 
   return res.json({ state: sanitizedState });
+});
+
+// Tenant's own landlord's room list — needed to show the tenant which room
+// they're linked to (TenantMeterUpload.jsx). Scoped like /api/tenants/records:
+// self, your own landlord (tenant role), or an admin impersonating someone else.
+function resolveRoomsOwnerId(req) {
+  const requested = String(req.query?.ownerUserId || '').trim();
+  if (!requested || requested === req.userId) return req.userId;
+  if (requested === String(req.authPayload?.landlordId || '')) return requested;
+  return isAdminRole(req.authPayload?.role) ? requested : req.userId;
+}
+
+app.get('/api/rooms/records', authMiddleware, async (req, res) => {
+  if (!hasNocoRoomsConfig()) {
+    return res.status(503).json({ error: 'NocoDB rooms table chưa được cấu hình.' });
+  }
+  const ownerId = resolveRoomsOwnerId(req);
+  const where = encodeURIComponent(`(created_by,eq,${ownerId})~and(isDeleted,neq,true)`);
+
+  try {
+    const data = await nocoFetchJson(nocoTableUrl(NOCODB_TABLE_ROOMS, `?where=${where}&limit=1000`));
+    return res.json(data);
+  } catch (error) {
+    console.error('rooms proxy GET error', error);
+    return res.status(500).json({ error: 'Không tải được danh sách phòng.' });
+  }
+});
+
+// Lets Settings.jsx show which NocoDB tables are configured without exposing
+// the URL/API key itself to the browser (those used to live in VITE_* env
+// vars baked into the FE bundle — moved server-side only).
+app.get('/api/config/status', authMiddleware, (req, res) => {
+  const tableChecks = {
+    rooms: NOCODB_TABLE_ROOMS,
+    tenants: NOCODB_TABLE_TENANTS,
+    readings: NOCODB_TABLE_READINGS,
+    invoices: NOCODB_TABLE_INVOICES,
+    payments: NOCODB_TABLE_PAYMENTS,
+    rentPeriods: NOCODB_TABLE_RENT_PERIODS,
+    paymentAllocations: NOCODB_TABLE_PAYMENT_ALLOCATIONS,
+    deposits: NOCODB_TABLE_DEPOSITS,
+    depositTransactions: NOCODB_TABLE_DEPOSIT_TRANSACTIONS,
+    settings: firstEnv('NOCODB_TABLE_SETTINGS', 'TABLE_SETTINGS', 'VITE_TABLE_SETTINGS'),
+  };
+  const missingTables = Object.entries(tableChecks).filter(([, value]) => !value).map(([key]) => key);
+
+  return res.json({
+    baseConfigured: Boolean(NOCODB_URL),
+    tokenConfigured: Boolean(NOCODB_API_KEY),
+    missingTables,
+    ready: Boolean(NOCODB_URL && NOCODB_API_KEY) && missingTables.length === 0,
+  });
 });
 
 // ===== Admin User Management API =====
@@ -1728,7 +1791,8 @@ app.get('/api/admin/users/:userId/rooms', adminMiddleware, async (req, res) => {
 // Read-only state preview for an account selected by an administrator.
 app.get('/api/admin/users/:userId/state', adminMiddleware, async (req, res) => {
   try {
-    const state = await stateStore.loadStateForUser(req.params.userId);
+    const tables = parseTablesParam(req.query?.tables);
+    const state = await stateStore.loadStateForUser(req.params.userId, tables);
     return res.json({ state: sanitizeStateForPersistence(state) });
   } catch (error) {
     console.error('admin/users state get error', error);

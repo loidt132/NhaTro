@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { monthKey } from '../utils/state';
-import { fetchOwnedRows } from '../utils/nocodb';
+import { fetchOwnedRooms } from '../utils/meterSubmissions';
 import { listMeterSubmissions, createMeterSubmission } from '../utils/meterSubmissions';
 import { uploadMeterPhoto } from '../utils/meterOcr';
 
@@ -118,7 +118,7 @@ export default function TenantMeterUpload({ user }) {
     (async () => {
       if (!landlordId || !roomId) return;
       try {
-        const rooms = await fetchOwnedRows('rooms', landlordId);
+        const rooms = await fetchOwnedRooms(landlordId);
         if (cancelled) return;
         const room = rooms.find((r) => String(r.id) === String(roomId));
         setRoomName(room?.name || '');
@@ -141,6 +141,7 @@ export default function TenantMeterUpload({ user }) {
       photoUrl: ocr.photoUrl,
       ocrRawText: ocr.ocrRawText || '',
       ocrValue: ocr.ocrValue,
+      submittedByName: user.name || user.phone || '',
     });
     await loadSubmissions();
   };

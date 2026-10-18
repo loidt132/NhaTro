@@ -47,3 +47,10 @@ export async function reviewMeterSubmission(id, action, finalValue) {
     body: JSON.stringify({ action, finalValue }),
   });
 }
+
+// Tenant's own landlord's room list (to show which room they're linked to) —
+// also proxied through the backend instead of calling NocoDB directly.
+export async function fetchOwnedRooms(ownerUserId) {
+  const data = await request(`/api/rooms/records?ownerUserId=${encodeURIComponent(ownerUserId)}`);
+  return data?.list || [];
+}

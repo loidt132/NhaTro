@@ -55,11 +55,6 @@ export default function ServiceCatalogAdmin() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Bảng giá dịch vụ &amp; phụ thu</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Module này chạy như một backend/service <strong>tách riêng</strong> (service-catalog, cổng 4100) khỏi backend
-            đặt phòng homestay (cổng 4000). Dịch vụ và phụ thu dùng chung 1 API, phân biệt nhau bằng trường{" "}
-            <code className="rounded bg-slate-100 px-1">kind</code>.
-          </p>
         </div>
         {isAdmin && (
           <button className={btnPrimary} onClick={() => setItemModal({ mode: "create" })}>+ Thêm mới</button>

@@ -1,7 +1,6 @@
 // src/pages/Settings.jsx
 import React, { useState, useEffect } from 'react';
 import { loadState, saveState, hydrateState } from '../utils/state';
-import { getNocoConfigStatus } from '../utils/nocodb';
 import { getStoredToken } from '../utils/auth';
 import Footer from '../components/Footer';
 import Page from '../components/Page';
@@ -10,9 +9,22 @@ import UserManagement from '../components/UserManagement';
 export default function Settings({ user = null }) {
   const [state, setState] = useState(loadState());
   const [s, setS] = useState(() => state.settings || {});
-  const [nocoStatus, setNocoStatus] = useState(() => getNocoConfigStatus());
+  const [nocoStatus, setNocoStatus] = useState({ baseConfigured: false, tokenConfigured: false, missingTables: [] });
   const [activeTab, setActiveTab] = useState('general');
   const [currentUser, setCurrentUser] = useState(user);
+
+  const refreshNocoStatus = () => {
+    const token = getStoredToken();
+    if (!token) return;
+    fetch('/api/config/status', { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data) setNocoStatus(data);
+      })
+      .catch(() => {
+        // silently fail
+      });
+  };
 
   useEffect(() => {
     const token = getStoredToken();
@@ -35,11 +47,10 @@ export default function Settings({ user = null }) {
       const next = loadState();
       setState(next);
       setS(next.settings || {});
-      setNocoStatus(getNocoConfigStatus());
     };
     window.addEventListener('boarding_state_updated', handler);
     hydrateState({ tables: ['settings'] });
-    setNocoStatus(getNocoConfigStatus());
+    refreshNocoStatus();
     return () => window.removeEventListener('boarding_state_updated', handler);
   }, []);
 
@@ -127,8 +138,8 @@ export default function Settings({ user = null }) {
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
         <h3 className="text-lg font-semibold">Trạng thái NocoDB</h3>
         <div className="mt-3 space-y-1 text-sm text-slate-700">
-          <div>URL: {nocoStatus.baseConfigured ? 'OK' : 'Thiếu VITE_NOCODB_URL'}</div>
-          <div>API key: {nocoStatus.tokenConfigured ? 'OK' : 'Thiếu VITE_NOCODB_API_KEY'}</div>
+          <div>URL: {nocoStatus.baseConfigured ? 'OK' : 'Thiếu NOCODB_URL trên server'}</div>
+          <div>API key: {nocoStatus.tokenConfigured ? 'OK' : 'Thiếu NOCODB_API_KEY trên server'}</div>
           <div>Bảng thiếu: {nocoStatus.missingTables.length ? nocoStatus.missingTables.join(', ') : 'Không thiếu'}</div>
         </div>
       </div>
