@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import { homestayApi, formatVnd } from "../api.js";
 import { badgeBase, card, input, label, table, tableWrap, td, th } from "../ui.js";
+import { useHomestay } from "../HomestayContext.js";
 
 const PRICING_LABEL = { hourly: "Theo giờ", overnight: "Qua đêm", fullday: "Cả ngày" };
 
@@ -49,6 +50,7 @@ function DateRangePicker({ from, to, setFrom, setTo }) {
 }
 
 function RevenueReport() {
+  const { currentHomestayId } = useHomestay();
   const [from, setFrom] = useState(dayjs().startOf("month").format("YYYY-MM-DD"));
   const [to, setTo] = useState(dayjs().format("YYYY-MM-DD"));
   const [data, setData] = useState({ rows: [], grandTotal: { roomRevenue: 0, serviceRevenue: 0, total: 0, stayCount: 0 } });
@@ -65,7 +67,7 @@ function RevenueReport() {
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to]);
+  }, [from, to, currentHomestayId]);
 
   return (
     <div className="space-y-4">
@@ -120,6 +122,7 @@ function RevenueReport() {
 }
 
 function OccupancyReport() {
+  const { currentHomestayId } = useHomestay();
   const [from, setFrom] = useState(dayjs().startOf("month").format("YYYY-MM-DD"));
   const [to, setTo] = useState(dayjs().format("YYYY-MM-DD"));
   const [data, setData] = useState({ totalRooms: 0, currentOccupied: 0, currentCleaning: 0, currentEmpty: 0, occupancyRate: 0, stays: [] });
@@ -136,7 +139,7 @@ function OccupancyReport() {
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to]);
+  }, [from, to, currentHomestayId]);
 
   return (
     <div className="space-y-4">

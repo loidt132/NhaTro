@@ -18,12 +18,14 @@ export function verifyPassword(password, stored) {
 }
 
 export function signToken(user) {
-  return jwt.sign({ sub: user.id, username: user.username, role: user.role, name: user.name }, JWT_SECRET, {
-    expiresIn: TOKEN_TTL,
-  });
+  return jwt.sign(
+    { sub: user.id, username: user.username, role: user.role, name: user.name, homestayId: user.homestayId || null },
+    JWT_SECRET,
+    { expiresIn: TOKEN_TTL }
+  );
 }
 
-// Any logged-in user (admin or nhân viên) may call the route.
+// Any logged-in user (owner, admin, or nhân viên) may call the route.
 export function requireAuth(req, res, next) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
@@ -36,10 +38,40 @@ export function requireAuth(req, res, next) {
   }
 }
 
-// Stacks on top of requireAuth — only role "admin" passes.
+// Stacks on top of requireAuth — "admin" or "owner" passes (owner can do
+// anything an admin can, for any homestay).
 export function requireAdmin(req, res, next) {
-  if (req.user?.role !== "admin") {
+  if (req.user?.role !== "admin" && req.user?.role !== "owner") {
     return res.status(403).json({ error: "Chỉ admin mới được phép thực hiện thao tác này." });
+  }
+  next();
+}
+
+// Only the top-level "owner" role — manages homesteys themselves and can
+// act across all of them. Stacks on top of requireAuth.
+export function requireOwner(req, res, next) {
+  if (req.user?.role !== "owner") {
+    return res.status(403).json({ error: "Chỉ chủ hệ thống (owner) mới được phép thực hiện thao tác này." });
+  }
+  next();
+}
+
+// Pins every homestay-scoped route to exactly one homestay's data.
+// admin/staff are permanently scoped to the homestay in their own JWT; an
+// owner has none, so they must say which homestay they're currently
+// working in via the X-Homestay-Id header (set by the frontend's homestay
+// switcher) — never trusted from a body/query field a non-owner could spoof.
+export function requireHomestayContext(req, res, next) {
+  if (req.user.role === "owner") {
+    const headerHomestayId = req.headers["x-homestay-id"];
+    if (!headerHomestayId) {
+      return res.status(400).json({ error: "Thiếu X-Homestay-Id — chọn 1 homestay để thao tác." });
+    }
+    req.homestayId = headerHomestayId;
+    req.isOwnerContext = true;
+  } else {
+    req.homestayId = req.user.homestayId;
+    req.isOwnerContext = false;
   }
   next();
 }

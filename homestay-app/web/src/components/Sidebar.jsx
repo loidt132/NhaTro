@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import { useAuth } from "../AuthContext.js";
 
 const LinkItem = ({ to, icon, children, onClick }) => (
   <NavLink
@@ -24,11 +25,16 @@ const LINKS = [
   { to: "/settings", icon: "⚙️", label: "Cài đặt" },
 ];
 
+const OWNER_LINK = { to: "/homesteys", icon: "🏘️", label: "Quản lý Homestay" };
+
 export default function Sidebar({ isOpen = false, onClose = () => {} }) {
+  const { user } = useAuth();
+  const links = user?.role === "owner" ? [OWNER_LINK, ...LINKS] : LINKS;
+
   const desktop = (
     <aside className="hidden md:block w-56 shrink-0 space-y-2 p-3">
       <div className="text-sm font-semibold uppercase text-slate-500">Homestay</div>
-      {LINKS.map((l) => (
+      {links.map((l) => (
         <LinkItem key={l.to} to={l.to} icon={l.icon}>{l.label}</LinkItem>
       ))}
     </aside>
@@ -50,7 +56,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }) {
           </button>
         </div>
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto">
-          {LINKS.map((l) => (
+          {links.map((l) => (
             <LinkItem key={l.to} to={l.to} icon={l.icon} onClick={onClose}>{l.label}</LinkItem>
           ))}
         </nav>

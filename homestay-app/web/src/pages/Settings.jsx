@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { homestayApi, userAdminApi } from "../api.js";
 import { btn, btnDanger, btnPrimary, card, input, label, table, tableWrap, td, th } from "../ui.js";
 import { useAuth } from "../AuthContext.js";
+import { useHomestay } from "../HomestayContext.js";
 
 export default function Settings() {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const isAdmin = user?.role === "admin" || user?.role === "owner";
   const [tab, setTab] = useState("general");
 
   return (
@@ -38,6 +39,7 @@ function TabButton({ active, onClick, children }) {
 }
 
 function GeneralSettings({ isAdmin }) {
+  const { currentHomestayId } = useHomestay();
   const [s, setS] = useState({});
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -52,7 +54,7 @@ function GeneralSettings({ isAdmin }) {
 
   useEffect(() => {
     refresh();
-  }, []);
+  }, [currentHomestayId]);
 
   async function save() {
     const normalized = {
@@ -148,6 +150,7 @@ function GeneralSettings({ isAdmin }) {
 }
 
 function UserManagement({ currentUserId }) {
+  const { currentHomestayId } = useHomestay();
   const [users, setUsers] = useState([]);
   const [userModal, setUserModal] = useState(null); // { mode: "create" | "edit", userRow? }
   const [error, setError] = useState("");
@@ -162,7 +165,7 @@ function UserManagement({ currentUserId }) {
 
   useEffect(() => {
     refresh();
-  }, []);
+  }, [currentHomestayId]);
 
   async function removeUser(id) {
     try {

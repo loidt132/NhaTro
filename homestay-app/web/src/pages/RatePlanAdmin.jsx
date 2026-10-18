@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { homestayApi } from "../api.js";
 import { btnPrimary, card, input, label } from "../ui.js";
 import { useAuth } from "../AuthContext.js";
+import { useHomestay } from "../HomestayContext.js";
 
 const FIELDS = [
   ["hourlyFirstBlockHours", "Số giờ block đầu"],
@@ -14,6 +15,7 @@ const FIELDS = [
 
 export default function RatePlanAdmin() {
   const { user } = useAuth();
+  const { currentHomestayId } = useHomestay();
   const isAdmin = user?.role === "admin";
   const [plans, setPlans] = useState([]);
   const [roomTypes, setRoomTypes] = useState([]);
@@ -31,7 +33,7 @@ export default function RatePlanAdmin() {
 
   useEffect(() => {
     refresh();
-  }, []);
+  }, [currentHomestayId]);
 
   function roomTypeName(id) {
     return roomTypes.find((t) => t.id === id)?.name || id;

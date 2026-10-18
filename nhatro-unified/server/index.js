@@ -5,6 +5,7 @@ const express = require('express');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const { createWorker } = require('tesseract.js');
+const stateStore = require('./stateStore');
 const fetchApi =
   typeof global.fetch === 'function'
     ? global.fetch.bind(global)
@@ -51,10 +52,6 @@ function loadEnvFile(filePath) {
 
 const app = express();
 
-const dataDir = path.join(__dirname, 'data');
-const statesDir = path.join(dataDir, 'states');
-const usersPath = path.join(dataDir, 'users.json');
-const usersTmpPath = path.join(dataDir, 'users.json.tmp');
 const AUTH_SECRET = process.env.AUTH_SECRET || 'nhatro-unified-dev-secret';
 function firstEnv(...names) {
   for (const name of names) {
@@ -132,8 +129,37 @@ const TUYA_ENERGY_CODES = firstEnv('TUYA_ENERGY_CODES', 'TUYA_ENERGY_CODE')
 const TUYA_DEBUG_CURL = firstEnv('TUYA_DEBUG_CURL').toLowerCase() === 'true';
 let tuyaTokenCache = null;
 
+const START_TIME = Date.now();
+
 app.get('/', (req, res) => {
   res.send('OK');
+});
+
+// Public health check — used by uptime monitors/load balancers. Verifies
+// NocoDB is actually reachable (not just that the process is alive), since
+// almost every route here depends on it.
+app.get('/health', async (req, res) => {
+  let nocodb = 'not_configured';
+  if (HAS_FULL_NOCO_CONFIG) {
+    try {
+      await nocoFetchJson(nocoUsersUrl('?limit=1'));
+      nocodb = 'ok';
+    } catch (error) {
+      nocodb = `error: ${error.message}`;
+    }
+  }
+  const status = nocodb === 'ok' || nocodb === 'not_configured' ? 'ok' : 'degraded';
+  res.status(status === 'ok' ? 200 : 503).json({
+    status,
+    service: 'nhatro-unified-server',
+    uptimeSeconds: Math.round((Date.now() - START_TIME) / 1000),
+    timestamp: new Date().toISOString(),
+    dependencies: {
+      nocodb,
+      cloudinary: HAS_CLOUDINARY_CONFIG ? 'configured' : 'not_configured',
+      tuya: TUYA_API_ENDPOINT && TUYA_ACCESS_ID && TUYA_ACCESS_SECRET ? 'configured' : 'not_configured',
+    },
+  });
 });
 
 function sanitizeStateForPersistence(nextState = {}) {
@@ -498,10 +524,6 @@ function validatePhone(value = '') {
   return /^[0-9]{9,12}$/.test(normalized);
 }
 
-function ensureDir(dirPath) {
-  fs.mkdirSync(dirPath, { recursive: true });
-}
-
 function hashPassword(password, salt) {
   return crypto.pbkdf2Sync(String(password), String(salt), 100000, 64, 'sha512').toString('hex');
 }
@@ -544,27 +566,10 @@ function verifyToken(token) {
   }
 }
 
-function loadUsers() {
-  try {
-    const raw = fs.readFileSync(usersPath, 'utf8');
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveUsers(users) {
-  ensureDir(dataDir);
-  fs.writeFileSync(usersTmpPath, JSON.stringify(users, null, 2));
-  fs.renameSync(usersTmpPath, usersPath);
-}
-
-function shouldUseNocoAuth() {
-  return HAS_FULL_NOCO_CONFIG;
-}
-
 function ensureNocoAuthReady() {
-  if (!shouldUseNocoAuth()) return;
+  if (!HAS_FULL_NOCO_CONFIG) {
+    throw new Error('NocoDB chưa được cấu hình trên server. Cần đặt NOCODB_URL, NOCODB_API_KEY và NOCODB_TABLE_USERS.');
+  }
 }
 
 function nocoHeaders() {
@@ -590,13 +595,6 @@ function stripNocoSystemColumns(row = {}) {
   const clean = { ...row };
   ['Id', 'ID', 'created_at', 'updated_at', 'CreatedAt', 'UpdatedAt', 'created_by', 'modified_by', 'ncRecordId'].forEach((key) => delete clean[key]);
   return clean;
-}
-
-async function fetchNocoRowsOwnedBy(tableId, userId) {
-  if (!tableId) return [];
-  const where = encodeURIComponent(`(created_by,eq,${userId})`);
-  const data = await nocoFetchJson(nocoTableUrl(tableId, `?where=${where}&limit=1000`));
-  return (data?.list || []).map(stripNocoSystemColumns);
 }
 
 async function findTenantRecordsByPhone(phone) {
@@ -675,21 +673,6 @@ async function findOrCreateTenantUser(tenantRecord, phone) {
 
   await createNocoUserRecord(nextUser);
   return nextUser;
-}
-
-async function loadNocoStateForUser(userId) {
-  const [rooms, tenants, readings, invoices, payments, rentPeriods, paymentAllocations, deposits, depositTransactions] = await Promise.all([
-    fetchNocoRowsOwnedBy(NOCODB_TABLE_ROOMS, userId),
-    fetchNocoRowsOwnedBy(NOCODB_TABLE_TENANTS, userId),
-    fetchNocoRowsOwnedBy(NOCODB_TABLE_READINGS, userId),
-    fetchNocoRowsOwnedBy(NOCODB_TABLE_INVOICES, userId),
-    fetchNocoRowsOwnedBy(NOCODB_TABLE_PAYMENTS, userId),
-    fetchNocoRowsOwnedBy(NOCODB_TABLE_RENT_PERIODS, userId),
-    fetchNocoRowsOwnedBy(NOCODB_TABLE_PAYMENT_ALLOCATIONS, userId),
-    fetchNocoRowsOwnedBy(NOCODB_TABLE_DEPOSITS, userId),
-    fetchNocoRowsOwnedBy(NOCODB_TABLE_DEPOSIT_TRANSACTIONS, userId),
-  ]);
-  return { rooms, tenants, readings, invoices, payments, rentPeriods, paymentAllocations, deposits, depositTransactions };
 }
 
 function hasNocoRoomsConfig() {
@@ -990,21 +973,6 @@ async function countUserRooms(userId, extraOwnerIds = []) {
   ].filter(Boolean))];
 
   if (ownerIds.length === 0) return 0;
-
-  for (const ownerId of ownerIds) {
-    const { statePath } = statePathsForUser(ownerId);
-    try {
-      const raw = fs.readFileSync(statePath, 'utf8');
-      const state = raw ? JSON.parse(raw) : {};
-      const localCount = Array.isArray(state.rooms)
-        ? state.rooms.filter((room) => room?.isDeleted !== true).length
-        : 0;
-      if (localCount > 0) return localCount;
-    } catch {
-      // fall through to NocoDB
-    }
-  }
-
   if (!hasNocoRoomsConfig()) return 0;
 
   try {
@@ -1083,14 +1051,6 @@ async function buildRoomCountsForUsers(users = [], tokenPayload = null) {
   return counts;
 }
 
-function statePathsForUser(userId) {
-  const safeUserId = String(userId || 'anonymous').replace(/[^a-zA-Z0-9_-]/g, '_');
-  return {
-    statePath: path.join(statesDir, `${safeUserId}.json`),
-    stateTmpPath: path.join(statesDir, `${safeUserId}.json.tmp`),
-  };
-}
-
 function sameUserId(a, b) {
   return String(a) === String(b);
 }
@@ -1144,15 +1104,8 @@ function createAuthToken(user) {
 }
 
 async function loadAllUsers() {
-  if (!shouldUseNocoAuth()) return loadUsers();
-  try {
-    return await listNocoUsers();
-  } catch (error) {
-    console.warn('listNocoUsers failed:', error?.message || error);
-    const localUsers = loadUsers();
-    if (localUsers.length > 0) return localUsers;
-    throw error;
-  }
+  ensureNocoAuthReady();
+  return listNocoUsers();
 }
 
 function authMiddleware(req, res, next) {
@@ -1246,7 +1199,8 @@ app.post('/api/auth/register', async (req, res) => {
   }
 
   try {
-    const users = shouldUseNocoAuth() ? await listNocoUsers() : loadUsers();
+    ensureNocoAuthReady();
+    const users = await listNocoUsers();
     const duplicated = users.find(
       (user) =>
         (normalizedEmail && user.email === normalizedEmail) ||
@@ -1270,12 +1224,7 @@ app.post('/api/auth/register', async (req, res) => {
       maxRoomLimit: 20,
     };
 
-    if (shouldUseNocoAuth()) {
-      await createNocoUserRecord(nextUser);
-    } else {
-      users.push(nextUser);
-      saveUsers(users);
-    }
+    await createNocoUserRecord(nextUser);
 
     const token = createAuthToken(nextUser);
 
@@ -1343,7 +1292,7 @@ app.post('/api/auth/tenant/verify-phone', async (req, res) => {
   if (!idToken) {
     return res.status(400).json({ error: 'Thiếu idToken' });
   }
-  if (!shouldUseNocoAuth()) {
+  if (!HAS_FULL_NOCO_CONFIG) {
     return res.status(501).json({ error: 'Đăng nhập khách thuê chưa được cấu hình trên server.' });
   }
 
@@ -1442,14 +1391,15 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
   }
 });
 
-app.get('/api/state', authMiddleware, (req, res) => {
-  const { statePath } = statePathsForUser(req.userId);
-
+app.get('/api/state', authMiddleware, async (req, res) => {
+  if (!stateStore.isConfigured()) {
+    return res.json({ state: {} });
+  }
   try {
-    const raw = fs.readFileSync(statePath, 'utf8');
-    const state = raw ? JSON.parse(raw) : {};
+    const state = await stateStore.loadStateForUser(req.userId);
     return res.json({ state: sanitizeStateForPersistence(state) });
-  } catch {
+  } catch (error) {
+    console.error('state get error', error);
     return res.json({ state: {} });
   }
 });
@@ -1459,12 +1409,15 @@ app.post('/api/state', authMiddleware, async (req, res) => {
   if (!nextState || typeof nextState !== 'object') {
     return res.status(400).json({ error: 'Thiếu dữ liệu state' });
   }
+  if (!stateStore.isConfigured()) {
+    return res.status(501).json({ error: 'NocoDB chưa được cấu hình trên server.' });
+  }
 
   const sanitizedState = sanitizeStateForPersistence(nextState);
   let currentUser;
 
   try {
-    const users = shouldUseNocoAuth() ? await listNocoUsers() : loadUsers();
+    const users = await listNocoUsers();
     currentUser = users.find((u) => sameUserId(u.id, req.userId));
   } catch (error) {
     console.error('state validation user lookup error', error);
@@ -1480,10 +1433,12 @@ app.post('/api/state', authMiddleware, async (req, res) => {
     }
   }
 
-  ensureDir(statesDir);
-  const { statePath, stateTmpPath } = statePathsForUser(req.userId);
-  fs.writeFileSync(stateTmpPath, JSON.stringify(sanitizedState, null, 2));
-  fs.renameSync(stateTmpPath, statePath);
+  try {
+    await stateStore.saveStateForUser(req.userId, sanitizedState);
+  } catch (error) {
+    console.error('state save error', error);
+    return res.status(500).json({ error: error?.message || 'Không thể lưu dữ liệu vào NocoDB' });
+  }
 
   return res.json({ state: sanitizedState });
 });
@@ -1559,19 +1514,15 @@ app.put('/api/admin/users/:userId', adminMiddleware, async (req, res) => {
 
     users[userIndex] = updatedUser;
 
-    if (shouldUseNocoAuth()) {
-      const rowId = updatedUser.rowId || (await findNocoUserRowId(updatedUser.id));
-      if (!rowId) {
-        return res.status(500).json({ error: 'Không tìm thấy bản ghi người dùng trên NocoDB' });
-      }
-      await updateNocoUserRecord(rowId, {
-        role: updatedUser.role,
-        isActive: updatedUser.isActive !== false,
-        maxRoomLimit: updatedUser.maxRoomLimit ?? null,
-      });
-    } else {
-      saveUsers(users);
+    const rowId = updatedUser.rowId || (await findNocoUserRowId(updatedUser.id));
+    if (!rowId) {
+      return res.status(500).json({ error: 'Không tìm thấy bản ghi người dùng trên NocoDB' });
     }
+    await updateNocoUserRecord(rowId, {
+      role: updatedUser.role,
+      isActive: updatedUser.isActive !== false,
+      maxRoomLimit: updatedUser.maxRoomLimit ?? null,
+    });
 
     return res.json({
       user: {
@@ -1602,46 +1553,30 @@ app.get('/api/admin/users/:userId/rooms', adminMiddleware, async (req, res) => {
 });
 
 // Read-only state preview for an account selected by an administrator.
-app.get('/api/admin/users/:userId/state', adminMiddleware, (req, res) => {
+app.get('/api/admin/users/:userId/state', adminMiddleware, async (req, res) => {
   try {
-    if (shouldUseNocoAuth()) {
-      return loadNocoStateForUser(req.params.userId)
-        .then((state) => res.json({ state }))
-        .catch((error) => {
-          console.error('admin/users NocoDB state get error', error);
-          return res.status(500).json({ error: 'Không thể tải dữ liệu tài khoản từ NocoDB' });
-        });
-    }
-    const { statePath } = statePathsForUser(req.params.userId);
-    if (!fs.existsSync(statePath)) return res.json({ state: {} });
-    const raw = fs.readFileSync(statePath, 'utf8');
-    return res.json({ state: sanitizeStateForPersistence(raw ? JSON.parse(raw) : {}) });
+    const state = await stateStore.loadStateForUser(req.params.userId);
+    return res.json({ state: sanitizeStateForPersistence(state) });
   } catch (error) {
     console.error('admin/users state get error', error);
-    return res.status(500).json({ error: 'Không thể tải dữ liệu tài khoản' });
+    return res.status(500).json({ error: 'Không thể tải dữ liệu tài khoản từ NocoDB' });
   }
 });
 
 const port = process.env.PORT || 4000;
 
-/*if (require.main === module) {
-  app.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
-    console.log(`Auth storage: ${shouldUseNocoAuth() ? 'NocoDB' : 'users.json'}`);
-  });
-}*/
- 
-
 if (require.main === module) {
   app.listen(port, '0.0.0.0', () => {
     console.log(`Server running on ${port}`);
     if (HAS_ANY_NOCO_CONFIG && !HAS_FULL_NOCO_CONFIG) {
-      console.warn('NocoDB auth config is partial. Falling back to users.json auth.');
+      console.warn('NocoDB auth config is partial (missing NOCODB_URL / NOCODB_API_KEY / NOCODB_TABLE_USERS). Auth and /api/state will fail until it is complete.');
     }
-    console.log(`Auth storage: ${shouldUseNocoAuth() ? 'NocoDB' : 'users.json'}`);
-    console.log(`Room count source: ${hasNocoRoomsConfig() ? 'NocoDB' : 'local state files only'}`);
+    if (!HAS_FULL_NOCO_CONFIG) {
+      console.warn('NocoDB is not configured — this server has no working storage. Set NOCODB_URL, NOCODB_API_KEY, NOCODB_TABLE_USERS (and the other NOCODB_TABLE_* vars).');
+    }
+    console.log(`Room count source: ${hasNocoRoomsConfig() ? 'NocoDB' : 'unavailable (NOCODB_TABLE_ROOMS missing)'}`);
     logTuyaConfiguration();
-    if (shouldUseNocoAuth() && !hasNocoRoomsConfig()) {
+    if (HAS_FULL_NOCO_CONFIG && !hasNocoRoomsConfig()) {
       console.warn('Missing NOCODB_TABLE_ROOMS / VITE_TABLE_ROOMS — user room counts will stay 0.');
     }
     startKeepAlive();

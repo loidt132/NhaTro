@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node --env-file=.env src/index.js",
-    "seed": "node --env-file=.env scripts/seed-nocodb.js"
+    "seed": "node --env-file=.env scripts/seed-nocodb.js",
+    "fix-links": "node --env-file=.env scripts/fix-link-columns.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

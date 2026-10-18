@@ -22,6 +22,14 @@ const TARGETS = [
   { tableEnv: "NOCODB_TABLE_ROOM_TRANSFERS", field: "fromRoomId" },
   { tableEnv: "NOCODB_TABLE_ROOM_TRANSFERS", field: "toRoomId" },
   { tableEnv: "NOCODB_TABLE_LOCK_EVENTS_LOG", field: "stayId" },
+  // Multi-tenant (per-homestay) columns — same "xxxId matches a table name"
+  // trap applies to homestayId since the new `homesteys` table exists.
+  { tableEnv: "NOCODB_TABLE_USERS", field: "homestayId" },
+  { tableEnv: "NOCODB_TABLE_ROOM_TYPES", field: "homestayId" },
+  { tableEnv: "NOCODB_TABLE_ROOMS", field: "homestayId" },
+  { tableEnv: "NOCODB_TABLE_RATE_PLANS", field: "homestayId" },
+  { tableEnv: "NOCODB_TABLE_STAYS", field: "homestayId" },
+  { tableEnv: "NOCODB_TABLE_SETTINGS", field: "homestayId" },
 ];
 
 function headers() {
@@ -42,7 +50,15 @@ async function fixColumn(tableId, field) {
   const meta = await req(`/api/v2/meta/tables/${tableId}`);
   const col = meta.columns.find((c) => c.title === field);
   if (!col) {
-    console.log(`  ! column "${field}" not found on table ${tableId} — skipping`);
+    // Same gotcha can make NocoDB drop the column entirely instead of
+    // turning it into a Link (seen on ratePlans.roomTypeId last time) —
+    // either way, a plain SingleLineText column is what we want, so create
+    // it if it's simply missing.
+    await req(`/api/v2/meta/tables/${tableId}/columns`, {
+      method: "POST",
+      body: JSON.stringify({ title: field, column_name: field, uidt: "SingleLineText" }),
+    });
+    console.log(`  + "${field}" was missing — created as SingleLineText`);
     return;
   }
   if (col.uidt !== "LinkToAnotherRecord") {

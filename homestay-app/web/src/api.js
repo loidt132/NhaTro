@@ -10,12 +10,21 @@ export function setUnauthorizedHandler(fn) {
   unauthorizedHandler = fn;
 }
 
+// Which homestay every request acts on. admin/staff never call this — their
+// JWT already pins one homestay server-side — only the owner's homestay
+// switcher (HomestayContext) sets it, since owner has no fixed homestay.
+let currentHomestayId = null;
+export function setCurrentHomestayId(id) {
+  currentHomestayId = id;
+}
+
 async function request(base, path, options) {
   const auth = loadAuth();
   const res = await fetch(`${base}${path}`, {
     headers: {
       "Content-Type": "application/json",
       ...(auth?.token ? { Authorization: `Bearer ${auth.token}` } : {}),
+      ...(currentHomestayId ? { "X-Homestay-Id": currentHomestayId } : {}),
     },
     ...options,
   });
@@ -31,6 +40,15 @@ async function request(base, path, options) {
 export const authApi = {
   login: (username, password) =>
     request(HOMESTAY_API, "/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+};
+
+// Owner-only: manage the homesteys (tenants) themselves. Doesn't need the
+// X-Homestay-Id header — these routes act above any single homestay.
+export const ownerApi = {
+  listHomesteys: () => request(HOMESTAY_API, "/api/owner/homesteys"),
+  addHomestay: (name) => request(HOMESTAY_API, "/api/owner/homesteys", { method: "POST", body: JSON.stringify({ name }) }),
+  renameHomestay: (id, name) =>
+    request(HOMESTAY_API, `/api/owner/homesteys/${id}`, { method: "PUT", body: JSON.stringify({ name }) }),
 };
 
 export const homestayApi = {
@@ -71,22 +89,32 @@ export const homestayApi = {
 
 // One catalog backend for both dịch vụ (kind: "service") and phụ thu
 // (kind: "surcharge") items — pass kind to filter, omit it to get everything.
-// Reads go straight to catalog-service (public, no secret). Writes go
+// Reads go straight to catalog-service (public, no secret) but still need
+// ?homestayId= so one homestay never sees another's price list. Writes go
 // through homestay-server's /api/admin/catalog/* proxy instead of hitting
 // catalog-service directly — that proxy is what checks the caller is a
-// logged-in admin and attaches the service-to-service API key, which the
-// browser is never given.
+// logged-in admin and attaches the service-to-service API key (plus
+// homestayId from the validated JWT/header), which the browser is never
+// given directly.
 export const catalogApi = {
-  getCategories: () => request(CATALOG_API, "/api/categories"),
+  getCategories: () => request(CATALOG_API, `/api/categories?homestayId=${currentHomestayIdForCatalog()}`),
   addCategory: (name) => request(HOMESTAY_API, "/api/admin/catalog/categories", { method: "POST", body: JSON.stringify({ name }) }),
   updateCategory: (id, name) =>
     request(HOMESTAY_API, `/api/admin/catalog/categories/${id}`, { method: "PUT", body: JSON.stringify({ name }) }),
   deleteCategory: (id) => request(HOMESTAY_API, `/api/admin/catalog/categories/${id}`, { method: "DELETE" }),
-  getItems: (kind) => request(CATALOG_API, `/api/items${kind ? `?kind=${kind}` : ""}`),
+  getItems: (kind) =>
+    request(CATALOG_API, `/api/items?homestayId=${currentHomestayIdForCatalog()}${kind ? `&kind=${kind}` : ""}`),
   addItem: (body) => request(HOMESTAY_API, "/api/admin/catalog/items", { method: "POST", body: JSON.stringify(body) }),
   updateItem: (id, body) => request(HOMESTAY_API, `/api/admin/catalog/items/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteItem: (id) => request(HOMESTAY_API, `/api/admin/catalog/items/${id}`, { method: "DELETE" }),
 };
+
+// catalog-service isn't behind the X-Homestay-Id-aware proxy for reads (it's
+// called directly from the browser), so its own calls resolve the homestay
+// id from the same module-level value directly instead of a header.
+function currentHomestayIdForCatalog() {
+  return currentHomestayId || "";
+}
 
 export const userAdminApi = {
   list: () => request(HOMESTAY_API, "/api/admin/users"),

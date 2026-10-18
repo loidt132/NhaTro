@@ -1,9 +1,25 @@
 -- homestay-server schema for NocoDB / SQL import.
--- Single-tenant app (one homestay business), so there is no created_by
--- ownership column like nhà trọ's multi-tenant schema — every row just
--- belongs to this app's one NocoDB base. Column names match the JS objects
--- in server/src/index.js field-for-field so wiring the real NocoDB REST
--- calls in later is a straight rename-free mapping.
+-- Multi-tenant: one deployment runs several homesteys (properties), each
+-- isolated by the homestayId column added to every table below except
+-- guests/serviceCharges/roomTransfers/lockEventsLog (only ever reached
+-- through an already-scoped stayId, so adding it there would be redundant).
+-- Column names match the JS objects in server/src/index.js field-for-field
+-- so wiring NocoDB calls is a straight rename-free mapping.
+--
+-- IMPORTANT: do not add `homestayId` (or any new table) by re-running this
+-- file through NocoDB's SQL-import wizard — it silently turns any `xxxId`
+-- column matching another table's name into a LinkToAnotherRecord relation
+-- instead of a plain column, which then drops every value written to it.
+-- Add `homesteys` and every `homestayId` column by hand in the NocoDB UI as
+-- plain "Single line text" fields, then run
+-- `npm run fix-links` (scripts/fix-link-columns.js) as a safety net.
+
+CREATE TABLE IF NOT EXISTS homesteys (
+  id VARCHAR(64) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(64) PRIMARY KEY,
@@ -133,7 +149,7 @@ CREATE TABLE IF NOT EXISTS lockEventsLog (
 
 CREATE INDEX IF NOT EXISTS idx_lock_events_stay ON lockEventsLog (stayId);
 
--- Single-row configuration table (payment QR info + owner info), same shape
+-- One settings row per homestay (payment QR info + owner info), same shape
 -- as nhà trọ's settings table minus the per-landlord created_by column.
 CREATE TABLE IF NOT EXISTS settings (
   id VARCHAR(64) PRIMARY KEY,
@@ -147,3 +163,20 @@ CREATE TABLE IF NOT EXISTS settings (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Multi-tenant columns. NULL homestayId on a user means role='owner' (sees
+-- every homestay, not pinned to one). See the warning at the top of this
+-- file before adding these in NocoDB.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS homestayId VARCHAR(64);
+ALTER TABLE roomTypes ADD COLUMN IF NOT EXISTS homestayId VARCHAR(64) NOT NULL;
+ALTER TABLE rooms ADD COLUMN IF NOT EXISTS homestayId VARCHAR(64) NOT NULL;
+ALTER TABLE ratePlans ADD COLUMN IF NOT EXISTS homestayId VARCHAR(64) NOT NULL;
+ALTER TABLE stays ADD COLUMN IF NOT EXISTS homestayId VARCHAR(64) NOT NULL;
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS homestayId VARCHAR(64) NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_users_homestay ON users (homestayId);
+CREATE INDEX IF NOT EXISTS idx_room_types_homestay ON roomTypes (homestayId);
+CREATE INDEX IF NOT EXISTS idx_rooms_homestay ON rooms (homestayId);
+CREATE INDEX IF NOT EXISTS idx_rate_plans_homestay ON ratePlans (homestayId);
+CREATE INDEX IF NOT EXISTS idx_stays_homestay ON stays (homestayId);
+CREATE INDEX IF NOT EXISTS idx_settings_homestay ON settings (homestayId);

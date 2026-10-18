@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { catalogApi, formatVnd } from "../api.js";
 import { badgeBase, btn, btnDanger, btnPrimary, card, input, label, table, tableWrap, td, th } from "../ui.js";
 import { useAuth } from "../AuthContext.js";
+import { useHomestay } from "../HomestayContext.js";
 
 export default function ServiceCatalogAdmin() {
   const { user } = useAuth();
+  const { currentHomestayId } = useHomestay();
   const isAdmin = user?.role === "admin";
   const [categories, setCategories] = useState([]);
   const [items, setItems] = useState([]);
@@ -26,7 +28,7 @@ export default function ServiceCatalogAdmin() {
 
   useEffect(() => {
     refresh();
-  }, []);
+  }, [currentHomestayId]);
 
   function categoryName(id) {
     return categories.find((c) => c.id === id)?.name || id;

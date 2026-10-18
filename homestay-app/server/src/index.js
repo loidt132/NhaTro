@@ -13,7 +13,15 @@ import {
 } from "./nocodb.js";
 import { computeStayRoomCharge } from "./pricing.js";
 import { createLockProvider } from "./lockProvider.js";
-import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from "./auth.js";
+import {
+  hashPassword,
+  verifyPassword,
+  signToken,
+  requireAuth,
+  requireAdmin,
+  requireOwner,
+  requireHomestayContext,
+} from "./auth.js";
 
 const app = express();
 app.use(cors());
@@ -25,9 +33,30 @@ const SERVICE_CATALOG_URL = process.env.SERVICE_CATALOG_URL || "http://localhost
 // trusted backend (already auth'd + admin-checked), never from the browser
 // directly. Keep it out of any frontend bundle/env.
 const CATALOG_ADMIN_KEY = process.env.CATALOG_ADMIN_KEY || "dev-catalog-admin-key-change-me";
-// Settings is a single-row table — always addressed by this fixed business id.
-const SETTINGS_ROW_ID = "settings-1";
 const lockProvider = createLockProvider();
+const START_TIME = Date.now();
+
+// ---- Health check ----
+// Public, no auth — used by uptime monitors/load balancers. Does a cheap
+// NocoDB round trip so "ok" actually means the app can serve real requests,
+// not just that the Node process is alive.
+app.get("/health", async (req, res) => {
+  let nocodb = "unknown";
+  try {
+    await listRows("homesteys", { limit: 1 });
+    nocodb = "ok";
+  } catch (err) {
+    nocodb = `error: ${err.message}`;
+  }
+  const status = nocodb === "ok" ? "ok" : "degraded";
+  res.status(status === "ok" ? 200 : 503).json({
+    status,
+    service: "homestay-server",
+    uptimeSeconds: Math.round((Date.now() - START_TIME) / 1000),
+    timestamp: new Date().toISOString(),
+    dependencies: { nocodb },
+  });
+});
 
 // Every route handler below is async (NocoDB is an HTTP call away); this
 // wrapper means a thrown/rejected error (NocoDB down, misconfigured table,
@@ -45,6 +74,25 @@ function asyncRoute(fn) {
   };
 }
 
+// ---- Multi-tenant helpers ----
+// req.homestayId is set by requireHomestayContext: for admin/staff it's
+// their own fixed homestay; for owner it's whichever homestay they picked
+// via the X-Homestay-Id header. Every route below filters/stamps by it —
+// nobody, owner included, ever sees unfiltered cross-homestay data by
+// accident, because the same code path runs for every role.
+
+function withTenant(req, where) {
+  const clause = `(homestayId,eq,${req.homestayId})`;
+  return where ? `${clause}~and${where}` : clause;
+}
+
+// Returns the row only if it belongs to the caller's current homestay —
+// otherwise null, which routes turn into a 404 (never 403: a guessed id
+// from another tenant shouldn't even confirm it exists).
+function owned(row, req) {
+  return row && row.homestayId === req.homestayId ? row : null;
+}
+
 // ---- Normalizers ----
 // NocoDB returns every column including its own system fields (Id,
 // CreatedAt, ...) and may serialize numbers/booleans loosely depending on
@@ -52,7 +100,10 @@ function asyncRoute(fn) {
 // the app (and the frontend) already expects, with numbers/booleans coerced.
 
 function normUser(u) {
-  return { id: u.id, username: u.username, name: u.name, role: u.role };
+  return { id: u.id, username: u.username, name: u.name, role: u.role, homestayId: u.homestayId || null };
+}
+function normHomestay(h) {
+  return { id: h.id, name: h.name };
 }
 function normRoomType(t) {
   return { id: t.id, name: t.name };
@@ -82,6 +133,7 @@ function normRatePlan(p) {
 function normStay(s) {
   return {
     id: s.id,
+    homestayId: s.homestayId,
     roomId: s.roomId,
     pricingType: s.pricingType,
     status: s.status,
@@ -128,6 +180,36 @@ function normSettings(s) {
   };
 }
 
+// Seeds a brand-new homestay with the same starter rate plans used by the
+// first-run seed script, so "+ Thêm homestay" never hands the owner an
+// empty, unusable property (no room types / pricing to add rooms against).
+async function seedDefaultCatalogForHomestay(homestayId) {
+  const standard = await createRow("roomTypes", { id: uuid(), homestayId, name: "Phòng Standard" });
+  const deluxe = await createRow("roomTypes", { id: uuid(), homestayId, name: "Phòng Deluxe" });
+  await createRow("ratePlans", {
+    id: uuid(),
+    homestayId,
+    roomTypeId: standard.id,
+    hourlyFirstBlockHours: 2,
+    hourlyFirstBlockPrice: 150000,
+    hourlyExtraPricePerHour: 50000,
+    overnightPrice: 250000,
+    fullDayPrice: 350000,
+    lateCheckoutPricePerHour: 50000,
+  });
+  await createRow("ratePlans", {
+    id: uuid(),
+    homestayId,
+    roomTypeId: deluxe.id,
+    hourlyFirstBlockHours: 2,
+    hourlyFirstBlockPrice: 220000,
+    hourlyExtraPricePerHour: 70000,
+    overnightPrice: 350000,
+    fullDayPrice: 480000,
+    lateCheckoutPricePerHour: 70000,
+  });
+}
+
 // ---- Auth ----
 
 app.post(
@@ -140,28 +222,76 @@ app.post(
       return res.status(401).json({ error: "Sai tên đăng nhập hoặc mật khẩu." });
     }
     const token = signToken(user);
-    res.json({ token, user: normUser(user) });
+    let homestayName = null;
+    if (user.homestayId) {
+      const homestay = await findOneByBusinessId("homesteys", user.homestayId);
+      homestayName = homestay?.name || null;
+    }
+    res.json({ token, user: { ...normUser(user), homestayName } });
   })
 );
 
 app.get("/api/auth/me", requireAuth, (req, res) => {
-  res.json({ id: req.user.sub, username: req.user.username, name: req.user.name, role: req.user.role });
+  res.json({ id: req.user.sub, username: req.user.username, name: req.user.name, role: req.user.role, homestayId: req.user.homestayId });
 });
 
-// Every route below this line requires a logged-in user (admin or nhân
-// viên); individual routes add requireAdmin on top where only admin may act.
-app.use("/api", requireAuth);
+// ---- Owner-only: manage homesteys themselves ----
+// Mounted before requireHomestayContext — creating/listing homesteys is the
+// one thing that isn't scoped to a single homestay.
 
-// ---- User management (admin only) ----
+app.get(
+  "/api/owner/homesteys",
+  requireAuth,
+  requireOwner,
+  asyncRoute(async (req, res) => {
+    const rows = await listRows("homesteys");
+    res.json(rows.map(normHomestay));
+  })
+);
+
+app.post(
+  "/api/owner/homesteys",
+  requireAuth,
+  requireOwner,
+  asyncRoute(async (req, res) => {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: "name is required" });
+    const row = await createRow("homesteys", { id: uuid(), name });
+    await seedDefaultCatalogForHomestay(row.id);
+    res.status(201).json(normHomestay(row));
+  })
+);
+
+app.put(
+  "/api/owner/homesteys/:id",
+  requireAuth,
+  requireOwner,
+  asyncRoute(async (req, res) => {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: "name is required" });
+    const updated = await updateRowByBusinessId("homesteys", req.params.id, { name });
+    if (!updated) return res.status(404).json({ error: "not found" });
+    res.json(normHomestay(updated));
+  })
+);
+
+// Every route below this line requires a logged-in user AND a resolved
+// homestay context (req.homestayId) — see requireHomestayContext in auth.js.
+app.use("/api", requireAuth, requireHomestayContext);
+
+// ---- User management (admin/owner) ----
 // Passwords are one-way hashed (scrypt) — nobody, including admin, can ever
 // look up an existing password. Admin can only set a NEW one (create, or
-// "đặt lại mật khẩu" on an existing account).
+// "đặt lại mật khẩu" on an existing account). Scoped to req.homestayId like
+// everything else, so an admin only ever sees/edits their own homestay's
+// staff — and for an owner, "their own homestay" is whichever one they
+// currently have selected.
 
 app.get(
   "/api/admin/users",
   requireAdmin,
   asyncRoute(async (req, res) => {
-    const rows = await listRows("users");
+    const rows = await listRows("users", { where: withTenant(req) });
     res.json(rows.map(normUser));
   })
 );
@@ -179,7 +309,14 @@ app.post(
     }
     const existing = await findOneWhere("users", `(username,eq,${username})`);
     if (existing) return res.status(409).json({ error: "Tên đăng nhập đã tồn tại" });
-    const row = await createRow("users", { id: uuid(), username, name, role, passwordHash: hashPassword(password) });
+    const row = await createRow("users", {
+      id: uuid(),
+      homestayId: req.homestayId,
+      username,
+      name,
+      role,
+      passwordHash: hashPassword(password),
+    });
     res.status(201).json(normUser(row));
   })
 );
@@ -188,19 +325,19 @@ app.put(
   "/api/admin/users/:id",
   requireAdmin,
   asyncRoute(async (req, res) => {
-    const user = await findOneByBusinessId("users", req.params.id);
+    const user = owned(await findOneByBusinessId("users", req.params.id), req);
     if (!user) return res.status(404).json({ error: "not found" });
     const { name, role, password } = req.body;
     if (role && role !== "admin" && role !== "staff") {
       return res.status(400).json({ error: "role phải là admin hoặc staff" });
     }
-    // Don't let the last admin demote themselves (or be demoted) and lock
-    // everyone out of admin-only screens.
+    // Don't let the last admin *of this homestay* demote themselves (or be
+    // demoted) and lock everyone out of admin-only screens for it.
     if (role && role !== "admin" && user.role === "admin") {
-      const admins = await listRows("users", { where: "(role,eq,admin)" });
+      const admins = await listRows("users", { where: withTenant(req, "(role,eq,admin)") });
       const others = admins.filter((u) => u.id !== user.id);
       if (others.length === 0) {
-        return res.status(409).json({ error: "Không thể đổi vai trò — đây là admin cuối cùng." });
+        return res.status(409).json({ error: "Không thể đổi vai trò — đây là admin cuối cùng của homestay này." });
       }
     }
     const patch = {};
@@ -216,29 +353,29 @@ app.delete(
   "/api/admin/users/:id",
   requireAdmin,
   asyncRoute(async (req, res) => {
-    const user = await findOneByBusinessId("users", req.params.id);
+    const user = owned(await findOneByBusinessId("users", req.params.id), req);
     if (!user) return res.status(404).json({ error: "not found" });
     if (user.id === req.user.sub) {
       return res.status(409).json({ error: "Không thể tự xoá tài khoản đang đăng nhập." });
     }
     if (user.role === "admin") {
-      const admins = await listRows("users", { where: "(role,eq,admin)" });
-      if (admins.length <= 1) return res.status(409).json({ error: "Không thể xoá — đây là admin cuối cùng." });
+      const admins = await listRows("users", { where: withTenant(req, "(role,eq,admin)") });
+      if (admins.length <= 1) return res.status(409).json({ error: "Không thể xoá — đây là admin cuối cùng của homestay này." });
     }
     await deleteRowByBusinessId("users", req.params.id);
     res.status(204).end();
   })
 );
 
-async function ratePlanForRoomId(roomId) {
-  const room = await findOneByBusinessId("rooms", roomId);
-  if (!room) throw new Error(`Room not found: ${roomId}`);
-  const ratePlan = await findOneWhere("ratePlans", `(roomTypeId,eq,${room.roomTypeId})`);
+async function ratePlanForRoomId(roomId, req) {
+  const room = owned(await findOneByBusinessId("rooms", roomId), req);
+  if (!room) throw new Error(`Room not found in this homestay: ${roomId}`);
+  const ratePlan = await findOneWhere("ratePlans", withTenant(req, `(roomTypeId,eq,${room.roomTypeId})`));
   if (!ratePlan) throw new Error(`No rate plan for room type: ${room.roomTypeId}`);
   return { room: normRoom(room), ratePlan: normRatePlan(ratePlan) };
 }
 
-async function buildStayView(stay) {
+async function buildStayView(stay, req) {
   const [guestsRaw, chargesRaw, transfersRaw] = await Promise.all([
     listRows("guests", { where: `(stayId,eq,${stay.id})` }),
     listRows("serviceCharges", { where: `(stayId,eq,${stay.id})` }),
@@ -267,7 +404,7 @@ async function buildStayView(stay) {
   );
 
   const endAt = stay.checkOutAt || dayjs().toISOString();
-  const { room, ratePlan } = await ratePlanForRoomId(stay.roomId);
+  const { room, ratePlan } = await ratePlanForRoomId(stay.roomId, req);
   const roomLines = computeStayRoomCharge(stay, ratePlan, endAt);
 
   const guests = guestsRaw.map(normGuest);
@@ -303,7 +440,7 @@ async function buildStayView(stay) {
 app.get(
   "/api/room-types",
   asyncRoute(async (req, res) => {
-    const rows = await listRows("roomTypes");
+    const rows = await listRows("roomTypes", { where: withTenant(req) });
     res.json(rows.map(normRoomType));
   })
 );
@@ -312,8 +449,8 @@ app.get(
   "/api/rooms",
   asyncRoute(async (req, res) => {
     const [rooms, activeStays] = await Promise.all([
-      listRows("rooms"),
-      listRows("stays", { where: "(status,eq,active)" }),
+      listRows("rooms", { where: withTenant(req) }),
+      listRows("stays", { where: withTenant(req, "(status,eq,active)") }),
     ]);
     const activeByRoom = new Map(activeStays.map((s) => [s.roomId, s.id]));
     res.json(rooms.map((r) => ({ ...normRoom(r), activeStayId: activeByRoom.get(r.id) || null })));
@@ -326,10 +463,11 @@ app.post(
   asyncRoute(async (req, res) => {
     const { name, roomTypeId, lockId } = req.body;
     if (!name || !roomTypeId) return res.status(400).json({ error: "name and roomTypeId are required" });
-    const roomType = await findOneByBusinessId("roomTypes", roomTypeId);
+    const roomType = owned(await findOneByBusinessId("roomTypes", roomTypeId), req);
     if (!roomType) return res.status(400).json({ error: "unknown roomTypeId" });
     const row = await createRow("rooms", {
       id: uuid(),
+      homestayId: req.homestayId,
       name,
       roomTypeId,
       lockId: lockId || "",
@@ -348,9 +486,11 @@ app.put(
     // Renaming, reassigning type, rekeying the lock, or deactivating a room
     // is configuration — admin only.
     const isConfigChange = name != null || roomTypeId != null || lockId != null || active != null;
-    if (isConfigChange && req.user.role !== "admin") {
+    if (isConfigChange && req.user.role !== "admin" && req.user.role !== "owner") {
       return res.status(403).json({ error: "Chỉ admin mới được sửa thông tin phòng." });
     }
+    const room = owned(await findOneByBusinessId("rooms", req.params.id), req);
+    if (!room) return res.status(404).json({ error: "not found" });
     const patch = {};
     if (status) patch.status = status;
     if (name) patch.name = name;
@@ -358,7 +498,6 @@ app.put(
     if (lockId != null) patch.lockId = lockId;
     if (active != null) patch.active = Boolean(active);
     const updated = await updateRowByBusinessId("rooms", req.params.id, patch);
-    if (!updated) return res.status(404).json({ error: "not found" });
     res.json(normRoom(updated));
   })
 );
@@ -371,7 +510,7 @@ app.delete(
   "/api/rooms/:id",
   requireAdmin,
   asyncRoute(async (req, res) => {
-    const room = await findOneByBusinessId("rooms", req.params.id);
+    const room = owned(await findOneByBusinessId("rooms", req.params.id), req);
     if (!room) return res.status(404).json({ error: "not found" });
 
     const [stayHistory, transfersFrom, transfersTo] = await Promise.all([
@@ -396,7 +535,7 @@ app.delete(
 app.get(
   "/api/rate-plans",
   asyncRoute(async (req, res) => {
-    const rows = await listRows("ratePlans");
+    const rows = await listRows("ratePlans", { where: withTenant(req) });
     res.json(rows.map(normRatePlan));
   })
 );
@@ -405,8 +544,9 @@ app.put(
   "/api/rate-plans/:id",
   requireAdmin,
   asyncRoute(async (req, res) => {
+    const plan = owned(await findOneByBusinessId("ratePlans", req.params.id), req);
+    if (!plan) return res.status(404).json({ error: "not found" });
     const updated = await updateRowByBusinessId("ratePlans", req.params.id, req.body);
-    if (!updated) return res.status(404).json({ error: "not found" });
     res.json(normRatePlan(updated));
   })
 );
@@ -417,19 +557,22 @@ app.put(
 // *this* app's admin check, but catalog-service can't see our JWTs — so the
 // browser never talks to catalog-service for writes; it calls these proxy
 // routes (admin-only), which forward the request with a shared API key
-// catalog-service trusts. Reads (GET items/categories) stay public and
-// go straight from the browser to catalog-service — no secret involved.
+// catalog-service trusts plus this request's homestayId, so catalog-service
+// can keep each homestay's price list separate too. Reads (GET
+// items/categories) stay public and go straight from the browser to
+// catalog-service with ?homestayId= — no secret involved there.
 
 async function proxyToCatalog(req, res, path, method) {
   try {
+    const body = method === "DELETE" ? undefined : JSON.stringify({ ...req.body, homestayId: req.homestayId });
     const r = await fetch(`${SERVICE_CATALOG_URL}${path}`, {
       method,
       headers: { "Content-Type": "application/json", "x-api-key": CATALOG_ADMIN_KEY },
-      body: method === "DELETE" ? undefined : JSON.stringify(req.body),
+      body,
     });
     if (r.status === 204) return res.status(204).end();
-    const body = await r.json().catch(() => ({}));
-    res.status(r.status).json(body);
+    const responseBody = await r.json().catch(() => ({}));
+    res.status(r.status).json(responseBody);
   } catch (err) {
     res.status(502).json({ error: `could not reach catalog-service: ${err.message}` });
   }
@@ -437,17 +580,17 @@ async function proxyToCatalog(req, res, path, method) {
 
 app.post("/api/admin/catalog/categories", requireAdmin, (req, res) => proxyToCatalog(req, res, "/api/categories", "POST"));
 app.put("/api/admin/catalog/categories/:id", requireAdmin, (req, res) =>
-  proxyToCatalog(req, res, `/api/categories/${req.params.id}`, "PUT")
+  proxyToCatalog(req, res, `/api/categories/${req.params.id}?homestayId=${req.homestayId}`, "PUT")
 );
 app.delete("/api/admin/catalog/categories/:id", requireAdmin, (req, res) =>
-  proxyToCatalog(req, res, `/api/categories/${req.params.id}`, "DELETE")
+  proxyToCatalog(req, res, `/api/categories/${req.params.id}?homestayId=${req.homestayId}`, "DELETE")
 );
 app.post("/api/admin/catalog/items", requireAdmin, (req, res) => proxyToCatalog(req, res, "/api/items", "POST"));
 app.put("/api/admin/catalog/items/:id", requireAdmin, (req, res) =>
-  proxyToCatalog(req, res, `/api/items/${req.params.id}`, "PUT")
+  proxyToCatalog(req, res, `/api/items/${req.params.id}?homestayId=${req.homestayId}`, "PUT")
 );
 app.delete("/api/admin/catalog/items/:id", requireAdmin, (req, res) =>
-  proxyToCatalog(req, res, `/api/items/${req.params.id}`, "DELETE")
+  proxyToCatalog(req, res, `/api/items/${req.params.id}?homestayId=${req.homestayId}`, "DELETE")
 );
 
 // ---- Stays (check-in / detail / services / surcharges / transfer / checkout) ----
@@ -455,8 +598,8 @@ app.delete("/api/admin/catalog/items/:id", requireAdmin, (req, res) =>
 app.get(
   "/api/stays",
   asyncRoute(async (req, res) => {
-    const rows = await listRows("stays", req.query.status ? { where: `(status,eq,${req.query.status})` } : {});
-    const views = await Promise.all(rows.map((s) => buildStayView(normStay(s))));
+    const rows = await listRows("stays", { where: withTenant(req, req.query.status ? `(status,eq,${req.query.status})` : undefined) });
+    const views = await Promise.all(rows.map((s) => buildStayView(normStay(s), req)));
     res.json(views);
   })
 );
@@ -464,9 +607,9 @@ app.get(
 app.get(
   "/api/stays/:id",
   asyncRoute(async (req, res) => {
-    const stay = await findOneByBusinessId("stays", req.params.id);
+    const stay = owned(await findOneByBusinessId("stays", req.params.id), req);
     if (!stay) return res.status(404).json({ error: "not found" });
-    res.json(await buildStayView(normStay(stay)));
+    res.json(await buildStayView(normStay(stay), req));
   })
 );
 
@@ -477,7 +620,7 @@ app.post(
     if (!roomId || !pricingType || !mainGuest?.name) {
       return res.status(400).json({ error: "roomId, pricingType, mainGuest.name are required" });
     }
-    const room = await findOneByBusinessId("rooms", roomId);
+    const room = owned(await findOneByBusinessId("rooms", roomId), req);
     if (!room) return res.status(404).json({ error: "room not found" });
     if (room.status !== "empty") return res.status(409).json({ error: "room is not empty" });
 
@@ -496,6 +639,7 @@ app.post(
 
     const stayRow = await createRow("stays", {
       id: uuid(),
+      homestayId: req.homestayId,
       roomId,
       pricingType, // "hourly" | "overnight" | "fullday"
       status: "active",
@@ -517,14 +661,14 @@ app.post(
 
     await updateRowByBusinessId("rooms", roomId, { status: "occupied" });
 
-    res.status(201).json(await buildStayView(normStay(stayRow)));
+    res.status(201).json(await buildStayView(normStay(stayRow), req));
   })
 );
 
 app.post(
   "/api/stays/:id/guests",
   asyncRoute(async (req, res) => {
-    const stay = await findOneByBusinessId("stays", req.params.id);
+    const stay = owned(await findOneByBusinessId("stays", req.params.id), req);
     if (!stay) return res.status(404).json({ error: "not found" });
     const { name, idNumber, dob, phone } = req.body;
     if (!name) return res.status(400).json({ error: "name required" });
@@ -544,14 +688,14 @@ app.post(
 app.post(
   "/api/stays/:id/services",
   asyncRoute(async (req, res) => {
-    const stay = await findOneByBusinessId("stays", req.params.id);
+    const stay = owned(await findOneByBusinessId("stays", req.params.id), req);
     if (!stay) return res.status(404).json({ error: "not found" });
     const { itemId, qty } = req.body;
     if (!itemId || !qty) return res.status(400).json({ error: "itemId and qty required" });
 
     let item;
     try {
-      const r = await fetch(`${SERVICE_CATALOG_URL}/api/items/${itemId}`);
+      const r = await fetch(`${SERVICE_CATALOG_URL}/api/items/${itemId}?homestayId=${req.homestayId}`);
       if (!r.ok) throw new Error(`status ${r.status}`);
       item = await r.json();
     } catch (err) {
@@ -576,7 +720,7 @@ app.post(
 app.post(
   "/api/stays/:id/surcharges",
   asyncRoute(async (req, res) => {
-    const stay = await findOneByBusinessId("stays", req.params.id);
+    const stay = owned(await findOneByBusinessId("stays", req.params.id), req);
     if (!stay) return res.status(404).json({ error: "not found" });
     const { surchargeRuleId, qty } = req.body;
     if (!surchargeRuleId) return res.status(400).json({ error: "surchargeRuleId required" });
@@ -585,7 +729,7 @@ app.post(
     // just tagged kind: "surcharge" — one catalog backend instead of two.
     let item;
     try {
-      const r = await fetch(`${SERVICE_CATALOG_URL}/api/items/${surchargeRuleId}`);
+      const r = await fetch(`${SERVICE_CATALOG_URL}/api/items/${surchargeRuleId}?homestayId=${req.homestayId}`);
       if (!r.ok) throw new Error(`status ${r.status}`);
       item = await r.json();
     } catch (err) {
@@ -614,7 +758,7 @@ app.post(
 app.delete(
   "/api/stays/:id/charges/:chargeId",
   asyncRoute(async (req, res) => {
-    const stay = await findOneByBusinessId("stays", req.params.id);
+    const stay = owned(await findOneByBusinessId("stays", req.params.id), req);
     if (!stay) return res.status(404).json({ error: "not found" });
     if (stay.status !== "active") {
       return res.status(409).json({ error: "Lượt lưu trú đã trả phòng, không thể sửa hoá đơn." });
@@ -629,11 +773,11 @@ app.delete(
 app.post(
   "/api/stays/:id/transfer",
   asyncRoute(async (req, res) => {
-    const stay = await findOneByBusinessId("stays", req.params.id);
+    const stay = owned(await findOneByBusinessId("stays", req.params.id), req);
     if (!stay) return res.status(404).json({ error: "not found" });
     if (stay.status !== "active") return res.status(409).json({ error: "stay is not active" });
     const { toRoomId, reason } = req.body;
-    const toRoom = await findOneByBusinessId("rooms", toRoomId);
+    const toRoom = owned(await findOneByBusinessId("rooms", toRoomId), req);
     if (!toRoom) return res.status(404).json({ error: "target room not found" });
     if (toRoom.status !== "empty") return res.status(409).json({ error: "target room is not empty" });
 
@@ -649,14 +793,14 @@ app.post(
     await updateRowByBusinessId("rooms", toRoomId, { status: "occupied" });
     const updatedStay = await updateRowByBusinessId("stays", stay.id, { roomId: toRoomId });
 
-    res.status(201).json(await buildStayView(normStay(updatedStay)));
+    res.status(201).json(await buildStayView(normStay(updatedStay), req));
   })
 );
 
 app.post(
   "/api/stays/:id/simulate-swipe",
   asyncRoute(async (req, res) => {
-    const stay = await findOneByBusinessId("stays", req.params.id);
+    const stay = owned(await findOneByBusinessId("stays", req.params.id), req);
     if (!stay) return res.status(404).json({ error: "not found" });
     const row = await createRow("lockEventsLog", {
       id: uuid(),
@@ -672,7 +816,7 @@ app.post(
 app.post(
   "/api/stays/:id/checkout",
   asyncRoute(async (req, res) => {
-    const stay = await findOneByBusinessId("stays", req.params.id);
+    const stay = owned(await findOneByBusinessId("stays", req.params.id), req);
     if (!stay) return res.status(404).json({ error: "not found" });
     if (stay.status !== "active") return res.status(409).json({ error: "stay is not active" });
 
@@ -686,7 +830,7 @@ app.post(
       console.warn(`lockProvider.revokeCard failed: ${err.message}`);
     }
 
-    res.json(await buildStayView(normStay(updatedStay)));
+    res.json(await buildStayView(normStay(updatedStay), req));
   })
 );
 
@@ -696,9 +840,9 @@ app.get(
   "/api/guest-report",
   asyncRoute(async (req, res) => {
     const { date } = req.query; // YYYY-MM-DD
-    const allStays = await listRows("stays");
+    const allStays = await listRows("stays", { where: withTenant(req) });
     const stays = date ? allStays.filter((s) => dayjs(s.checkInAt).format("YYYY-MM-DD") === date) : allStays;
-    const rooms = await listRows("rooms");
+    const rooms = await listRows("rooms", { where: withTenant(req) });
     const roomById = new Map(rooms.map((r) => [r.id, r]));
 
     const rows = [];
@@ -735,12 +879,12 @@ app.get(
 );
 
 // ---- Settings (payment / owner info, same shape as the nhà trọ app) ----
-// Single-row table, always addressed by the fixed id SETTINGS_ROW_ID.
+// One row per homestay, looked up/created by homestayId.
 
 app.get(
   "/api/settings",
   asyncRoute(async (req, res) => {
-    const row = await findOneByBusinessId("settings", SETTINGS_ROW_ID);
+    const row = await findOneWhere("settings", withTenant(req));
     res.json(normSettings(row));
   })
 );
@@ -749,10 +893,10 @@ app.put(
   "/api/settings",
   requireAdmin,
   asyncRoute(async (req, res) => {
-    const existing = await findOneByBusinessId("settings", SETTINGS_ROW_ID);
+    const existing = await findOneWhere("settings", withTenant(req));
     const row = existing
-      ? await updateRowByBusinessId("settings", SETTINGS_ROW_ID, req.body)
-      : await createRow("settings", { id: SETTINGS_ROW_ID, ...req.body });
+      ? await updateRowByBusinessId("settings", existing.id, req.body)
+      : await createRow("settings", { id: uuid(), homestayId: req.homestayId, ...req.body });
     res.json(normSettings(row));
   })
 );
@@ -763,7 +907,7 @@ app.get(
   "/api/reports/revenue",
   asyncRoute(async (req, res) => {
     const { from, to } = req.query; // YYYY-MM-DD, inclusive
-    const completed = await listRows("stays", { where: "(status,eq,checked_out)" });
+    const completed = await listRows("stays", { where: withTenant(req, "(status,eq,checked_out)") });
 
     const byDay = {};
     for (const stayRow of completed) {
@@ -771,7 +915,7 @@ app.get(
       const day = dayjs(stay.checkOutAt).format("YYYY-MM-DD");
       if (from && day < from) continue;
       if (to && day > to) continue;
-      const view = await buildStayView(stay);
+      const view = await buildStayView(stay, req);
       if (!byDay[day]) {
         byDay[day] = { date: day, roomRevenue: 0, serviceRevenue: 0, total: 0, stayCount: 0 };
       }
@@ -800,14 +944,14 @@ app.get(
   "/api/reports/occupancy",
   asyncRoute(async (req, res) => {
     const { from, to } = req.query; // YYYY-MM-DD, filters by checkInAt
-    const rooms = await listRows("rooms");
+    const rooms = await listRows("rooms", { where: withTenant(req) });
     const totalRooms = rooms.length;
     const currentOccupied = rooms.filter((r) => r.status === "occupied").length;
     const currentCleaning = rooms.filter((r) => r.status === "cleaning").length;
     const currentEmpty = totalRooms - currentOccupied - currentCleaning;
     const roomById = new Map(rooms.map((r) => [r.id, r]));
 
-    const allStays = await listRows("stays");
+    const allStays = await listRows("stays", { where: withTenant(req) });
     const filtered = allStays
       .filter((s) => {
         const day = dayjs(s.checkInAt).format("YYYY-MM-DD");

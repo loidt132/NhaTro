@@ -2,6 +2,12 @@
 -- This is the standalone priced-catalog service shared by homestay-app and
 -- (later) nhà trọ — see README.md. Only 2 tables; everything else in this
 -- repo's data/seed.json maps straight onto these.
+--
+-- Multi-tenant: each homestay has its own price list, isolated by
+-- homestayId (a plain id string — this service has no `homesteys` table of
+-- its own, it's just told which homestay a request is for). Same NocoDB
+-- import gotcha as homestay-server: add `homestayId` by hand in the UI as
+-- "Single line text", then run `npm run fix-links` as a safety net.
 
 CREATE TABLE IF NOT EXISTS categories (
   id VARCHAR(64) PRIMARY KEY,
@@ -26,3 +32,9 @@ CREATE TABLE IF NOT EXISTS items (
 
 CREATE INDEX IF NOT EXISTS idx_items_category ON items (categoryId);
 CREATE INDEX IF NOT EXISTS idx_items_kind ON items (kind);
+
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS homestayId VARCHAR(64) NOT NULL;
+ALTER TABLE items ADD COLUMN IF NOT EXISTS homestayId VARCHAR(64) NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_categories_homestay ON categories (homestayId);
+CREATE INDEX IF NOT EXISTS idx_items_homestay ON items (homestayId);

@@ -23,6 +23,20 @@ function requireApiKey(req, res, next) {
   next();
 }
 
+// This catalog is shared by multiple homestays (and, later, nhà trọ), each
+// with its own price list — every read/write is scoped by homestayId so
+// one homestay never sees or edits another's catalog. Unlike the admin-key
+// check above (proves the *caller* is a trusted backend), this check
+// doesn't verify WHO is asking, only WHICH homestay's data they asked
+// for — the caller (homestay-server's proxy) is what already validated the
+// user's JWT before ever reaching here.
+function requireHomestayId(req, res, next) {
+  const homestayId = req.query.homestayId || req.body?.homestayId;
+  if (!homestayId) return res.status(400).json({ error: "homestayId is required" });
+  req.homestayId = homestayId;
+  next();
+}
+
 // Strip NocoDB's own system columns (Id, CreatedAt, ...) so responses only
 // carry the business fields the frontend/homestay-server already expect.
 function asCategory(row) {
@@ -45,42 +59,43 @@ function nocoErrorToHttp(res, err) {
   res.status(502).json({ error: `NocoDB: ${err.message}` });
 }
 
-app.get("/api/categories", async (req, res) => {
+app.get("/api/categories", requireHomestayId, async (req, res) => {
   try {
-    const rows = await listRows("categories");
+    const rows = await listRows("categories", { where: `(homestayId,eq,${req.homestayId})` });
     res.json(rows.map(asCategory));
   } catch (err) {
     nocoErrorToHttp(res, err);
   }
 });
 
-app.post("/api/categories", requireApiKey, async (req, res) => {
+app.post("/api/categories", requireApiKey, requireHomestayId, async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "name is required" });
   try {
-    const row = await createRow("categories", { id: uuid(), name });
+    const row = await createRow("categories", { id: uuid(), homestayId: req.homestayId, name });
     res.status(201).json(asCategory(row));
   } catch (err) {
     nocoErrorToHttp(res, err);
   }
 });
 
-app.put("/api/categories/:id", requireApiKey, async (req, res) => {
+app.put("/api/categories/:id", requireApiKey, requireHomestayId, async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "name is required" });
   try {
+    const existing = await findOneByBusinessId("categories", req.params.id);
+    if (!existing || existing.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
     const row = await updateRowByBusinessId("categories", req.params.id, { name });
-    if (!row) return res.status(404).json({ error: "not found" });
     res.json(asCategory(row));
   } catch (err) {
     nocoErrorToHttp(res, err);
   }
 });
 
-app.delete("/api/categories/:id", requireApiKey, async (req, res) => {
+app.delete("/api/categories/:id", requireApiKey, requireHomestayId, async (req, res) => {
   try {
     const category = await findOneByBusinessId("categories", req.params.id);
-    if (!category) return res.status(404).json({ error: "not found" });
+    if (!category || category.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
     const itemsInCategory = await listRows("items", { where: `(categoryId,eq,${category.id})`, limit: 1 });
     if (itemsInCategory.length > 0) {
       return res.status(409).json({ error: "Danh mục đang có dịch vụ — hãy chuyển/xoá dịch vụ trong danh mục này trước." });
@@ -95,31 +110,30 @@ app.delete("/api/categories/:id", requireApiKey, async (req, res) => {
 // `kind` tells "service" (ăn uống, giặt là...) apart from "surcharge" (phụ
 // thu) items in the same catalog — one backend/admin page for both instead
 // of a second near-identical service.
-app.get("/api/items", async (req, res) => {
+app.get("/api/items", requireHomestayId, async (req, res) => {
   try {
     const { categoryId, kind } = req.query;
-    const clauses = [];
+    const clauses = [`(homestayId,eq,${req.homestayId})`];
     if (categoryId) clauses.push(`(categoryId,eq,${categoryId})`);
     if (kind) clauses.push(`(kind,eq,${kind})`);
-    const where = clauses.length ? clauses.join("~and") : undefined;
-    const rows = await listRows("items", { where });
+    const rows = await listRows("items", { where: clauses.join("~and") });
     res.json(rows.map(asItem));
   } catch (err) {
     nocoErrorToHttp(res, err);
   }
 });
 
-app.get("/api/items/:id", async (req, res) => {
+app.get("/api/items/:id", requireHomestayId, async (req, res) => {
   try {
     const row = await findOneByBusinessId("items", req.params.id);
-    if (!row) return res.status(404).json({ error: "not found" });
+    if (!row || row.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
     res.json(asItem(row));
   } catch (err) {
     nocoErrorToHttp(res, err);
   }
 });
 
-app.post("/api/items", requireApiKey, async (req, res) => {
+app.post("/api/items", requireApiKey, requireHomestayId, async (req, res) => {
   const { categoryId, name, unit, price, kind } = req.body;
   if (!name || price == null) {
     return res.status(400).json({ error: "name and price are required" });
@@ -131,6 +145,7 @@ app.post("/api/items", requireApiKey, async (req, res) => {
   try {
     const row = await createRow("items", {
       id: uuid(),
+      homestayId: req.homestayId,
       categoryId: categoryId || null,
       name,
       unit: unit || "",
@@ -143,7 +158,9 @@ app.post("/api/items", requireApiKey, async (req, res) => {
   }
 });
 
-app.put("/api/items/:id", requireApiKey, async (req, res) => {
+app.put("/api/items/:id", requireApiKey, requireHomestayId, async (req, res) => {
+  const existing = await findOneByBusinessId("items", req.params.id);
+  if (!existing || existing.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
   const patch = {};
   if (req.body.name != null) patch.name = req.body.name;
   if (req.body.unit != null) patch.unit = req.body.unit;
@@ -152,17 +169,17 @@ app.put("/api/items/:id", requireApiKey, async (req, res) => {
   if (req.body.kind != null) patch.kind = req.body.kind === "surcharge" ? "surcharge" : "service";
   try {
     const row = await updateRowByBusinessId("items", req.params.id, patch);
-    if (!row) return res.status(404).json({ error: "not found" });
     res.json(asItem(row));
   } catch (err) {
     nocoErrorToHttp(res, err);
   }
 });
 
-app.delete("/api/items/:id", requireApiKey, async (req, res) => {
+app.delete("/api/items/:id", requireApiKey, requireHomestayId, async (req, res) => {
   try {
-    const ok = await deleteRowByBusinessId("items", req.params.id);
-    if (!ok) return res.status(404).json({ error: "not found" });
+    const existing = await findOneByBusinessId("items", req.params.id);
+    if (!existing || existing.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
+    await deleteRowByBusinessId("items", req.params.id);
     res.status(204).end();
   } catch (err) {
     nocoErrorToHttp(res, err);

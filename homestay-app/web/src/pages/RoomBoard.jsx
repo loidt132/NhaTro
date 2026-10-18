@@ -3,9 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { homestayApi } from "../api.js";
 import { badgeBase, btn, btnDanger, btnPrimary, card, input, label, roomStatus } from "../ui.js";
 import { useAuth } from "../AuthContext.js";
+import { useHomestay } from "../HomestayContext.js";
 
 export default function RoomBoard() {
   const { user } = useAuth();
+  const { currentHomestayId } = useHomestay();
   const isAdmin = user?.role === "admin";
   const [rooms, setRooms] = useState([]);
   const [roomTypes, setRoomTypes] = useState([]);
@@ -29,7 +31,7 @@ export default function RoomBoard() {
 
   useEffect(() => {
     refresh();
-  }, []);
+  }, [currentHomestayId]);
 
   function roomTypeName(id) {
     return roomTypes.find((t) => t.id === id)?.name || id;
