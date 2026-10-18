@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { homestayApi, catalogApi, formatVnd } from "../api.js";
 import { badgeBase, btn, btnDanger, btnPrimary, card, input, label, table, tableWrap, td, th } from "../ui.js";
+import { fetchVietQrPngDataUrl, fillAddInfoTemplate } from "../utils/vietqr.js";
 
 const PRICING_LABEL = {
   hourly: "Theo giờ",
@@ -19,21 +20,27 @@ export default function StayDetail() {
   const [surchargeRules, setSurchargeRules] = useState([]);
   const [error, setError] = useState("");
   const [invoice, setInvoice] = useState(null);
+  const [settings, setSettings] = useState(null);
+  const [qrDataUrl, setQrDataUrl] = useState(null);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrError, setQrError] = useState("");
 
   async function refresh() {
     try {
-      const [stayData, roomsData, items, categories, rules] = await Promise.all([
+      const [stayData, roomsData, items, categories, rules, settingsData] = await Promise.all([
         homestayApi.getStay(stayId),
         homestayApi.getRooms(),
         catalogApi.getItems("service"),
         catalogApi.getCategories(),
         catalogApi.getItems("surcharge"),
+        homestayApi.getSettings(),
       ]);
       setStay(stayData);
       setRooms(roomsData);
       setCatalogItems(items);
       setCatalogCategories(categories);
       setSurchargeRules(rules);
+      setSettings(settingsData);
     } catch (err) {
       setError(err.message);
     }
@@ -84,6 +91,30 @@ export default function StayDetail() {
     refresh();
   }
 
+  async function genQr() {
+    if (!settings?.bankCode || !settings?.accountNo) {
+      setQrError("Chưa cấu hình ngân hàng — vào Cài đặt > Cài đặt thanh toán để thêm.");
+      return;
+    }
+    setQrLoading(true);
+    setQrError("");
+    try {
+      const addInfo = fillAddInfoTemplate(settings.qrNoteTemplate || "Thanh toan phong {room}", { room: room?.name });
+      const dataUrl = await fetchVietQrPngDataUrl(
+        settings.bankCode,
+        settings.accountNo,
+        Math.round(stay.breakdown.total),
+        addInfo,
+        settings.accountName
+      );
+      setQrDataUrl(dataUrl);
+    } catch (err) {
+      setQrError(err.message);
+    } finally {
+      setQrLoading(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <Link to="/" className="inline-block text-sm font-medium text-emerald-700 hover:underline">
@@ -132,6 +163,29 @@ export default function StayDetail() {
           breakdown={stay.breakdown}
           onRemoveCharge={stay.status === "active" ? removeCharge : null}
         />
+      </div>
+
+      <div className={card}>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-semibold text-slate-900">Mã QR thanh toán</h2>
+          <button className={`${btn} !py-1.5 !text-xs`} onClick={genQr} disabled={qrLoading}>
+            {qrLoading ? "Đang tạo..." : qrDataUrl ? "Tạo lại mã QR" : "Tạo mã QR"}
+          </button>
+        </div>
+        {qrError && (
+          <div className="mb-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{qrError}</div>
+        )}
+        {qrDataUrl ? (
+          <div className="flex items-center gap-4">
+            <img src={qrDataUrl} alt="Mã QR thanh toán" className="h-40 w-40 rounded-lg border border-slate-200" />
+            <div className="text-sm text-slate-600">
+              <p>Số tiền: <strong className="text-slate-900">{formatVnd(stay.breakdown.total)}</strong></p>
+              <p className="text-xs text-slate-500">Mã QR dựa trên tổng tiền hiện tại — bấm "Tạo lại mã QR" nếu phát sinh thêm dịch vụ/phụ thu sau khi đã trả phòng.</p>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">Bấm "Tạo mã QR" để tạo mã chuyển khoản theo cấu hình ngân hàng ở trang Cài đặt.</p>
+        )}
       </div>
 
       {stay.transfers.length > 0 && (
