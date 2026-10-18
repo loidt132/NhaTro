@@ -471,6 +471,46 @@ app.post(
   })
 );
 
+app.put(
+  "/api/room-types/:id",
+  requireAdmin,
+  asyncRoute(async (req, res) => {
+    const { name } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: "name is required" });
+    const roomType = owned(await findOneByBusinessId("roomTypes", req.params.id), req);
+    if (!roomType) return res.status(404).json({ error: "not found" });
+    const updated = await updateRowByBusinessId("roomTypes", req.params.id, { name: name.trim() });
+    res.json(normRoomType(updated));
+  })
+);
+
+// A room type with any room assigned to it (even an inactive one) would
+// leave that room pointing at a dangling roomTypeId, so block the delete
+// and point at reassigning those rooms first — mirrors the room delete
+// guard just below for stay history.
+app.delete(
+  "/api/room-types/:id",
+  requireAdmin,
+  asyncRoute(async (req, res) => {
+    const roomType = owned(await findOneByBusinessId("roomTypes", req.params.id), req);
+    if (!roomType) return res.status(404).json({ error: "not found" });
+
+    const roomsOfType = await listRows("rooms", { where: `(roomTypeId,eq,${roomType.id})`, limit: 1 });
+    if (roomsOfType.length) {
+      return res.status(409).json({
+        error: "Loại phòng này đang có phòng sử dụng — hãy đổi loại phòng cho các phòng đó trước khi xoá.",
+      });
+    }
+
+    const plans = await listRows("ratePlans", { where: `(roomTypeId,eq,${roomType.id})` });
+    for (const plan of plans) {
+      await deleteRowByBusinessId("ratePlans", plan.id);
+    }
+    await deleteRowByBusinessId("roomTypes", roomType.id);
+    res.status(204).end();
+  })
+);
+
 app.get(
   "/api/rooms",
   asyncRoute(async (req, res) => {
