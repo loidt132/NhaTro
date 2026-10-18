@@ -1,6 +1,5 @@
 {
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "https://nhatro-y4ew.onrender.com/api/$1" },
     { "source": "/(.*)", "destination": "/" }
   ]
 }
