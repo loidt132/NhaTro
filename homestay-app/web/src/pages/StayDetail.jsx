@@ -19,7 +19,13 @@ export default function StayDetail() {
   const [catalogCategories, setCatalogCategories] = useState([]);
   const [surchargeRules, setSurchargeRules] = useState([]);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [invoice, setInvoice] = useState(null);
+
+  function showNotice(message) {
+    setNotice(message);
+    setTimeout(() => setNotice(""), 4000);
+  }
   const [settings, setSettings] = useState(null);
   const [qrDataUrl, setQrDataUrl] = useState(null);
   const [qrLoading, setQrLoading] = useState(false);
@@ -61,34 +67,74 @@ export default function StayDetail() {
   const room = rooms.find((r) => r.id === stay.roomId);
 
   async function addService(itemId, qty) {
-    await homestayApi.addService(stayId, { itemId, qty });
-    refresh();
+    setError("");
+    try {
+      await homestayApi.addService(stayId, { itemId, qty });
+      await refresh();
+      showNotice("Đã thêm dịch vụ — tạm tính đã cập nhật.");
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   async function addSurcharge(ruleId) {
-    await homestayApi.addSurcharge(stayId, { surchargeRuleId: ruleId, qty: 1 });
-    refresh();
+    setError("");
+    try {
+      await homestayApi.addSurcharge(stayId, { surchargeRuleId: ruleId, qty: 1 });
+      await refresh();
+      showNotice("Đã thêm phụ thu — tạm tính đã cập nhật.");
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   async function removeCharge(chargeId) {
-    await homestayApi.removeCharge(stayId, chargeId);
-    refresh();
+    setError("");
+    try {
+      await homestayApi.removeCharge(stayId, chargeId);
+      await refresh();
+      showNotice("Đã xoá mục — tạm tính đã cập nhật.");
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   async function transfer(toRoomId) {
-    await homestayApi.transferRoom(stayId, { toRoomId, reason: "Đổi phòng theo yêu cầu" });
-    refresh();
+    setError("");
+    try {
+      await homestayApi.transferRoom(stayId, { toRoomId, reason: "Đổi phòng theo yêu cầu" });
+      await refresh();
+      showNotice("Đã đổi phòng thành công.");
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   async function simulateSwipe(type) {
-    await homestayApi.simulateSwipe(stayId, { type });
-    refresh();
+    setError("");
+    try {
+      await homestayApi.simulateSwipe(stayId, { type });
+      await refresh();
+      showNotice(
+        type === "checkin-swipe"
+          ? "Đã ghi nhận khách quẹt thẻ vào."
+          : "Đã ghi nhận khách quẹt thẻ ra."
+      );
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   async function doCheckout() {
-    const result = await homestayApi.checkout(stayId);
-    setInvoice(result);
-    refresh();
+    setError("");
+    try {
+      const result = await homestayApi.checkout(stayId);
+      setInvoice(result);
+      await refresh();
+      showNotice("Trả phòng thành công — hoá đơn đã xuất ở dưới.");
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   async function genQr() {
@@ -131,6 +177,9 @@ export default function StayDetail() {
       </div>
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
+      )}
+      {notice && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div>
       )}
 
       <div className={card}>

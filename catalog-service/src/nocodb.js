@@ -48,6 +48,14 @@ async function request(path, options = {}) {
     }
     if (!res.ok) {
       const text = await res.text().catch(() => "");
+      // See homestay-server/src/nocodb.js for why 429s get a friendly
+      // message instead of NocoDB's raw rate-limit body.
+      if (res.status === 429) {
+        const err = new Error("Hệ thống dữ liệu đang bận, vui lòng thử lại sau vài giây.");
+        err.code = "NOCODB_RATE_LIMIT";
+        err.detail = `NocoDB ${options.method || "GET"} ${path} failed: 429 ${text.slice(0, 300)}`;
+        throw err;
+      }
       throw new Error(`NocoDB ${options.method || "GET"} ${path} failed: ${res.status} ${text.slice(0, 300)}`);
     }
     if (res.status === 204) return null;

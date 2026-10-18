@@ -68,7 +68,10 @@ function asyncRoute(fn) {
     try {
       await fn(req, res);
     } catch (err) {
-      console.error(err);
+      console.error(err.detail || err);
+      if (err.code === "NOCODB_RATE_LIMIT") {
+        return res.status(503).json({ error: err.message });
+      }
       res.status(502).json({ error: `NocoDB: ${err.message}` });
     }
   };
@@ -692,6 +695,31 @@ async function proxyToCatalog(req, res, path, method) {
     res.status(502).json({ error: `could not reach catalog-service: ${err.message}` });
   }
 }
+
+// Reads (GET categories/items) go through this app's backend too, not
+// straight from the browser to catalog-service — same reasoning as every
+// other NocoDB-backed read in this app: the browser never talks to a data
+// store directly, and a catalog-service error (rate limit, downtime) gets
+// one consistent place to be made presentable before it reaches the UI.
+app.get(
+  "/api/catalog/categories",
+  asyncRoute(async (req, res) => {
+    const r = await fetch(`${SERVICE_CATALOG_URL}/api/categories?homestayId=${req.homestayId}`);
+    const body = await r.json().catch(() => ({}));
+    res.status(r.status).json(body);
+  })
+);
+app.get(
+  "/api/catalog/items",
+  asyncRoute(async (req, res) => {
+    const params = new URLSearchParams({ homestayId: req.homestayId });
+    if (req.query.kind) params.set("kind", req.query.kind);
+    if (req.query.categoryId) params.set("categoryId", req.query.categoryId);
+    const r = await fetch(`${SERVICE_CATALOG_URL}/api/items?${params.toString()}`);
+    const body = await r.json().catch(() => ({}));
+    res.status(r.status).json(body);
+  })
+);
 
 app.post("/api/admin/catalog/categories", requireAdmin, (req, res) => proxyToCatalog(req, res, "/api/categories", "POST"));
 app.put("/api/admin/catalog/categories/:id", requireAdmin, (req, res) =>

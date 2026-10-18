@@ -105,6 +105,15 @@ async function fetchJson(url, options = {}) {
         ? await res.json()
         : await res.text();
     if (!res.ok) {
+      // NocoDB's own rate-limit error (ThrottlerException etc.) is not
+      // something a user can act on — surface a friendly, actionable
+      // message instead of its raw body, even after retries are exhausted.
+      if (res.status === 429) {
+        console.error(`NocoDB rate-limited (429): ${typeof payload === 'string' ? payload : JSON.stringify(payload)}`);
+        const err = new Error('Hệ thống dữ liệu đang bận, vui lòng thử lại sau vài giây.');
+        err.code = 'NOCODB_RATE_LIMIT';
+        throw err;
+      }
       throw new Error(typeof payload === 'string' ? payload : `NocoDB request failed: ${res.status}`);
     }
     return payload;

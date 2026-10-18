@@ -75,6 +75,16 @@ async function request(path, options = {}) {
     }
     if (!res.ok) {
       const text = await res.text().catch(() => "");
+      // NocoDB's own rate-limit error (ThrottlerException etc.) is not
+      // something a user/ops person can act on — surface a friendly,
+      // actionable message instead of its raw body, even after retries
+      // are exhausted. The raw detail still goes to the server log below.
+      if (res.status === 429) {
+        const err = new Error("Hệ thống dữ liệu đang bận, vui lòng thử lại sau vài giây.");
+        err.code = "NOCODB_RATE_LIMIT";
+        err.detail = `NocoDB ${options.method || "GET"} ${path} failed: 429 ${text.slice(0, 300)}`;
+        throw err;
+      }
       throw new Error(`NocoDB ${options.method || "GET"} ${path} failed: ${res.status} ${text.slice(0, 300)}`);
     }
     if (res.status === 204) return null;
