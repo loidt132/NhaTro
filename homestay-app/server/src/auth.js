@@ -47,7 +47,7 @@ export function requireAdmin(req, res, next) {
   next();
 }
 
-// Only the top-level "owner" role — manages homesteys themselves and can
+// Only the top-level "owner" role — manages homestays themselves and can
 // act across all of them. Stacks on top of requireAuth.
 export function requireOwner(req, res, next) {
   if (req.user?.role !== "owner") {

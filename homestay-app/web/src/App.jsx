@@ -9,7 +9,7 @@ import RatePlanAdmin from "./pages/RatePlanAdmin.jsx";
 import GuestReport from "./pages/GuestReport.jsx";
 import ReportsHub from "./pages/ReportsHub.jsx";
 import Settings from "./pages/Settings.jsx";
-import HomesteyAdmin from "./pages/HomesteyAdmin.jsx";
+import HomestayAdmin from "./pages/HomestayAdmin.jsx";
 import { AuthContext } from "./AuthContext.js";
 import { HomestayContext } from "./HomestayContext.js";
 import { clearAuth, loadAuth, saveAuth } from "./auth.js";
@@ -20,12 +20,12 @@ const SELECTED_HOMESTAY_KEY = "homestay_selected_v1";
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [auth, setAuth] = useState(() => loadAuth());
-  const [homesteys, setHomesteys] = useState([]);
+  const [homestays, setHomestays] = useState([]);
   // Lazy initializer runs synchronously before any child mounts — admin/
   // staff's fixed homestayId must be in api.js's module state before e.g.
   // RoomBoard's own mount-time fetch fires, or that very first call 400s
   // for missing X-Homestay-Id. Owner has no fixed id yet; resolved async
-  // below once their homestey list loads.
+  // below once their homestay list loads.
   const [currentHomestayId, setCurrentHomestayIdState] = useState(() => {
     const initial = loadAuth();
     if (initial && initial.user.role !== "owner") {
@@ -50,13 +50,13 @@ export default function App() {
       selectHomestay(auth.user.homestayId);
       return;
     }
-    refreshHomesteys();
+    refreshHomestays();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth]);
 
-  async function refreshHomesteys(preferId) {
-    const rows = await ownerApi.listHomesteys();
-    setHomesteys(rows);
+  async function refreshHomestays(preferId) {
+    const rows = await ownerApi.listHomestays();
+    setHomestays(rows);
     const saved = preferId || localStorage.getItem(SELECTED_HOMESTAY_KEY);
     const resolved = rows.find((h) => h.id === saved)?.id || rows[0]?.id || null;
     selectHomestay(resolved);
@@ -73,7 +73,7 @@ export default function App() {
     clearAuth();
     setApiHomestayId(null);
     setAuth(null);
-    setHomesteys([]);
+    setHomestays([]);
     setCurrentHomestayIdState(null);
   }
 
@@ -90,12 +90,12 @@ export default function App() {
 
   const isOwner = auth.user.role === "owner";
   const currentHomestayName = isOwner
-    ? homesteys.find((h) => h.id === currentHomestayId)?.name || "Chọn homestay"
+    ? homestays.find((h) => h.id === currentHomestayId)?.name || "Chọn homestay"
     : auth.user.homestayName || "";
 
   return (
     <AuthContext.Provider value={{ user: auth.user, logout }}>
-      <HomestayContext.Provider value={{ currentHomestayId, homesteys, setCurrentHomestayId: selectHomestay, refreshHomesteys }}>
+      <HomestayContext.Provider value={{ currentHomestayId, homestays, setCurrentHomestayId: selectHomestay, refreshHomestays }}>
         <div className="flex min-h-screen min-h-[100dvh] flex-col bg-slate-50">
           <header className="sticky top-0 z-10 border-b bg-white/80 backdrop-blur">
             <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3">
@@ -117,8 +117,8 @@ export default function App() {
                     onChange={(e) => selectHomestay(e.target.value)}
                     className="hidden rounded-xl border border-slate-200 bg-white px-2 py-2 text-sm sm:block"
                   >
-                    {homesteys.length === 0 && <option value="">Chưa có homestay</option>}
-                    {homesteys.map((h) => (
+                    {homestays.length === 0 && <option value="">Chưa có homestay</option>}
+                    {homestays.map((h) => (
                       <option key={h.id} value={h.id}>{h.name}</option>
                     ))}
                   </select>
@@ -163,7 +163,7 @@ export default function App() {
                 <Route path="/guest-report" element={<GuestReport />} />
                 <Route path="/reports" element={<ReportsHub />} />
                 <Route path="/settings" element={<Settings />} />
-                <Route path="/homesteys" element={<HomesteyAdmin />} />
+                <Route path="/homestays" element={<HomestayAdmin />} />
               </Routes>
             </div>
           </main>

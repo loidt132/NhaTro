@@ -3,14 +3,14 @@ import { ownerApi } from "../api.js";
 import { btn, btnPrimary, card, input, label, table, tableWrap, td, th } from "../ui.js";
 import { useHomestay } from "../HomestayContext.js";
 
-export default function HomesteyAdmin() {
-  const { currentHomestayId, homesteys, setCurrentHomestayId, refreshHomesteys } = useHomestay();
+export default function HomestayAdmin() {
+  const { currentHomestayId, homestays, setCurrentHomestayId, refreshHomestays } = useHomestay();
   const [modal, setModal] = useState(null); // { mode: "create" | "edit", homestay? }
   const [error, setError] = useState("");
 
   async function refresh(preferId) {
     try {
-      await refreshHomesteys(preferId);
+      await refreshHomestays(preferId);
     } catch (err) {
       setError(err.message);
     }
@@ -42,7 +42,7 @@ export default function HomesteyAdmin() {
               </tr>
             </thead>
             <tbody>
-              {homesteys.map((h) => (
+              {homestays.map((h) => (
                 <tr key={h.id}>
                   <td className={td}>
                     {h.name}
@@ -58,7 +58,7 @@ export default function HomesteyAdmin() {
                   </td>
                 </tr>
               ))}
-              {homesteys.length === 0 && (
+              {homestays.length === 0 && (
                 <tr>
                   <td className={td} colSpan={2}>Chưa có homestay nào.</td>
                 </tr>
@@ -69,7 +69,7 @@ export default function HomesteyAdmin() {
       </div>
 
       {modal && (
-        <HomesteyModal
+        <HomestayModal
           mode={modal.mode}
           homestay={modal.homestay}
           onClose={() => setModal(null)}
@@ -83,7 +83,7 @@ export default function HomesteyAdmin() {
   );
 }
 
-function HomesteyModal({ mode, homestay, onClose, onSaved }) {
+function HomestayModal({ mode, homestay, onClose, onSaved }) {
   const [name, setName] = useState(homestay?.name || "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");

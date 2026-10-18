@@ -1,6 +1,6 @@
 // Same NocoDB gotcha as homestay-server's fix-link-columns.js: a column
 // named "homestayId" risks being auto-converted into a LinkToAnotherRecord
-// relation (or dropped entirely) because it matches the new `homesteys`
+// relation (or dropped entirely) because it matches the new `homestays`
 // table's name. This finds/fixes it on categories and items.
 //
 // Run with: node --env-file=.env scripts/fix-link-columns.js

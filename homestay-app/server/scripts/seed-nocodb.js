@@ -1,7 +1,7 @@
 // Creates one new homestay (tenant) with starter data: room types, rooms,
 // rate plans, an admin + staff account for it, default settings, and one
 // finished sample stay. Also ensures a global "owner" account exists (not
-// tied to any homestay) so you can log in and create more homesteys from
+// tied to any homestay) so you can log in and create more homestays from
 // the UI afterwards.
 //
 // Run with: npm run seed [Tên homestay]
@@ -33,8 +33,8 @@ async function ensureOwner() {
 async function main() {
   await ensureOwner();
 
-  const homestay = await createRow("homesteys", { id: uuid(), name: homestayName });
-  console.log(`+ homesteys: "${homestay.name}" (${homestay.id})`);
+  const homestay = await createRow("homestays", { id: uuid(), name: homestayName });
+  console.log(`+ homestays: "${homestay.name}" (${homestay.id})`);
   const homestayId = homestay.id;
 
   const standard = await createRow("roomTypes", { id: uuid(), homestayId, name: "Phòng Standard" });

@@ -42,13 +42,13 @@ export const authApi = {
     request(HOMESTAY_API, "/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
 };
 
-// Owner-only: manage the homesteys (tenants) themselves. Doesn't need the
+// Owner-only: manage the homestays (tenants) themselves. Doesn't need the
 // X-Homestay-Id header — these routes act above any single homestay.
 export const ownerApi = {
-  listHomesteys: () => request(HOMESTAY_API, "/api/owner/homesteys"),
-  addHomestay: (name) => request(HOMESTAY_API, "/api/owner/homesteys", { method: "POST", body: JSON.stringify({ name }) }),
+  listHomestays: () => request(HOMESTAY_API, "/api/owner/homestays"),
+  addHomestay: (name) => request(HOMESTAY_API, "/api/owner/homestays", { method: "POST", body: JSON.stringify({ name }) }),
   renameHomestay: (id, name) =>
-    request(HOMESTAY_API, `/api/owner/homesteys/${id}`, { method: "PUT", body: JSON.stringify({ name }) }),
+    request(HOMESTAY_API, `/api/owner/homestays/${id}`, { method: "PUT", body: JSON.stringify({ name }) }),
 };
 
 export const homestayApi = {

@@ -4,7 +4,7 @@
 -- repo's data/seed.json maps straight onto these.
 --
 -- Multi-tenant: each homestay has its own price list, isolated by
--- homestayId (a plain id string — this service has no `homesteys` table of
+-- homestayId (a plain id string — this service has no `homestays` table of
 -- its own, it's just told which homestay a request is for). Same NocoDB
 -- import gotcha as homestay-server: add `homestayId` by hand in the UI as
 -- "Single line text", then run `npm run fix-links` as a safety net.

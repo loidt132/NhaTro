@@ -43,7 +43,7 @@ const START_TIME = Date.now();
 app.get("/health", async (req, res) => {
   let nocodb = "unknown";
   try {
-    await listRows("homesteys", { limit: 1 });
+    await listRows("homestays", { limit: 1 });
     nocodb = "ok";
   } catch (err) {
     nocodb = `error: ${err.message}`;
@@ -224,7 +224,7 @@ app.post(
     const token = signToken(user);
     let homestayName = null;
     if (user.homestayId) {
-      const homestay = await findOneByBusinessId("homesteys", user.homestayId);
+      const homestay = await findOneByBusinessId("homestays", user.homestayId);
       homestayName = homestay?.name || null;
     }
     res.json({ token, user: { ...normUser(user), homestayName } });
@@ -235,41 +235,41 @@ app.get("/api/auth/me", requireAuth, (req, res) => {
   res.json({ id: req.user.sub, username: req.user.username, name: req.user.name, role: req.user.role, homestayId: req.user.homestayId });
 });
 
-// ---- Owner-only: manage homesteys themselves ----
-// Mounted before requireHomestayContext — creating/listing homesteys is the
+// ---- Owner-only: manage homestays themselves ----
+// Mounted before requireHomestayContext — creating/listing homestays is the
 // one thing that isn't scoped to a single homestay.
 
 app.get(
-  "/api/owner/homesteys",
+  "/api/owner/homestays",
   requireAuth,
   requireOwner,
   asyncRoute(async (req, res) => {
-    const rows = await listRows("homesteys");
+    const rows = await listRows("homestays");
     res.json(rows.map(normHomestay));
   })
 );
 
 app.post(
-  "/api/owner/homesteys",
+  "/api/owner/homestays",
   requireAuth,
   requireOwner,
   asyncRoute(async (req, res) => {
     const { name } = req.body;
     if (!name) return res.status(400).json({ error: "name is required" });
-    const row = await createRow("homesteys", { id: uuid(), name });
+    const row = await createRow("homestays", { id: uuid(), name });
     await seedDefaultCatalogForHomestay(row.id);
     res.status(201).json(normHomestay(row));
   })
 );
 
 app.put(
-  "/api/owner/homesteys/:id",
+  "/api/owner/homestays/:id",
   requireAuth,
   requireOwner,
   asyncRoute(async (req, res) => {
     const { name } = req.body;
     if (!name) return res.status(400).json({ error: "name is required" });
-    const updated = await updateRowByBusinessId("homesteys", req.params.id, { name });
+    const updated = await updateRowByBusinessId("homestays", req.params.id, { name });
     if (!updated) return res.status(404).json({ error: "not found" });
     res.json(normHomestay(updated));
   })
