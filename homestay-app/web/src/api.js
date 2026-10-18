@@ -54,6 +54,7 @@ export const ownerApi = {
 export const homestayApi = {
   getRooms: () => request(HOMESTAY_API, "/api/rooms"),
   getRoomTypes: () => request(HOMESTAY_API, "/api/room-types"),
+  addRoomType: (name) => request(HOMESTAY_API, "/api/room-types", { method: "POST", body: JSON.stringify({ name }) }),
   getRatePlans: () => request(HOMESTAY_API, "/api/rate-plans"),
   updateRatePlan: (id, body) =>
     request(HOMESTAY_API, `/api/rate-plans/${id}`, { method: "PUT", body: JSON.stringify(body) }),

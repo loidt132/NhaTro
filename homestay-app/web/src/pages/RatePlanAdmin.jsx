@@ -21,6 +21,9 @@ export default function RatePlanAdmin() {
   const [roomTypes, setRoomTypes] = useState([]);
   const [editing, setEditing] = useState({});
   const [savedId, setSavedId] = useState("");
+  const [newTypeName, setNewTypeName] = useState("");
+  const [addingType, setAddingType] = useState(false);
+  const [addTypeError, setAddTypeError] = useState("");
 
   async function refresh() {
     const [plansData, typesData] = await Promise.all([
@@ -34,6 +37,22 @@ export default function RatePlanAdmin() {
   useEffect(() => {
     refresh();
   }, [currentHomestayId]);
+
+  async function addRoomType() {
+    const name = newTypeName.trim();
+    if (!name) return;
+    setAddingType(true);
+    setAddTypeError("");
+    try {
+      await homestayApi.addRoomType(name);
+      setNewTypeName("");
+      await refresh();
+    } catch (err) {
+      setAddTypeError(err.message || "Không thêm được loại phòng");
+    } finally {
+      setAddingType(false);
+    }
+  }
 
   function roomTypeName(id) {
     return roomTypes.find((t) => t.id === id)?.name || id;
@@ -73,6 +92,27 @@ export default function RatePlanAdmin() {
       {!isAdmin && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Chỉ admin mới được sửa bảng giá — bạn đang xem ở chế độ chỉ đọc.
+        </div>
+      )}
+      {isAdmin && (
+        <div className={card}>
+          <h2 className="mb-3 font-semibold text-slate-900">Thêm loại phòng</h2>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="space-y-1">
+              <label className={label}>Tên loại phòng</label>
+              <input
+                className={input}
+                placeholder="VD: Phòng Suite"
+                value={newTypeName}
+                onChange={(e) => setNewTypeName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addRoomType()}
+              />
+            </div>
+            <button className={btnPrimary} disabled={addingType || !newTypeName.trim()} onClick={addRoomType}>
+              {addingType ? "Đang thêm..." : "+ Thêm loại phòng"}
+            </button>
+          </div>
+          {addTypeError && <div className="mt-2 text-sm text-red-600">{addTypeError}</div>}
         </div>
       )}
       {plans.map((plan) => (

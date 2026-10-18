@@ -445,6 +445,32 @@ app.get(
   })
 );
 
+// Creates the room type plus a blank rate plan for it in one call, so it
+// shows up on the Bảng giá page immediately — a room type with no rate plan
+// would have nowhere to set its price, and no room could be assigned to it
+// (RoomModal looks up pricing via roomTypeId).
+app.post(
+  "/api/room-types",
+  requireAdmin,
+  asyncRoute(async (req, res) => {
+    const { name } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: "name is required" });
+    const roomType = await createRow("roomTypes", { id: uuid(), homestayId: req.homestayId, name: name.trim() });
+    await createRow("ratePlans", {
+      id: uuid(),
+      homestayId: req.homestayId,
+      roomTypeId: roomType.id,
+      hourlyFirstBlockHours: 0,
+      hourlyFirstBlockPrice: 0,
+      hourlyExtraPricePerHour: 0,
+      overnightPrice: 0,
+      fullDayPrice: 0,
+      lateCheckoutPricePerHour: 0,
+    });
+    res.status(201).json(normRoomType(roomType));
+  })
+);
+
 app.get(
   "/api/rooms",
   asyncRoute(async (req, res) => {
