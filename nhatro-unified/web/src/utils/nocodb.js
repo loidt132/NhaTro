@@ -16,17 +16,8 @@ const TABLES = {
   deposits: import.meta.env.VITE_TABLE_DEPOSITS,
   depositTransactions: import.meta.env.VITE_TABLE_DEPOSIT_TRANSACTIONS,
   settings: import.meta.env.VITE_TABLE_SETTINGS,
-  meterSubmissions: import.meta.env.VITE_TABLE_METER_SUBMISSIONS,
 };
 
-// meterSubmissions is deliberately NOT in DATA_TABLE_KEYS: that list drives the
-// full-array diff+soft-delete sync in syncCollectionTable/saveStateToNoco, and
-// (a) a tenant writes submissions with created_by = landlordId, not their own
-// id, which that self-ownership pipeline can't express, and (b) the landlord's
-// local `state` array is not guaranteed to hold every submission at save time,
-// so a full sync could soft-delete rows it doesn't know about. It is read and
-// written through the dedicated fetchOwnedRows/createOwnedRow/updateOwnedRowByAppId
-// helpers below instead, one row at a time.
 const DATA_TABLE_KEYS = ['rooms', 'tenants', 'readings', 'invoices', 'payments', 'rentPeriods', 'paymentAllocations', 'deposits', 'depositTransactions'];
 const SYSTEM_COLUMNS = new Set([
   'Id',

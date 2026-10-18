@@ -594,6 +594,10 @@ function nocoRoomsUrl(suffix = '') {
   return `${NOCODB_URL}/api/v2/tables/${encodeURIComponent(NOCODB_TABLE_ROOMS)}/records${suffix}`;
 }
 
+function nocoMeterSubmissionsUrl(suffix = '') {
+  return `${NOCODB_URL}/api/v2/tables/${encodeURIComponent(NOCODB_TABLE_METER_SUBMISSIONS)}/records${suffix}`;
+}
+
 function nocoTableUrl(tableId, suffix = '') {
   return `${NOCODB_URL}/api/v2/tables/${encodeURIComponent(tableId)}/records${suffix}`;
 }
@@ -690,6 +694,10 @@ async function findOrCreateTenantUser(tenantRecord, phone) {
 
 function hasNocoRoomsConfig() {
   return Boolean(NOCODB_URL && NOCODB_API_KEY && NOCODB_TABLE_ROOMS);
+}
+
+function hasNocoMeterSubmissionsConfig() {
+  return Boolean(NOCODB_URL && NOCODB_API_KEY && NOCODB_TABLE_METER_SUBMISSIONS);
 }
 
 function isActiveNocoRow(row) {
@@ -1374,6 +1382,155 @@ app.post('/api/meter/ocr-upload', authMiddleware, meterPhotoUpload.single('photo
   } catch (error) {
     console.error('meter ocr-upload error', error);
     return res.status(500).json({ error: error.message || 'Không thể xử lý ảnh công tơ.' });
+  }
+});
+
+function mapMeterSubmission(row) {
+  return {
+    id: row?.id || '',
+    roomId: row?.roomId || '',
+    month: row?.month || '',
+    meterType: row?.meterType || '',
+    photoUrl: row?.photoUrl || '',
+    ocrRawText: row?.ocrRawText || '',
+    ocrValue: row?.ocrValue ?? null,
+    finalValue: row?.finalValue ?? null,
+    status: row?.status || 'pending',
+    submittedByRole: row?.submittedByRole || '',
+    submittedByUserId: row?.submittedByUserId || '',
+    submittedByName: row?.submittedByName || '',
+    reviewedByUserId: row?.reviewedByUserId || '',
+    reviewedAt: row?.reviewedAt || null,
+    createdAt: row?.createdAt || '',
+    updatedAt: row?.updatedAt || '',
+  };
+}
+
+// Meter-submission review queue: a tenant uploads a meter photo (pending),
+// the landlord confirms (becomes the official reading, handled client-side)
+// or rejects it. Every row's created_by is the landlord's own id, never the
+// tenant's, so ownership here is resolved from the auth token's landlordId
+// (tenant) or userId (landlord), not from req.userId alone.
+app.get('/api/meter-submissions', authMiddleware, async (req, res) => {
+  if (!hasNocoMeterSubmissionsConfig()) {
+    return res.status(503).json({ error: 'NocoDB meter_submissions table chưa được cấu hình.' });
+  }
+
+  const isTenant = req.authPayload?.role === 'tenant';
+  const landlordId = isTenant ? req.authPayload?.landlordId : req.userId;
+  if (!landlordId) {
+    return res.status(400).json({ error: 'Thiếu landlordId cho tài khoản này.' });
+  }
+
+  const statusFilter = String(req.query?.status || '').trim();
+  const whereParts = [`(created_by,eq,${landlordId})`, '(isDeleted,neq,true)'];
+  if (isTenant) whereParts.push(`(submittedByUserId,eq,${req.userId})`);
+  if (statusFilter) whereParts.push(`(status,eq,${statusFilter})`);
+  const where = encodeURIComponent(whereParts.join('~and'));
+
+  try {
+    const data = await nocoFetchJson(nocoMeterSubmissionsUrl(`?where=${where}&limit=1000`));
+    return res.json({ submissions: (data?.list || []).map(mapMeterSubmission) });
+  } catch (error) {
+    console.error('list meter-submissions error', error);
+    return res.status(500).json({ error: 'Không tải được danh sách ảnh công tơ.' });
+  }
+});
+
+app.post('/api/meter-submissions', authMiddleware, async (req, res) => {
+  if (!hasNocoMeterSubmissionsConfig()) {
+    return res.status(503).json({ error: 'NocoDB meter_submissions table chưa được cấu hình.' });
+  }
+  if (req.authPayload?.role !== 'tenant') {
+    return res.status(403).json({ error: 'Chỉ tài khoản người thuê mới được gửi ảnh công tơ.' });
+  }
+
+  const landlordId = req.authPayload?.landlordId;
+  if (!landlordId) {
+    return res.status(400).json({ error: 'Tài khoản chưa được liên kết với chủ nhà.' });
+  }
+
+  const roomId = String(req.body?.roomId || '').trim();
+  const month = String(req.body?.month || '').trim();
+  const meterType = String(req.body?.meterType || '').trim();
+  const photoUrl = String(req.body?.photoUrl || '').trim();
+  if (!roomId || !month || !meterType || !photoUrl) {
+    return res.status(400).json({ error: 'Thiếu roomId, month, meterType hoặc photoUrl.' });
+  }
+
+  try {
+    const users = await loadAllUsers();
+    const tenantUser = users.find((u) => sameUserId(u.id, req.userId));
+    const nowIso = new Date().toISOString();
+    const record = {
+      id: uid(),
+      roomId,
+      month,
+      meterType,
+      photoUrl,
+      ocrRawText: String(req.body?.ocrRawText || ''),
+      ocrValue: req.body?.ocrValue ?? null,
+      finalValue: null,
+      status: 'pending',
+      submittedByRole: 'tenant',
+      submittedByUserId: req.userId,
+      submittedByName: tenantUser?.name || tenantUser?.phone || '',
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      created_by: landlordId,
+      modified_by: landlordId,
+      isDeleted: false,
+    };
+    await nocoFetchJson(nocoMeterSubmissionsUrl(), {
+      method: 'POST',
+      body: JSON.stringify(record),
+    });
+    return res.json({ id: record.id });
+  } catch (error) {
+    console.error('create meter-submission error', error);
+    return res.status(500).json({ error: 'Không thể lưu ảnh công tơ.' });
+  }
+});
+
+app.patch('/api/meter-submissions/:id', authMiddleware, async (req, res) => {
+  if (!hasNocoMeterSubmissionsConfig()) {
+    return res.status(503).json({ error: 'NocoDB meter_submissions table chưa được cấu hình.' });
+  }
+  if (req.authPayload?.role === 'tenant') {
+    return res.status(403).json({ error: 'Chỉ chủ nhà mới được duyệt ảnh công tơ.' });
+  }
+
+  const action = req.body?.action === 'reject' ? 'reject' : req.body?.action === 'confirm' ? 'confirm' : '';
+  if (!action) {
+    return res.status(400).json({ error: 'action phải là "confirm" hoặc "reject".' });
+  }
+  if (action === 'confirm' && !Number.isFinite(Number(req.body?.finalValue))) {
+    return res.status(400).json({ error: 'Thiếu finalValue hợp lệ để xác nhận.' });
+  }
+
+  const appId = String(req.params.id || '').trim();
+  const where = encodeURIComponent(`(id,eq,${appId})~and(created_by,eq,${req.userId})`);
+
+  try {
+    const data = await nocoFetchJson(nocoMeterSubmissionsUrl(`?where=${where}&limit=1`));
+    const row = (data?.list || [])[0];
+    if (!row) {
+      return res.status(404).json({ error: 'Không tìm thấy dòng dữ liệu để cập nhật.' });
+    }
+
+    const nowIso = new Date().toISOString();
+    const patch = action === 'confirm'
+      ? { status: 'confirmed', finalValue: Number(req.body.finalValue), reviewedByUserId: req.userId, reviewedAt: nowIso, updatedAt: nowIso }
+      : { status: 'rejected', reviewedByUserId: req.userId, reviewedAt: nowIso, updatedAt: nowIso };
+
+    await nocoFetchJson(nocoMeterSubmissionsUrl(), {
+      method: 'PATCH',
+      body: JSON.stringify([{ Id: row.Id ?? row.ID, ...patch }]),
+    });
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('update meter-submission error', error);
+    return res.status(500).json({ error: 'Không thể cập nhật ảnh công tơ.' });
   }
 });
 
