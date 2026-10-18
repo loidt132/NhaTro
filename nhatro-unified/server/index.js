@@ -471,6 +471,11 @@ function isAllowedOrigin(origin, allowList) {
   if (!origin) return false;
   const normalized = String(origin).trim().replace(/\/+$/, '');
   if (allowList.includes(normalized)) return true;
+  // Vercel assigns every preview/production deployment of this project its
+  // own *.vercel.app subdomain (e.g. nhatro-git-<branch>-<team>.vercel.app),
+  // which changes on every deploy. Match those instead of hardcoding each
+  // one here and needing a redeploy to allow the next.
+  if (/^https:\/\/nhatro(?:-[a-z0-9-]+)?\.vercel\.app$/i.test(normalized)) return true;
   return /^https:\/\/[a-z0-9-]+\.up\.railway\.app$/i.test(normalized);
 }
 
