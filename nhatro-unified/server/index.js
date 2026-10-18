@@ -478,6 +478,7 @@ app.use('/api', (req, res, next) => {
   const origin = req.headers.origin;
   const allowedOrigins = [
     'https://nha-tro-gamma.vercel.app',
+    'https://nhatro-production.vercel.app',
     'http://localhost:5173',
     'http://localhost:3000',
     ...parseOrigins(process.env.CORS_ORIGIN),

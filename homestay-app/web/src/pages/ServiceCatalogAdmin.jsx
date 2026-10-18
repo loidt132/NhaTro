@@ -15,13 +15,21 @@ export default function ServiceCatalogAdmin() {
   const [error, setError] = useState("");
 
   async function refresh() {
+    if (!currentHomestayId) return;
     try {
       const [cats, itemsData] = await Promise.all([catalogApi.getCategories(), catalogApi.getItems()]);
       setCategories(cats);
       setItems(itemsData);
+      setError("");
     } catch (err) {
+      // fetch() only throws TypeError for a genuine network failure (DNS,
+      // refused connection, ...) — an HTTP error (e.g. "homestayId is
+      // required") already came back from a running service, so don't
+      // blame that on service-catalog being down.
       setError(
-        `${err.message} — service-catalog có thể chưa chạy (mặc định cổng 4100). Đây là backend dùng chung cho cả dịch vụ và phụ thu.`
+        err instanceof TypeError
+          ? `${err.message} — service-catalog có thể chưa chạy (mặc định cổng 4100). Đây là backend dùng chung cho cả dịch vụ và phụ thu.`
+          : err.message
       );
     }
   }
@@ -57,6 +65,11 @@ export default function ServiceCatalogAdmin() {
           <button className={btnPrimary} onClick={() => setItemModal({ mode: "create" })}>+ Thêm mới</button>
         )}
       </div>
+      {!currentHomestayId && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Chưa chọn homestay — vui lòng chọn homestay trước khi xem bảng giá.
+        </div>
+      )}
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
       )}

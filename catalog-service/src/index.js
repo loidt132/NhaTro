@@ -15,6 +15,28 @@ const PORT = process.env.PORT || 4100;
 // ever sending a write here with this key — see homestay-server's
 // /api/admin/catalog/* proxy for how that's done.
 const ADMIN_KEY = process.env.CATALOG_ADMIN_KEY || "dev-catalog-admin-key-change-me";
+const START_TIME = Date.now();
+
+// Public, no auth — used by uptime monitors/load balancers. Does a cheap
+// NocoDB round trip so "ok" actually means the app can serve real requests,
+// not just that the Node process is alive.
+app.get("/health", async (req, res) => {
+  let nocodb = "unknown";
+  try {
+    await listRows("categories", { limit: 1 });
+    nocodb = "ok";
+  } catch (err) {
+    nocodb = `error: ${err.message}`;
+  }
+  const status = nocodb === "ok" ? "ok" : "degraded";
+  res.status(status === "ok" ? 200 : 503).json({
+    status,
+    service: "catalog-service",
+    uptimeSeconds: Math.round((Date.now() - START_TIME) / 1000),
+    timestamp: new Date().toISOString(),
+    dependencies: { nocodb },
+  });
+});
 
 function requireApiKey(req, res, next) {
   if (req.headers["x-api-key"] !== ADMIN_KEY) {
