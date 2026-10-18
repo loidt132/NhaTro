@@ -17,6 +17,7 @@
 CREATE TABLE IF NOT EXISTS homestays (
   id VARCHAR(64) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
+  maxRooms INT, -- owner-configured cap on rooms this homestay may manage; NULL = unlimited
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

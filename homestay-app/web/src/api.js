@@ -46,12 +46,14 @@ export const authApi = {
 // X-Homestay-Id header — these routes act above any single homestay.
 export const ownerApi = {
   listHomestays: () => request(HOMESTAY_API, "/api/owner/homestays"),
-  addHomestay: (name) => request(HOMESTAY_API, "/api/owner/homestays", { method: "POST", body: JSON.stringify({ name }) }),
-  renameHomestay: (id, name) =>
-    request(HOMESTAY_API, `/api/owner/homestays/${id}`, { method: "PUT", body: JSON.stringify({ name }) }),
+  addHomestay: (name, maxRooms) =>
+    request(HOMESTAY_API, "/api/owner/homestays", { method: "POST", body: JSON.stringify({ name, maxRooms }) }),
+  renameHomestay: (id, name, maxRooms) =>
+    request(HOMESTAY_API, `/api/owner/homestays/${id}`, { method: "PUT", body: JSON.stringify({ name, maxRooms }) }),
 };
 
 export const homestayApi = {
+  getCurrentHomestay: () => request(HOMESTAY_API, "/api/homestay"),
   getRooms: () => request(HOMESTAY_API, "/api/rooms"),
   getRoomTypes: () => request(HOMESTAY_API, "/api/room-types"),
   addRoomType: (name) => request(HOMESTAY_API, "/api/room-types", { method: "POST", body: JSON.stringify({ name }) }),

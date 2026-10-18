@@ -103,7 +103,19 @@ function normUser(u) {
   return { id: u.id, username: u.username, name: u.name, role: u.role, homestayId: u.homestayId || null };
 }
 function normHomestay(h) {
-  return { id: h.id, name: h.name };
+  const maxRooms = h.maxRooms === null || h.maxRooms === undefined || h.maxRooms === "" ? null : Number(h.maxRooms);
+  return { id: h.id, name: h.name, maxRooms: Number.isFinite(maxRooms) ? maxRooms : null };
+}
+
+// Returns null if unset/invalid (meaning "không giới hạn"), otherwise a
+// positive integer. Thrown message is surfaced straight to the owner's form.
+function parseMaxRooms(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) {
+    throw new Error("Số phòng tối đa phải là số nguyên dương, hoặc để trống nếu không giới hạn.");
+  }
+  return n;
 }
 function normRoomType(t) {
   return { id: t.id, name: t.name };
@@ -254,9 +266,15 @@ app.post(
   requireAuth,
   requireOwner,
   asyncRoute(async (req, res) => {
-    const { name } = req.body;
+    const { name, maxRooms } = req.body;
     if (!name) return res.status(400).json({ error: "name is required" });
-    const row = await createRow("homestays", { id: uuid(), name });
+    let parsedMaxRooms;
+    try {
+      parsedMaxRooms = parseMaxRooms(maxRooms);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    const row = await createRow("homestays", { id: uuid(), name, maxRooms: parsedMaxRooms });
     await seedDefaultCatalogForHomestay(row.id);
     res.status(201).json(normHomestay(row));
   })
@@ -267,9 +285,15 @@ app.put(
   requireAuth,
   requireOwner,
   asyncRoute(async (req, res) => {
-    const { name } = req.body;
+    const { name, maxRooms } = req.body;
     if (!name) return res.status(400).json({ error: "name is required" });
-    const updated = await updateRowByBusinessId("homestays", req.params.id, { name });
+    let parsedMaxRooms;
+    try {
+      parsedMaxRooms = parseMaxRooms(maxRooms);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    const updated = await updateRowByBusinessId("homestays", req.params.id, { name, maxRooms: parsedMaxRooms });
     if (!updated) return res.status(404).json({ error: "not found" });
     res.json(normHomestay(updated));
   })
@@ -278,6 +302,19 @@ app.put(
 // Every route below this line requires a logged-in user AND a resolved
 // homestay context (req.homestayId) — see requireHomestayContext in auth.js.
 app.use("/api", requireAuth, requireHomestayContext);
+
+// Current homestay's own info (name + its room cap) — unlike
+// /api/owner/homestays (owner-only, lists every homestay), this is scoped to
+// whichever homestay req.homestayId resolved to, so admin/staff can read
+// their own cap to show "x/y phòng" without needing owner rights.
+app.get(
+  "/api/homestay",
+  asyncRoute(async (req, res) => {
+    const homestay = await findOneByBusinessId("homestays", req.homestayId);
+    if (!homestay) return res.status(404).json({ error: "not found" });
+    res.json(normHomestay(homestay));
+  })
+);
 
 // ---- User management (admin/owner) ----
 // Passwords are one-way hashed (scrypt) — nobody, including admin, can ever
@@ -531,6 +568,18 @@ app.post(
     if (!name || !roomTypeId) return res.status(400).json({ error: "name and roomTypeId are required" });
     const roomType = owned(await findOneByBusinessId("roomTypes", roomTypeId), req);
     if (!roomType) return res.status(400).json({ error: "unknown roomTypeId" });
+
+    const homestay = await findOneByBusinessId("homestays", req.homestayId);
+    const maxRooms = normHomestay(homestay || {}).maxRooms;
+    if (maxRooms !== null) {
+      const existingRooms = await listRows("rooms", { where: withTenant(req), limit: maxRooms + 1 });
+      if (existingRooms.length >= maxRooms) {
+        return res.status(409).json({
+          error: `Homestay này chỉ được quản lý tối đa ${maxRooms} phòng. Hãy tăng giới hạn trong Quản lý Homestay nếu cần thêm.`,
+        });
+      }
+    }
+
     const row = await createRow("rooms", {
       id: uuid(),
       homestayId: req.homestayId,

@@ -38,6 +38,7 @@ export default function HomestayAdmin() {
             <thead>
               <tr>
                 <th className={th}>Tên homestay</th>
+                <th className={th}>Số phòng tối đa</th>
                 <th className={th}></th>
               </tr>
             </thead>
@@ -48,19 +49,20 @@ export default function HomestayAdmin() {
                     {h.name}
                     {h.id === currentHomestayId && <span className="ml-2 text-xs text-emerald-600">(đang xem)</span>}
                   </td>
+                  <td className={td}>{h.maxRooms ?? "Không giới hạn"}</td>
                   <td className={td}>
                     <div className="flex justify-end gap-2">
                       {h.id !== currentHomestayId && (
                         <button className={`${btn} !py-1.5 !text-xs`} onClick={() => setCurrentHomestayId(h.id)}>Xem</button>
                       )}
-                      <button className={`${btn} !py-1.5 !text-xs`} onClick={() => setModal({ mode: "edit", homestay: h })}>Sửa tên</button>
+                      <button className={`${btn} !py-1.5 !text-xs`} onClick={() => setModal({ mode: "edit", homestay: h })}>Sửa</button>
                     </div>
                   </td>
                 </tr>
               ))}
               {homestays.length === 0 && (
                 <tr>
-                  <td className={td} colSpan={2}>Chưa có homestay nào.</td>
+                  <td className={td} colSpan={3}>Chưa có homestay nào.</td>
                 </tr>
               )}
             </tbody>
@@ -85,6 +87,7 @@ export default function HomestayAdmin() {
 
 function HomestayModal({ mode, homestay, onClose, onSaved }) {
   const [name, setName] = useState(homestay?.name || "");
+  const [maxRooms, setMaxRooms] = useState(homestay?.maxRooms != null ? String(homestay.maxRooms) : "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -94,13 +97,19 @@ function HomestayModal({ mode, homestay, onClose, onSaved }) {
       setError("Vui lòng nhập tên homestay");
       return;
     }
+    const trimmedMax = maxRooms.trim();
+    if (trimmedMax && (!/^\d+$/.test(trimmedMax) || Number(trimmedMax) < 1)) {
+      setError("Số phòng tối đa phải là số nguyên dương, hoặc để trống nếu không giới hạn.");
+      return;
+    }
+    const maxRoomsValue = trimmedMax ? Number(trimmedMax) : null;
     setSubmitting(true);
     setError("");
     try {
       const saved =
         mode === "edit"
-          ? await ownerApi.renameHomestay(homestay.id, name.trim())
-          : await ownerApi.addHomestay(name.trim());
+          ? await ownerApi.renameHomestay(homestay.id, name.trim(), maxRoomsValue)
+          : await ownerApi.addHomestay(name.trim(), maxRoomsValue);
       onSaved(saved);
     } catch (err) {
       setError(err.message);
@@ -113,7 +122,7 @@ function HomestayModal({ mode, homestay, onClose, onSaved }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
       <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 text-lg font-semibold text-slate-900">
-          {mode === "edit" ? "Sửa tên homestay" : "Thêm homestay"}
+          {mode === "edit" ? "Sửa homestay" : "Thêm homestay"}
         </div>
         {error && (
           <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
@@ -122,6 +131,16 @@ function HomestayModal({ mode, homestay, onClose, onSaved }) {
           <div className="space-y-1">
             <label className={label}>Tên homestay</label>
             <input className={input} value={name} onChange={(e) => setName(e.target.value)} placeholder="VD: Homestay Tuấn Tú" autoFocus />
+          </div>
+          <div className="space-y-1">
+            <label className={label}>Số phòng tối đa</label>
+            <input
+              className={input}
+              value={maxRooms}
+              onChange={(e) => setMaxRooms(e.target.value)}
+              placeholder="Để trống = không giới hạn"
+              inputMode="numeric"
+            />
           </div>
           {mode === "create" && (
             <p className="text-xs text-slate-500">
