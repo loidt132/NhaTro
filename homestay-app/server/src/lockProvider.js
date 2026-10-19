@@ -50,15 +50,48 @@ class TTLockProvider {
   }
 }
 
+// A room with no lockId (card removed) never talks to a vendor; a lockId
+// containing "mock" is served by MockLockProvider, so neither needs the real
+// provider's login/credentials.
+const isMockLockId = (lockId) => /mock/i.test(String(lockId || ""));
+
+class RoutingLockProvider {
+  constructor(realProvider) {
+    this.real = realProvider;
+    this.mock = new MockLockProvider();
+  }
+
+  pick(lockId) {
+    return isMockLockId(lockId) ? this.mock : this.real;
+  }
+
+  async issueCard(args) {
+    if (!args.lockId) return { cardId: null, provider: "none" };
+    return this.pick(args.lockId).issueCard(args);
+  }
+
+  async revokeCard(args) {
+    if (!args.lockId || !args.cardId) return { revoked: false };
+    return this.pick(args.lockId).revokeCard(args);
+  }
+
+  async pollEvents(args) {
+    if (!args?.lockId) return [];
+    return this.pick(args.lockId).pollEvents(args);
+  }
+}
+
 export function createLockProvider() {
   const { TTLOCK_CLIENT_ID, TTLOCK_CLIENT_SECRET, TTLOCK_USERNAME, TTLOCK_PASSWORD } = process.env;
   if (TTLOCK_CLIENT_ID && TTLOCK_CLIENT_SECRET) {
-    return new TTLockProvider({
-      clientId: TTLOCK_CLIENT_ID,
-      clientSecret: TTLOCK_CLIENT_SECRET,
-      username: TTLOCK_USERNAME,
-      password: TTLOCK_PASSWORD,
-    });
+    return new RoutingLockProvider(
+      new TTLockProvider({
+        clientId: TTLOCK_CLIENT_ID,
+        clientSecret: TTLOCK_CLIENT_SECRET,
+        username: TTLOCK_USERNAME,
+        password: TTLOCK_PASSWORD,
+      })
+    );
   }
-  return new MockLockProvider();
+  return new RoutingLockProvider(new MockLockProvider());
 }
