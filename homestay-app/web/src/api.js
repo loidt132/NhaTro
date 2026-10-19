@@ -1,7 +1,6 @@
 import { loadAuth } from "./auth.js";
 
 const HOMESTAY_API = import.meta.env.VITE_HOMESTAY_API || "http://localhost:4000";
-const CATALOG_API = import.meta.env.VITE_CATALOG_API || "http://localhost:4100";
 
 // Set by App.jsx so any 401 from any call (session expired, token revoked)
 // bounces the whole app back to the login screen in one place.
@@ -46,14 +45,20 @@ export const authApi = {
 // X-Homestay-Id header — these routes act above any single homestay.
 export const ownerApi = {
   listHomestays: () => request(HOMESTAY_API, "/api/owner/homestays"),
-  addHomestay: (name) => request(HOMESTAY_API, "/api/owner/homestays", { method: "POST", body: JSON.stringify({ name }) }),
-  renameHomestay: (id, name) =>
-    request(HOMESTAY_API, `/api/owner/homestays/${id}`, { method: "PUT", body: JSON.stringify({ name }) }),
+  addHomestay: (name, maxRooms) =>
+    request(HOMESTAY_API, "/api/owner/homestays", { method: "POST", body: JSON.stringify({ name, maxRooms }) }),
+  renameHomestay: (id, name, maxRooms) =>
+    request(HOMESTAY_API, `/api/owner/homestays/${id}`, { method: "PUT", body: JSON.stringify({ name, maxRooms }) }),
 };
 
 export const homestayApi = {
+  getCurrentHomestay: () => request(HOMESTAY_API, "/api/homestay"),
   getRooms: () => request(HOMESTAY_API, "/api/rooms"),
   getRoomTypes: () => request(HOMESTAY_API, "/api/room-types"),
+  addRoomType: (name) => request(HOMESTAY_API, "/api/room-types", { method: "POST", body: JSON.stringify({ name }) }),
+  renameRoomType: (id, name) =>
+    request(HOMESTAY_API, `/api/room-types/${id}`, { method: "PUT", body: JSON.stringify({ name }) }),
+  deleteRoomType: (id) => request(HOMESTAY_API, `/api/room-types/${id}`, { method: "DELETE" }),
   getRatePlans: () => request(HOMESTAY_API, "/api/rate-plans"),
   updateRatePlan: (id, body) =>
     request(HOMESTAY_API, `/api/rate-plans/${id}`, { method: "PUT", body: JSON.stringify(body) }),
@@ -89,32 +94,22 @@ export const homestayApi = {
 
 // One catalog backend for both dịch vụ (kind: "service") and phụ thu
 // (kind: "surcharge") items — pass kind to filter, omit it to get everything.
-// Reads go straight to catalog-service (public, no secret) but still need
-// ?homestayId= so one homestay never sees another's price list. Writes go
-// through homestay-server's /api/admin/catalog/* proxy instead of hitting
-// catalog-service directly — that proxy is what checks the caller is a
-// logged-in admin and attaches the service-to-service API key (plus
-// homestayId from the validated JWT/header), which the browser is never
-// given directly.
+// Every call, read or write, goes through homestay-server's own /api/catalog
+// and /api/admin/catalog proxies instead of hitting catalog-service directly
+// from the browser — same as every other data store in this app, and the
+// one place a catalog-service error (rate limit, downtime) gets translated
+// into something presentable before it reaches the UI.
 export const catalogApi = {
-  getCategories: () => request(CATALOG_API, `/api/categories?homestayId=${currentHomestayIdForCatalog()}`),
+  getCategories: () => request(HOMESTAY_API, "/api/catalog/categories"),
   addCategory: (name) => request(HOMESTAY_API, "/api/admin/catalog/categories", { method: "POST", body: JSON.stringify({ name }) }),
   updateCategory: (id, name) =>
     request(HOMESTAY_API, `/api/admin/catalog/categories/${id}`, { method: "PUT", body: JSON.stringify({ name }) }),
   deleteCategory: (id) => request(HOMESTAY_API, `/api/admin/catalog/categories/${id}`, { method: "DELETE" }),
-  getItems: (kind) =>
-    request(CATALOG_API, `/api/items?homestayId=${currentHomestayIdForCatalog()}${kind ? `&kind=${kind}` : ""}`),
+  getItems: (kind) => request(HOMESTAY_API, `/api/catalog/items${kind ? `?kind=${kind}` : ""}`),
   addItem: (body) => request(HOMESTAY_API, "/api/admin/catalog/items", { method: "POST", body: JSON.stringify(body) }),
   updateItem: (id, body) => request(HOMESTAY_API, `/api/admin/catalog/items/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteItem: (id) => request(HOMESTAY_API, `/api/admin/catalog/items/${id}`, { method: "DELETE" }),
 };
-
-// catalog-service isn't behind the X-Homestay-Id-aware proxy for reads (it's
-// called directly from the browser), so its own calls resolve the homestay
-// id from the same module-level value directly instead of a header.
-function currentHomestayIdForCatalog() {
-  return currentHomestayId || "";
-}
 
 export const userAdminApi = {
   list: () => request(HOMESTAY_API, "/api/admin/users"),

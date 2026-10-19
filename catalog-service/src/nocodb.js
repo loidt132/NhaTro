@@ -27,15 +27,40 @@ function headers() {
   return { "xc-token": TOKEN, "Content-Type": "application/json" };
 }
 
+// NocoDB's cloud plan rate-limits aggressively — retry 429s with backoff
+// instead of failing the whole request. See homestay-server/src/nocodb.js
+// for the matching fix (same NocoDB project, same limit).
+const MAX_RETRIES = 4;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function request(path, options = {}) {
   assertConfigured();
-  const res = await fetch(`${BASE}${path}`, { headers: headers(), ...options });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`NocoDB ${options.method || "GET"} ${path} failed: ${res.status} ${text.slice(0, 300)}`);
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${BASE}${path}`, { headers: headers(), ...options });
+    if (res.status === 429 && attempt < MAX_RETRIES) {
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const delay = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 300 * 2 ** attempt;
+      await sleep(delay);
+      continue;
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      // See homestay-server/src/nocodb.js for why 429s get a friendly
+      // message instead of NocoDB's raw rate-limit body.
+      if (res.status === 429) {
+        const err = new Error("Hệ thống dữ liệu đang bận, vui lòng thử lại sau vài giây.");
+        err.code = "NOCODB_RATE_LIMIT";
+        err.detail = `NocoDB ${options.method || "GET"} ${path} failed: 429 ${text.slice(0, 300)}`;
+        throw err;
+      }
+      throw new Error(`NocoDB ${options.method || "GET"} ${path} failed: ${res.status} ${text.slice(0, 300)}`);
+    }
+    if (res.status === 204) return null;
+    return res.json();
   }
-  if (res.status === 204) return null;
-  return res.json();
 }
 
 let discoveredTables = null;

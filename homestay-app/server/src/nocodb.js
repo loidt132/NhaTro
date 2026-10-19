@@ -1,4 +1,5 @@
 import fetch from "node-fetch";
+import { encryptRow, decryptRow } from "./cryptoFields.js";
 
 // Thin client over NocoDB's v2 records API — replaces the old JSON-file
 // store.js. One NocoDB project/base per repo (this repo's own base, set via
@@ -52,15 +53,43 @@ function headers() {
   return { "xc-token": TOKEN, "Content-Type": "application/json" };
 }
 
+// NocoDB's cloud plan rate-limits aggressively, and one stay-detail view
+// fires a burst of ~8-10 calls in parallel (buildStayView's Promise.all's,
+// each room-transfer's two lookups, ...). Retry 429s with backoff instead
+// of failing the whole request — the burst is legitimate load, not abuse.
+const MAX_RETRIES = 4;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function request(path, options = {}) {
   assertConfigured();
-  const res = await fetch(`${BASE}${path}`, { headers: headers(), ...options });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`NocoDB ${options.method || "GET"} ${path} failed: ${res.status} ${text.slice(0, 300)}`);
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${BASE}${path}`, { headers: headers(), ...options });
+    if (res.status === 429 && attempt < MAX_RETRIES) {
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const delay = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 300 * 2 ** attempt;
+      await sleep(delay);
+      continue;
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      // NocoDB's own rate-limit error (ThrottlerException etc.) is not
+      // something a user/ops person can act on — surface a friendly,
+      // actionable message instead of its raw body, even after retries
+      // are exhausted. The raw detail still goes to the server log below.
+      if (res.status === 429) {
+        const err = new Error("Hệ thống dữ liệu đang bận, vui lòng thử lại sau vài giây.");
+        err.code = "NOCODB_RATE_LIMIT";
+        err.detail = `NocoDB ${options.method || "GET"} ${path} failed: 429 ${text.slice(0, 300)}`;
+        throw err;
+      }
+      throw new Error(`NocoDB ${options.method || "GET"} ${path} failed: ${res.status} ${text.slice(0, 300)}`);
+    }
+    if (res.status === 204) return null;
+    return res.json();
   }
-  if (res.status === 204) return null;
-  return res.json();
 }
 
 let discoveredTables = null;
@@ -112,7 +141,7 @@ export async function listRows(tableKey, { where, limit = 1000, sort } = {}) {
   if (where) params.set("where", where);
   if (sort) params.set("sort", sort);
   const body = await request(`/api/v2/tables/${tableId}/records?${params.toString()}`);
-  return body.list || [];
+  return (body.list || []).map((row) => decryptRow(tableKey, row));
 }
 
 export async function findOneByBusinessId(tableKey, id) {
@@ -129,10 +158,11 @@ export async function createRow(tableKey, data) {
   const tableId = await resolveTableId(tableKey);
   const body = await request(`/api/v2/tables/${tableId}/records`, {
     method: "POST",
-    body: JSON.stringify(data),
+    body: JSON.stringify(encryptRow(tableKey, data)),
   });
   // NocoDB's create response is just { Id } — not the full row — so merge
-  // back what we sent rather than firing a second GET for every insert.
+  // back what we sent (plaintext) rather than firing a second GET for every
+  // insert, and rather than returning the encrypted ciphertext we just sent.
   const created = Array.isArray(body) ? body[0] : body;
   return { ...data, ...created };
 }
@@ -144,7 +174,7 @@ export async function updateRowByBusinessId(tableKey, id, patch) {
   const { field, value } = primaryKeyOf(existing);
   await request(`/api/v2/tables/${tableId}/records`, {
     method: "PATCH",
-    body: JSON.stringify({ [field]: value, ...patch }),
+    body: JSON.stringify({ [field]: value, ...encryptRow(tableKey, patch) }),
   });
   return { ...existing, ...patch };
 }

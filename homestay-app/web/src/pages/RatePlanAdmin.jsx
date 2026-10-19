@@ -21,6 +21,12 @@ export default function RatePlanAdmin() {
   const [roomTypes, setRoomTypes] = useState([]);
   const [editing, setEditing] = useState({});
   const [savedId, setSavedId] = useState("");
+  const [newTypeName, setNewTypeName] = useState("");
+  const [addingType, setAddingType] = useState(false);
+  const [addTypeError, setAddTypeError] = useState("");
+  const [renaming, setRenaming] = useState(null); // { id, value }
+  const [busyTypeId, setBusyTypeId] = useState(null);
+  const [typeError, setTypeError] = useState({}); // roomTypeId -> error message
 
   async function refresh() {
     const [plansData, typesData] = await Promise.all([
@@ -35,8 +41,60 @@ export default function RatePlanAdmin() {
     refresh();
   }, [currentHomestayId]);
 
+  async function addRoomType() {
+    const name = newTypeName.trim();
+    if (!name) return;
+    setAddingType(true);
+    setAddTypeError("");
+    try {
+      await homestayApi.addRoomType(name);
+      setNewTypeName("");
+      await refresh();
+    } catch (err) {
+      setAddTypeError(err.message || "Không thêm được loại phòng");
+    } finally {
+      setAddingType(false);
+    }
+  }
+
   function roomTypeName(id) {
     return roomTypes.find((t) => t.id === id)?.name || id;
+  }
+
+  function startRename(id, currentName) {
+    setTypeError((prev) => ({ ...prev, [id]: "" }));
+    setRenaming({ id, value: currentName });
+  }
+
+  async function saveRename() {
+    if (!renaming) return;
+    const name = renaming.value.trim();
+    const id = renaming.id;
+    if (!name) return;
+    setBusyTypeId(id);
+    try {
+      await homestayApi.renameRoomType(id, name);
+      setRenaming(null);
+      await refresh();
+    } catch (err) {
+      setTypeError((prev) => ({ ...prev, [id]: err.message || "Không đổi tên được" }));
+    } finally {
+      setBusyTypeId(null);
+    }
+  }
+
+  async function removeRoomType(id) {
+    if (!window.confirm(`Xoá loại phòng "${roomTypeName(id)}"? Không thể hoàn tác.`)) return;
+    setBusyTypeId(id);
+    setTypeError((prev) => ({ ...prev, [id]: "" }));
+    try {
+      await homestayApi.deleteRoomType(id);
+      await refresh();
+    } catch (err) {
+      setTypeError((prev) => ({ ...prev, [id]: err.message || "Không xoá được loại phòng" }));
+    } finally {
+      setBusyTypeId(null);
+    }
   }
 
   function fieldValue(plan, key) {
@@ -75,9 +133,76 @@ export default function RatePlanAdmin() {
           Chỉ admin mới được sửa bảng giá — bạn đang xem ở chế độ chỉ đọc.
         </div>
       )}
+      {isAdmin && (
+        <div className={card}>
+          <h2 className="mb-3 font-semibold text-slate-900">Thêm loại phòng</h2>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="space-y-1">
+              <label className={label}>Tên loại phòng</label>
+              <input
+                className={input}
+                placeholder="VD: Phòng Suite"
+                value={newTypeName}
+                onChange={(e) => setNewTypeName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addRoomType()}
+              />
+            </div>
+            <button className={btnPrimary} disabled={addingType || !newTypeName.trim()} onClick={addRoomType}>
+              {addingType ? "Đang thêm..." : "+ Thêm loại phòng"}
+            </button>
+          </div>
+          {addTypeError && <div className="mt-2 text-sm text-red-600">{addTypeError}</div>}
+        </div>
+      )}
       {plans.map((plan) => (
         <div className={card} key={plan.id}>
-          <h2 className="mb-3 font-semibold text-slate-900">{roomTypeName(plan.roomTypeId)}</h2>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            {isAdmin && renaming?.id === plan.roomTypeId ? (
+              <div className="flex flex-1 items-center gap-2">
+                <input
+                  className={input}
+                  value={renaming.value}
+                  autoFocus
+                  onChange={(e) => setRenaming({ id: plan.roomTypeId, value: e.target.value })}
+                  onKeyDown={(e) => e.key === "Enter" && saveRename()}
+                />
+                <button
+                  className={btnPrimary}
+                  disabled={busyTypeId === plan.roomTypeId || !renaming.value.trim()}
+                  onClick={saveRename}
+                >
+                  Lưu
+                </button>
+                <button className="text-sm text-slate-500" onClick={() => setRenaming(null)}>
+                  Huỷ
+                </button>
+              </div>
+            ) : (
+              <>
+                <h2 className="font-semibold text-slate-900">{roomTypeName(plan.roomTypeId)}</h2>
+                {isAdmin && (
+                  <div className="flex items-center gap-3 text-sm">
+                    <button
+                      className="text-slate-500 hover:text-slate-900"
+                      onClick={() => startRename(plan.roomTypeId, roomTypeName(plan.roomTypeId))}
+                    >
+                      Sửa tên
+                    </button>
+                    <button
+                      className="text-red-600 hover:text-red-700"
+                      disabled={busyTypeId === plan.roomTypeId}
+                      onClick={() => removeRoomType(plan.roomTypeId)}
+                    >
+                      Xoá
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          {typeError[plan.roomTypeId] && (
+            <div className="mb-3 text-sm text-red-600">{typeError[plan.roomTypeId]}</div>
+          )}
           <fieldset disabled={!isAdmin} className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             {FIELDS.map(([key, fieldLabel]) => (
               <div className="space-y-1" key={key}>

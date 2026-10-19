@@ -6,6 +6,7 @@ const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const { createWorker } = require('tesseract.js');
 const stateStore = require('./stateStore');
+const { decryptRow, decryptField, encryptField } = require('./cryptoFields');
 const fetchApi =
   typeof global.fetch === 'function'
     ? global.fetch.bind(global)
@@ -593,6 +594,10 @@ function nocoRoomsUrl(suffix = '') {
   return `${NOCODB_URL}/api/v2/tables/${encodeURIComponent(NOCODB_TABLE_ROOMS)}/records${suffix}`;
 }
 
+function nocoMeterSubmissionsUrl(suffix = '') {
+  return `${NOCODB_URL}/api/v2/tables/${encodeURIComponent(NOCODB_TABLE_METER_SUBMISSIONS)}/records${suffix}`;
+}
+
 function nocoTableUrl(tableId, suffix = '') {
   return `${NOCODB_URL}/api/v2/tables/${encodeURIComponent(tableId)}/records${suffix}`;
 }
@@ -605,12 +610,18 @@ function stripNocoSystemColumns(row = {}) {
 
 async function findTenantRecordsByPhone(phone) {
   if (!NOCODB_TABLE_TENANTS || !phone) return [];
-  const where = encodeURIComponent(`(phone,eq,${phone})`);
-  const data = await nocoFetchJson(nocoTableUrl(NOCODB_TABLE_TENANTS, `?where=${where}&limit=50`));
-  return (data?.list || []).map(stripNocoSystemColumns).map((row, index) => ({
-    ...row,
-    rowId: (data.list[index]?.Id ?? data.list[index]?.ID) ?? null,
-  }));
+  // phone is encrypted at rest (AES-GCM, random IV per value), so it can't
+  // be matched with a NocoDB-side `where` filter — fetch and compare
+  // decrypted values in memory instead.
+  const data = await nocoFetchJson(nocoTableUrl(NOCODB_TABLE_TENANTS, `?limit=1000`));
+  return (data?.list || [])
+    .map(stripNocoSystemColumns)
+    .map((row) => decryptRow('tenants', row))
+    .map((row, index) => ({
+      ...row,
+      rowId: (data.list[index]?.Id ?? data.list[index]?.ID) ?? null,
+    }))
+    .filter((row) => normalizePhone(row.phone) === normalizePhone(phone));
 }
 
 async function uploadBufferToCloudinary(buffer, folder) {
@@ -685,6 +696,10 @@ function hasNocoRoomsConfig() {
   return Boolean(NOCODB_URL && NOCODB_API_KEY && NOCODB_TABLE_ROOMS);
 }
 
+function hasNocoMeterSubmissionsConfig() {
+  return Boolean(NOCODB_URL && NOCODB_API_KEY && NOCODB_TABLE_METER_SUBMISSIONS);
+}
+
 function isActiveNocoRow(row) {
   if (!row) return false;
   const deleted = row.isDeleted;
@@ -748,7 +763,7 @@ function mapNocoUser(row) {
     id: readUserValue(row, ['id']),
     name: readUserValue(row, ['name']),
     email: normalizeEmail(readUserValue(row, ['email'])),
-    phone: normalizePhone(readUserValue(row, ['phone'])),
+    phone: normalizePhone(decryptField(readUserValue(row, ['phone']))),
     password: readUserValue(row, ['password', 'pass']),
     passwordHash: readUserValue(row, ['password_hash', 'passwordHash', 'passwordhash']),
     passwordSalt: readUserValue(row, ['password_salt', 'passwordSalt', 'passwordsalt']),
@@ -771,6 +786,10 @@ async function listNocoUsers() {
 async function createNocoUserRecord(user) {
   ensureNocoAuthReady();
   const normalizedName = String(user.name || '').trim() || user.email || user.phone || 'User';
+  // Encrypted once, up front — every payload variant below writes the same
+  // ciphertext, since they're just different guesses at this table's column
+  // names, not different data.
+  const encryptedPhone = encryptField(user.phone);
   // Present only for role='tenant' accounts; harmless extra columns otherwise.
   const tenantLinkFields = {
     landlordId: user.landlordId || '',
@@ -782,7 +801,7 @@ async function createNocoUserRecord(user) {
       id: user.id,
       name: normalizedName,
       email: user.email,
-      phone: user.phone,
+      phone: encryptedPhone,
       password_hash: user.passwordHash,
       password_salt: user.passwordSalt,
       created_at: user.createdAt,
@@ -795,7 +814,7 @@ async function createNocoUserRecord(user) {
       id: user.id,
       name: normalizedName,
       email: user.email,
-      phone: user.phone,
+      phone: encryptedPhone,
       passwordHash: user.passwordHash,
       passwordSalt: user.passwordSalt,
       createdAt: user.createdAt,
@@ -808,7 +827,7 @@ async function createNocoUserRecord(user) {
       id: user.id,
       name: normalizedName,
       email: user.email,
-      phone: user.phone,
+      phone: encryptedPhone,
       passwordhash: user.passwordHash,
       passwordsalt: user.passwordSalt,
       createdat: user.createdAt,
@@ -821,7 +840,7 @@ async function createNocoUserRecord(user) {
       id: user.id,
       name: normalizedName,
       email: user.email,
-      phone: user.phone,
+      phone: encryptedPhone,
       password: user.password || user.passwordHash,
       created_at: user.createdAt,
       role: user.role,
@@ -833,7 +852,7 @@ async function createNocoUserRecord(user) {
       id: user.id,
       name: normalizedName,
       email: user.email,
-      phone: user.phone,
+      phone: encryptedPhone,
       pass: user.password || user.passwordHash,
       created_at: user.createdAt,
       role: user.role,
@@ -845,7 +864,7 @@ async function createNocoUserRecord(user) {
       id: user.id,
       name: normalizedName,
       email: user.email,
-      phone: user.phone,
+      phone: encryptedPhone,
       created_by: user.id,
       modified_by: user.id,
       password_hash: user.passwordHash,
@@ -1222,7 +1241,6 @@ app.post('/api/auth/register', async (req, res) => {
       name: String(name || '').trim(),
       email: normalizedEmail,
       phone: normalizedPhone,
-      password: String(password),
       ...createPasswordRecord(password),
       createdAt: new Date().toISOString(),
       role: 'user',
@@ -1367,6 +1385,158 @@ app.post('/api/meter/ocr-upload', authMiddleware, meterPhotoUpload.single('photo
   }
 });
 
+function mapMeterSubmission(row) {
+  return {
+    id: row?.id || '',
+    roomId: row?.roomId || '',
+    month: row?.month || '',
+    meterType: row?.meterType || '',
+    photoUrl: row?.photoUrl || '',
+    ocrRawText: row?.ocrRawText || '',
+    ocrValue: row?.ocrValue ?? null,
+    finalValue: row?.finalValue ?? null,
+    status: row?.status || 'pending',
+    submittedByRole: row?.submittedByRole || '',
+    submittedByUserId: row?.submittedByUserId || '',
+    submittedByName: row?.submittedByName || '',
+    reviewedByUserId: row?.reviewedByUserId || '',
+    reviewedAt: row?.reviewedAt || null,
+    createdAt: row?.createdAt || '',
+    updatedAt: row?.updatedAt || '',
+  };
+}
+
+// Meter-submission review queue: a tenant uploads a meter photo (pending),
+// the landlord confirms (becomes the official reading, handled client-side)
+// or rejects it. Every row's created_by is the landlord's own id, never the
+// tenant's, so ownership here is resolved from the auth token's landlordId
+// (tenant) or userId (landlord), not from req.userId alone.
+app.get('/api/meter-submissions', authMiddleware, async (req, res) => {
+  if (!hasNocoMeterSubmissionsConfig()) {
+    return res.status(503).json({ error: 'NocoDB meter_submissions table chưa được cấu hình.' });
+  }
+
+  const isTenant = req.authPayload?.role === 'tenant';
+  const landlordId = isTenant ? req.authPayload?.landlordId : req.userId;
+  if (!landlordId) {
+    return res.status(400).json({ error: 'Thiếu landlordId cho tài khoản này.' });
+  }
+
+  const statusFilter = String(req.query?.status || '').trim();
+  const whereParts = [`(created_by,eq,${landlordId})`, '(isDeleted,neq,true)'];
+  if (isTenant) whereParts.push(`(submittedByUserId,eq,${req.userId})`);
+  if (statusFilter) whereParts.push(`(status,eq,${statusFilter})`);
+  const where = encodeURIComponent(whereParts.join('~and'));
+
+  try {
+    const data = await nocoFetchJson(nocoMeterSubmissionsUrl(`?where=${where}&limit=1000`));
+    return res.json({ submissions: (data?.list || []).map(mapMeterSubmission) });
+  } catch (error) {
+    console.error('list meter-submissions error', error);
+    return res.status(500).json({ error: 'Không tải được danh sách ảnh công tơ.' });
+  }
+});
+
+app.post('/api/meter-submissions', authMiddleware, async (req, res) => {
+  if (!hasNocoMeterSubmissionsConfig()) {
+    return res.status(503).json({ error: 'NocoDB meter_submissions table chưa được cấu hình.' });
+  }
+  if (req.authPayload?.role !== 'tenant') {
+    return res.status(403).json({ error: 'Chỉ tài khoản người thuê mới được gửi ảnh công tơ.' });
+  }
+
+  const landlordId = req.authPayload?.landlordId;
+  if (!landlordId) {
+    return res.status(400).json({ error: 'Tài khoản chưa được liên kết với chủ nhà.' });
+  }
+
+  const roomId = String(req.body?.roomId || '').trim();
+  const month = String(req.body?.month || '').trim();
+  const meterType = String(req.body?.meterType || '').trim();
+  const photoUrl = String(req.body?.photoUrl || '').trim();
+  if (!roomId || !month || !meterType || !photoUrl) {
+    return res.status(400).json({ error: 'Thiếu roomId, month, meterType hoặc photoUrl.' });
+  }
+
+  try {
+    // Just a display label on the review card — not used for ownership or
+    // auth, so it's fine to take it from the client (falling back to the
+    // phone already in the token) instead of paying for a full users-table
+    // fetch on every submission.
+    const submittedByName = String(req.body?.submittedByName || '').trim() || req.authPayload?.phone || '';
+    const nowIso = new Date().toISOString();
+    const record = {
+      id: uid(),
+      roomId,
+      month,
+      meterType,
+      photoUrl,
+      ocrRawText: String(req.body?.ocrRawText || ''),
+      ocrValue: req.body?.ocrValue ?? null,
+      finalValue: null,
+      status: 'pending',
+      submittedByRole: 'tenant',
+      submittedByUserId: req.userId,
+      submittedByName,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      created_by: landlordId,
+      modified_by: landlordId,
+      isDeleted: false,
+    };
+    await nocoFetchJson(nocoMeterSubmissionsUrl(), {
+      method: 'POST',
+      body: JSON.stringify(record),
+    });
+    return res.json({ id: record.id });
+  } catch (error) {
+    console.error('create meter-submission error', error);
+    return res.status(500).json({ error: 'Không thể lưu ảnh công tơ.' });
+  }
+});
+
+app.patch('/api/meter-submissions/:id', authMiddleware, async (req, res) => {
+  if (!hasNocoMeterSubmissionsConfig()) {
+    return res.status(503).json({ error: 'NocoDB meter_submissions table chưa được cấu hình.' });
+  }
+  if (req.authPayload?.role === 'tenant') {
+    return res.status(403).json({ error: 'Chỉ chủ nhà mới được duyệt ảnh công tơ.' });
+  }
+
+  const action = req.body?.action === 'reject' ? 'reject' : req.body?.action === 'confirm' ? 'confirm' : '';
+  if (!action) {
+    return res.status(400).json({ error: 'action phải là "confirm" hoặc "reject".' });
+  }
+  if (action === 'confirm' && !Number.isFinite(Number(req.body?.finalValue))) {
+    return res.status(400).json({ error: 'Thiếu finalValue hợp lệ để xác nhận.' });
+  }
+
+  const appId = String(req.params.id || '').trim();
+  const where = encodeURIComponent(`(id,eq,${appId})~and(created_by,eq,${req.userId})`);
+
+  try {
+    const data = await nocoFetchJson(nocoMeterSubmissionsUrl(`?where=${where}&limit=1`));
+    const row = (data?.list || [])[0];
+    if (!row) {
+      return res.status(404).json({ error: 'Không tìm thấy dòng dữ liệu để cập nhật.' });
+    }
+
+    const nowIso = new Date().toISOString();
+    const patch = action === 'confirm'
+      ? { status: 'confirmed', finalValue: Number(req.body.finalValue), reviewedByUserId: req.userId, reviewedAt: nowIso, updatedAt: nowIso }
+      : { status: 'rejected', reviewedByUserId: req.userId, reviewedAt: nowIso, updatedAt: nowIso };
+
+    await nocoFetchJson(nocoMeterSubmissionsUrl(), {
+      method: 'PATCH',
+      body: JSON.stringify([{ Id: row.Id ?? row.ID, ...patch }]),
+    });
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('update meter-submission error', error);
+    return res.status(500).json({ error: 'Không thể cập nhật ảnh công tơ.' });
+  }
+});
+
 app.get('/api/auth/me', authMiddleware, async (req, res) => {
   try {
     const users = await loadAllUsers();
@@ -1397,12 +1567,19 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
   }
 });
 
+function parseTablesParam(raw) {
+  if (!raw) return null;
+  const list = String(raw).split(',').map((t) => t.trim()).filter(Boolean);
+  return list.length ? list : null;
+}
+
 app.get('/api/state', authMiddleware, async (req, res) => {
   if (!stateStore.isConfigured()) {
     return res.json({ state: {} });
   }
   try {
-    const state = await stateStore.loadStateForUser(req.userId);
+    const tables = parseTablesParam(req.query?.tables);
+    const state = await stateStore.loadStateForUser(req.userId, tables);
     return res.json({ state: sanitizeStateForPersistence(state) });
   } catch (error) {
     console.error('state get error', error);
@@ -1419,6 +1596,7 @@ app.post('/api/state', authMiddleware, async (req, res) => {
     return res.status(501).json({ error: 'NocoDB chưa được cấu hình trên server.' });
   }
 
+  const tables = Array.isArray(req.body?.tables) && req.body.tables.length ? req.body.tables : null;
   const sanitizedState = sanitizeStateForPersistence(nextState);
   let currentUser;
 
@@ -1430,7 +1608,7 @@ app.post('/api/state', authMiddleware, async (req, res) => {
   }
 
   const currentLimit = currentUser?.maxRoomLimit;
-  if (currentLimit !== null && currentLimit !== undefined && currentLimit > 0) {
+  if (currentLimit !== null && currentLimit !== undefined && currentLimit > 0 && (!tables || tables.includes('rooms'))) {
     const roomCount = Array.isArray(sanitizedState.rooms)
       ? sanitizedState.rooms.filter((room) => room?.isDeleted !== true).length
       : 0;
@@ -1440,13 +1618,65 @@ app.post('/api/state', authMiddleware, async (req, res) => {
   }
 
   try {
-    await stateStore.saveStateForUser(req.userId, sanitizedState);
+    await stateStore.saveStateForUser(req.userId, sanitizedState, tables);
   } catch (error) {
     console.error('state save error', error);
     return res.status(500).json({ error: error?.message || 'Không thể lưu dữ liệu vào NocoDB' });
   }
 
   return res.json({ state: sanitizedState });
+});
+
+// Tenant's own landlord's room list — needed to show the tenant which room
+// they're linked to (TenantMeterUpload.jsx). Scoped like /api/tenants/records:
+// self, your own landlord (tenant role), or an admin impersonating someone else.
+function resolveRoomsOwnerId(req) {
+  const requested = String(req.query?.ownerUserId || '').trim();
+  if (!requested || requested === req.userId) return req.userId;
+  if (requested === String(req.authPayload?.landlordId || '')) return requested;
+  return isAdminRole(req.authPayload?.role) ? requested : req.userId;
+}
+
+app.get('/api/rooms/records', authMiddleware, async (req, res) => {
+  if (!hasNocoRoomsConfig()) {
+    return res.status(503).json({ error: 'NocoDB rooms table chưa được cấu hình.' });
+  }
+  const ownerId = resolveRoomsOwnerId(req);
+  const where = encodeURIComponent(`(created_by,eq,${ownerId})~and(isDeleted,neq,true)`);
+
+  try {
+    const data = await nocoFetchJson(nocoTableUrl(NOCODB_TABLE_ROOMS, `?where=${where}&limit=1000`));
+    return res.json(data);
+  } catch (error) {
+    console.error('rooms proxy GET error', error);
+    return res.status(500).json({ error: 'Không tải được danh sách phòng.' });
+  }
+});
+
+// Lets Settings.jsx show which NocoDB tables are configured without exposing
+// the URL/API key itself to the browser (those used to live in VITE_* env
+// vars baked into the FE bundle — moved server-side only).
+app.get('/api/config/status', authMiddleware, (req, res) => {
+  const tableChecks = {
+    rooms: NOCODB_TABLE_ROOMS,
+    tenants: NOCODB_TABLE_TENANTS,
+    readings: NOCODB_TABLE_READINGS,
+    invoices: NOCODB_TABLE_INVOICES,
+    payments: NOCODB_TABLE_PAYMENTS,
+    rentPeriods: NOCODB_TABLE_RENT_PERIODS,
+    paymentAllocations: NOCODB_TABLE_PAYMENT_ALLOCATIONS,
+    deposits: NOCODB_TABLE_DEPOSITS,
+    depositTransactions: NOCODB_TABLE_DEPOSIT_TRANSACTIONS,
+    settings: firstEnv('NOCODB_TABLE_SETTINGS', 'TABLE_SETTINGS', 'VITE_TABLE_SETTINGS'),
+  };
+  const missingTables = Object.entries(tableChecks).filter(([, value]) => !value).map(([key]) => key);
+
+  return res.json({
+    baseConfigured: Boolean(NOCODB_URL),
+    tokenConfigured: Boolean(NOCODB_API_KEY),
+    missingTables,
+    ready: Boolean(NOCODB_URL && NOCODB_API_KEY) && missingTables.length === 0,
+  });
 });
 
 // ===== Admin User Management API =====
@@ -1561,7 +1791,8 @@ app.get('/api/admin/users/:userId/rooms', adminMiddleware, async (req, res) => {
 // Read-only state preview for an account selected by an administrator.
 app.get('/api/admin/users/:userId/state', adminMiddleware, async (req, res) => {
   try {
-    const state = await stateStore.loadStateForUser(req.params.userId);
+    const tables = parseTablesParam(req.query?.tables);
+    const state = await stateStore.loadStateForUser(req.params.userId, tables);
     return res.json({ state: sanitizeStateForPersistence(state) });
   } catch (error) {
     console.error('admin/users state get error', error);

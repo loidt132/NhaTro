@@ -68,7 +68,10 @@ function asyncRoute(fn) {
     try {
       await fn(req, res);
     } catch (err) {
-      console.error(err);
+      console.error(err.detail || err);
+      if (err.code === "NOCODB_RATE_LIMIT") {
+        return res.status(503).json({ error: err.message });
+      }
       res.status(502).json({ error: `NocoDB: ${err.message}` });
     }
   };
@@ -103,7 +106,19 @@ function normUser(u) {
   return { id: u.id, username: u.username, name: u.name, role: u.role, homestayId: u.homestayId || null };
 }
 function normHomestay(h) {
-  return { id: h.id, name: h.name };
+  const maxRooms = h.maxRooms === null || h.maxRooms === undefined || h.maxRooms === "" ? null : Number(h.maxRooms);
+  return { id: h.id, name: h.name, maxRooms: Number.isFinite(maxRooms) ? maxRooms : null };
+}
+
+// Returns null if unset/invalid (meaning "không giới hạn"), otherwise a
+// positive integer. Thrown message is surfaced straight to the owner's form.
+function parseMaxRooms(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) {
+    throw new Error("Số phòng tối đa phải là số nguyên dương, hoặc để trống nếu không giới hạn.");
+  }
+  return n;
 }
 function normRoomType(t) {
   return { id: t.id, name: t.name };
@@ -254,9 +269,15 @@ app.post(
   requireAuth,
   requireOwner,
   asyncRoute(async (req, res) => {
-    const { name } = req.body;
+    const { name, maxRooms } = req.body;
     if (!name) return res.status(400).json({ error: "name is required" });
-    const row = await createRow("homestays", { id: uuid(), name });
+    let parsedMaxRooms;
+    try {
+      parsedMaxRooms = parseMaxRooms(maxRooms);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    const row = await createRow("homestays", { id: uuid(), name, maxRooms: parsedMaxRooms });
     await seedDefaultCatalogForHomestay(row.id);
     res.status(201).json(normHomestay(row));
   })
@@ -267,9 +288,15 @@ app.put(
   requireAuth,
   requireOwner,
   asyncRoute(async (req, res) => {
-    const { name } = req.body;
+    const { name, maxRooms } = req.body;
     if (!name) return res.status(400).json({ error: "name is required" });
-    const updated = await updateRowByBusinessId("homestays", req.params.id, { name });
+    let parsedMaxRooms;
+    try {
+      parsedMaxRooms = parseMaxRooms(maxRooms);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    const updated = await updateRowByBusinessId("homestays", req.params.id, { name, maxRooms: parsedMaxRooms });
     if (!updated) return res.status(404).json({ error: "not found" });
     res.json(normHomestay(updated));
   })
@@ -278,6 +305,19 @@ app.put(
 // Every route below this line requires a logged-in user AND a resolved
 // homestay context (req.homestayId) — see requireHomestayContext in auth.js.
 app.use("/api", requireAuth, requireHomestayContext);
+
+// Current homestay's own info (name + its room cap) — unlike
+// /api/owner/homestays (owner-only, lists every homestay), this is scoped to
+// whichever homestay req.homestayId resolved to, so admin/staff can read
+// their own cap to show "x/y phòng" without needing owner rights.
+app.get(
+  "/api/homestay",
+  asyncRoute(async (req, res) => {
+    const homestay = await findOneByBusinessId("homestays", req.homestayId);
+    if (!homestay) return res.status(404).json({ error: "not found" });
+    res.json(normHomestay(homestay));
+  })
+);
 
 // ---- User management (admin/owner) ----
 // Passwords are one-way hashed (scrypt) — nobody, including admin, can ever
@@ -445,6 +485,72 @@ app.get(
   })
 );
 
+// Creates the room type plus a blank rate plan for it in one call, so it
+// shows up on the Bảng giá page immediately — a room type with no rate plan
+// would have nowhere to set its price, and no room could be assigned to it
+// (RoomModal looks up pricing via roomTypeId).
+app.post(
+  "/api/room-types",
+  requireAdmin,
+  asyncRoute(async (req, res) => {
+    const { name } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: "name is required" });
+    const roomType = await createRow("roomTypes", { id: uuid(), homestayId: req.homestayId, name: name.trim() });
+    await createRow("ratePlans", {
+      id: uuid(),
+      homestayId: req.homestayId,
+      roomTypeId: roomType.id,
+      hourlyFirstBlockHours: 0,
+      hourlyFirstBlockPrice: 0,
+      hourlyExtraPricePerHour: 0,
+      overnightPrice: 0,
+      fullDayPrice: 0,
+      lateCheckoutPricePerHour: 0,
+    });
+    res.status(201).json(normRoomType(roomType));
+  })
+);
+
+app.put(
+  "/api/room-types/:id",
+  requireAdmin,
+  asyncRoute(async (req, res) => {
+    const { name } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: "name is required" });
+    const roomType = owned(await findOneByBusinessId("roomTypes", req.params.id), req);
+    if (!roomType) return res.status(404).json({ error: "not found" });
+    const updated = await updateRowByBusinessId("roomTypes", req.params.id, { name: name.trim() });
+    res.json(normRoomType(updated));
+  })
+);
+
+// A room type with any room assigned to it (even an inactive one) would
+// leave that room pointing at a dangling roomTypeId, so block the delete
+// and point at reassigning those rooms first — mirrors the room delete
+// guard just below for stay history.
+app.delete(
+  "/api/room-types/:id",
+  requireAdmin,
+  asyncRoute(async (req, res) => {
+    const roomType = owned(await findOneByBusinessId("roomTypes", req.params.id), req);
+    if (!roomType) return res.status(404).json({ error: "not found" });
+
+    const roomsOfType = await listRows("rooms", { where: `(roomTypeId,eq,${roomType.id})`, limit: 1 });
+    if (roomsOfType.length) {
+      return res.status(409).json({
+        error: "Loại phòng này đang có phòng sử dụng — hãy đổi loại phòng cho các phòng đó trước khi xoá.",
+      });
+    }
+
+    const plans = await listRows("ratePlans", { where: `(roomTypeId,eq,${roomType.id})` });
+    for (const plan of plans) {
+      await deleteRowByBusinessId("ratePlans", plan.id);
+    }
+    await deleteRowByBusinessId("roomTypes", roomType.id);
+    res.status(204).end();
+  })
+);
+
 app.get(
   "/api/rooms",
   asyncRoute(async (req, res) => {
@@ -465,6 +571,18 @@ app.post(
     if (!name || !roomTypeId) return res.status(400).json({ error: "name and roomTypeId are required" });
     const roomType = owned(await findOneByBusinessId("roomTypes", roomTypeId), req);
     if (!roomType) return res.status(400).json({ error: "unknown roomTypeId" });
+
+    const homestay = await findOneByBusinessId("homestays", req.homestayId);
+    const maxRooms = normHomestay(homestay || {}).maxRooms;
+    if (maxRooms !== null) {
+      const existingRooms = await listRows("rooms", { where: withTenant(req), limit: maxRooms + 1 });
+      if (existingRooms.length >= maxRooms) {
+        return res.status(409).json({
+          error: `Homestay này chỉ được quản lý tối đa ${maxRooms} phòng. Hãy tăng giới hạn trong Quản lý Homestay nếu cần thêm.`,
+        });
+      }
+    }
+
     const row = await createRow("rooms", {
       id: uuid(),
       homestayId: req.homestayId,
@@ -577,6 +695,31 @@ async function proxyToCatalog(req, res, path, method) {
     res.status(502).json({ error: `could not reach catalog-service: ${err.message}` });
   }
 }
+
+// Reads (GET categories/items) go through this app's backend too, not
+// straight from the browser to catalog-service — same reasoning as every
+// other NocoDB-backed read in this app: the browser never talks to a data
+// store directly, and a catalog-service error (rate limit, downtime) gets
+// one consistent place to be made presentable before it reaches the UI.
+app.get(
+  "/api/catalog/categories",
+  asyncRoute(async (req, res) => {
+    const r = await fetch(`${SERVICE_CATALOG_URL}/api/categories?homestayId=${req.homestayId}`);
+    const body = await r.json().catch(() => ({}));
+    res.status(r.status).json(body);
+  })
+);
+app.get(
+  "/api/catalog/items",
+  asyncRoute(async (req, res) => {
+    const params = new URLSearchParams({ homestayId: req.homestayId });
+    if (req.query.kind) params.set("kind", req.query.kind);
+    if (req.query.categoryId) params.set("categoryId", req.query.categoryId);
+    const r = await fetch(`${SERVICE_CATALOG_URL}/api/items?${params.toString()}`);
+    const body = await r.json().catch(() => ({}));
+    res.status(r.status).json(body);
+  })
+);
 
 app.post("/api/admin/catalog/categories", requireAdmin, (req, res) => proxyToCatalog(req, res, "/api/categories", "POST"));
 app.put("/api/admin/catalog/categories/:id", requireAdmin, (req, res) =>

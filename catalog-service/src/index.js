@@ -77,7 +77,10 @@ function asItem(row) {
 }
 
 function nocoErrorToHttp(res, err) {
-  console.error(err);
+  console.error(err.detail || err);
+  if (err.code === "NOCODB_RATE_LIMIT") {
+    return res.status(503).json({ error: err.message });
+  }
   res.status(502).json({ error: `NocoDB: ${err.message}` });
 }
 

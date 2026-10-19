@@ -3,6 +3,8 @@
 // directly, so /api/state works as a real (not local-file) fallback and the
 // server never needs to persist app data to disk — required on Vercel,
 // whose function filesystem is read-only outside /tmp.
+const { encryptRow, decryptRow } = require('./cryptoFields');
+
 const fetchApi =
   typeof global.fetch === 'function'
     ? global.fetch.bind(global)
@@ -103,6 +105,15 @@ async function fetchJson(url, options = {}) {
         ? await res.json()
         : await res.text();
     if (!res.ok) {
+      // NocoDB's own rate-limit error (ThrottlerException etc.) is not
+      // something a user can act on — surface a friendly, actionable
+      // message instead of its raw body, even after retries are exhausted.
+      if (res.status === 429) {
+        console.error(`NocoDB rate-limited (429): ${typeof payload === 'string' ? payload : JSON.stringify(payload)}`);
+        const err = new Error('Hệ thống dữ liệu đang bận, vui lòng thử lại sau vài giây.');
+        err.code = 'NOCODB_RATE_LIMIT';
+        throw err;
+      }
       throw new Error(typeof payload === 'string' ? payload : `NocoDB request failed: ${res.status}`);
     }
     return payload;
@@ -159,7 +170,7 @@ async function fetchOwnedRows(key, userId) {
     return [];
   }
   const data = await fetchJson(tableUrl(key, `?where=${buildOwnedWhere(userId)}&limit=1000`));
-  return data?.list || [];
+  return (data?.list || []).map((row) => decryptRow(key, row));
 }
 
 function stableStringify(value) {
@@ -175,12 +186,13 @@ function isSamePayload(a, b) {
 }
 
 async function createRow(key, payload) {
-  await fetchJson(tableUrl(key), { method: 'POST', body: JSON.stringify(payload) });
+  await fetchJson(tableUrl(key), { method: 'POST', body: JSON.stringify(encryptRow(key, payload)) });
 }
 
 async function updateRow(key, rowId, payload) {
+  const encrypted = encryptRow(key, payload);
   const canUseSystemId = !(rowId === null || rowId === undefined || rowId === '');
-  const body = canUseSystemId ? [{ ...payload, Id: rowId }] : [{ ...payload }];
+  const body = canUseSystemId ? [{ ...encrypted, Id: rowId }] : [{ ...encrypted }];
   await fetchJson(tableUrl(key), { method: 'PATCH', body: JSON.stringify(body) });
 }
 
@@ -263,18 +275,24 @@ async function saveSettings(userId, settings = {}) {
   }
 }
 
-async function loadStateForUser(userId) {
-  const entries = await Promise.all(DATA_TABLE_KEYS.map(async (key) => [key, (await fetchOwnedRows(key, userId)).map(stripSystemColumns)]));
+async function loadStateForUser(userId, tables = null) {
+  const wantedKeys = tables && tables.length ? DATA_TABLE_KEYS.filter((key) => tables.includes(key)) : DATA_TABLE_KEYS;
+  const entries = await Promise.all(wantedKeys.map(async (key) => [key, (await fetchOwnedRows(key, userId)).map(stripSystemColumns)]));
   const state = Object.fromEntries(entries);
-  state.settings = await loadSettings(userId);
+  if (!tables || tables.length === 0 || tables.includes('settings')) {
+    state.settings = await loadSettings(userId);
+  }
   return state;
 }
 
-async function saveStateForUser(userId, state = {}) {
-  for (const key of DATA_TABLE_KEYS) {
+async function saveStateForUser(userId, state = {}, tables = null) {
+  const wantedKeys = tables && tables.length ? DATA_TABLE_KEYS.filter((key) => tables.includes(key)) : DATA_TABLE_KEYS;
+  for (const key of wantedKeys) {
     await syncCollection(key, userId, Array.isArray(state[key]) ? state[key] : []);
   }
-  await saveSettings(userId, state.settings || {});
+  if (!tables || tables.length === 0 || tables.includes('settings')) {
+    await saveSettings(userId, state.settings || {});
+  }
 }
 
 module.exports = {

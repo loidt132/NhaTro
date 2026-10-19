@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { monthKey } from '../utils/state';
-import { fetchOwnedRows, createOwnedRow } from '../utils/nocodb';
+import { fetchOwnedRooms } from '../utils/meterSubmissions';
+import { listMeterSubmissions, createMeterSubmission } from '../utils/meterSubmissions';
 import { uploadMeterPhoto } from '../utils/meterOcr';
 
 const METER_LABELS = {
@@ -103,11 +104,9 @@ export default function TenantMeterUpload({ user }) {
   const loadSubmissions = async () => {
     if (!landlordId) return;
     try {
-      const rows = await fetchOwnedRows('meterSubmissions', landlordId);
+      const rows = await listMeterSubmissions();
       setSubmissions(
-        rows
-          .filter((row) => String(row.submittedByUserId || '') === String(user.id))
-          .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+        rows.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
       );
     } catch (err) {
       setLoadError(err?.message || 'Không tải được lịch sử gửi ảnh.');
@@ -119,7 +118,7 @@ export default function TenantMeterUpload({ user }) {
     (async () => {
       if (!landlordId || !roomId) return;
       try {
-        const rooms = await fetchOwnedRows('rooms', landlordId);
+        const rooms = await fetchOwnedRooms(landlordId);
         if (cancelled) return;
         const room = rooms.find((r) => String(r.id) === String(roomId));
         setRoomName(room?.name || '');
@@ -135,22 +134,15 @@ export default function TenantMeterUpload({ user }) {
   const missingLink = !landlordId || !roomId;
 
   const handleSubmitted = async (meterType, ocr) => {
-    const nowIso = new Date().toISOString();
-    await createOwnedRow('meterSubmissions', {
+    await createMeterSubmission({
       roomId,
       month,
       meterType,
       photoUrl: ocr.photoUrl,
       ocrRawText: ocr.ocrRawText || '',
       ocrValue: ocr.ocrValue,
-      finalValue: null,
-      status: 'pending',
-      submittedByRole: 'tenant',
-      submittedByUserId: user.id,
       submittedByName: user.name || user.phone || '',
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    }, landlordId);
+    });
     await loadSubmissions();
   };
 

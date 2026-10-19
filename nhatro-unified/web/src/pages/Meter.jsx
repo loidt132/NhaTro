@@ -9,7 +9,7 @@ import Page from '../components/Page';
 import PaginationControls from '../components/PaginationControls';
 import { getStoredToken, getAuthSession } from '../utils/auth';
 import { uploadMeterPhoto } from '../utils/meterOcr';
-import { fetchOwnedRows, updateOwnedRowByAppId } from '../utils/nocodb';
+import { listMeterSubmissions, reviewMeterSubmission } from '../utils/meterSubmissions';
 
 const METER_TYPE_LABELS = { electric: 'Điện', water: 'Nước' };
 
@@ -63,8 +63,8 @@ export default function Meter() {
     if (!landlordUserId) return;
     setPendingLoading(true);
     try {
-      const rows = await fetchOwnedRows('meterSubmissions', landlordUserId);
-      setPendingSubmissions(rows.filter((row) => row.status === 'pending'));
+      const rows = await listMeterSubmissions('pending');
+      setPendingSubmissions(rows);
     } catch (error) {
       console.error('load meterSubmissions failed', error);
     } finally {
@@ -255,12 +255,7 @@ export default function Meter() {
       setState(nextState);
       saveState(nextState);
 
-      await updateOwnedRowByAppId('meterSubmissions', submission.id, landlordUserId, {
-        status: 'confirmed',
-        finalValue,
-        reviewedByUserId: landlordUserId,
-        reviewedAt: nowIso,
-      });
+      await reviewMeterSubmission(submission.id, 'confirm', finalValue);
       setPendingSubmissions((prev) => prev.filter((row) => row.id !== submission.id));
     } catch (error) {
       alert(error?.message || 'Không thể xác nhận ảnh công tơ.');
@@ -273,11 +268,7 @@ export default function Meter() {
     if (!window.confirm('Từ chối ảnh công tơ này?')) return;
     setPendingBusyId(submission.id);
     try {
-      await updateOwnedRowByAppId('meterSubmissions', submission.id, landlordUserId, {
-        status: 'rejected',
-        reviewedByUserId: landlordUserId,
-        reviewedAt: new Date().toISOString(),
-      });
+      await reviewMeterSubmission(submission.id, 'reject');
       setPendingSubmissions((prev) => prev.filter((row) => row.id !== submission.id));
     } catch (error) {
       alert(error?.message || 'Không thể từ chối ảnh công tơ.');

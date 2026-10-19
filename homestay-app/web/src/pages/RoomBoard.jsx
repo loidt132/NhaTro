@@ -11,19 +11,23 @@ export default function RoomBoard() {
   const isAdmin = user?.role === "admin";
   const [rooms, setRooms] = useState([]);
   const [roomTypes, setRoomTypes] = useState([]);
+  const [maxRooms, setMaxRooms] = useState(null);
   const [checkInRoom, setCheckInRoom] = useState(null);
   const [roomModal, setRoomModal] = useState(null); // { mode: "create" | "edit", room? }
   const [error, setError] = useState("");
   const navigate = useNavigate();
+  const atCapacity = maxRooms != null && rooms.length >= maxRooms;
 
   async function refresh() {
     try {
-      const [roomsData, typesData] = await Promise.all([
+      const [roomsData, typesData, homestayData] = await Promise.all([
         homestayApi.getRooms(),
         homestayApi.getRoomTypes(),
+        homestayApi.getCurrentHomestay(),
       ]);
       setRooms(roomsData);
       setRoomTypes(typesData);
+      setMaxRooms(homestayData.maxRooms);
     } catch (err) {
       setError(err.message);
     }
@@ -62,9 +66,21 @@ export default function RoomBoard() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-bold text-slate-900">Sơ đồ phòng</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-bold text-slate-900">Sơ đồ phòng</h1>
+          {maxRooms != null && (
+            <span className="text-sm text-slate-500">
+              ({rooms.length}/{maxRooms} phòng)
+            </span>
+          )}
+        </div>
         {isAdmin && (
-          <button className={btnPrimary} onClick={() => setRoomModal({ mode: "create" })}>
+          <button
+            className={btnPrimary}
+            disabled={atCapacity}
+            title={atCapacity ? `Đã đạt giới hạn ${maxRooms} phòng của homestay này` : undefined}
+            onClick={() => setRoomModal({ mode: "create" })}
+          >
             + Thêm phòng
           </button>
         )}

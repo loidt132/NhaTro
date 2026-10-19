@@ -42,7 +42,12 @@ npm i jspdf jspdf-autotable
 3) npm run dev
   Thêm ENV trên Vercel https://vercel.com/tienloi2007-3127s-projects/nha-tro/settings/environment-variables
   VITE_API_ORIGIN
-https://nhatro-production.up.railway.app
+https://nhatro-y4ew.onrender.com
+  (backend thật đang chạy trên Render, KHÔNG phải Railway — URL Railway cũ
+  đã chết. Luôn set VITE_API_ORIGIN trỏ thẳng vào backend: rewrite "/api"
+  cùng host trong vercel.json không hoạt động trên bản deploy hiện tại, và
+  một domain alias (ví dụ nha-tro-gamma.vercel.app) redirect 307 sang domain
+  chính sẽ làm preflight CORS của request same-host thất bại.)
 
 ---
 

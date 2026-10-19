@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "node --env-file=.env src/index.js",
     "seed": "node --env-file=.env scripts/seed-nocodb.js",
-    "fix-links": "node --env-file=.env scripts/fix-link-columns.js"
+    "fix-links": "node --env-file=.env scripts/fix-link-columns.js",
+    "migrate-encrypt-guests": "node --env-file=.env scripts/migrate-encrypt-guests.js",
+    "ttlock-register-user": "node --env-file=.env scripts/ttlock-register-user.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
