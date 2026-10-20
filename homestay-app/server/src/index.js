@@ -828,6 +828,32 @@ app.post(
   })
 );
 
+// Looks up one catalog item for adding a dịch vụ/phụ thu to a stay. The
+// catalog-service sits in front of NocoDB and occasionally times out or
+// rate-limits, which used to fail the whole "add" — so retry transient
+// failures (network error, 429, 5xx) once before giving up.
+async function fetchCatalogItem(itemId, homestayId) {
+  const url = `${SERVICE_CATALOG_URL}/api/items/${encodeURIComponent(itemId)}?homestayId=${encodeURIComponent(homestayId)}`;
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(3000) });
+      if (r.ok) return await r.json();
+      if (r.status === 404) {
+        const err = new Error("Không tìm thấy mục này trong danh mục dịch vụ");
+        err.status = 404;
+        throw err;
+      }
+      lastErr = new Error(`status ${r.status}`);
+    } catch (err) {
+      if (err.status === 404) throw err;
+      lastErr = err;
+    }
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 300 * 2 ** attempt));
+  }
+  throw lastErr;
+}
+
 app.post(
   "/api/stays/:id/services",
   asyncRoute(async (req, res) => {
@@ -838,11 +864,11 @@ app.post(
 
     let item;
     try {
-      const r = await fetch(`${SERVICE_CATALOG_URL}/api/items/${itemId}?homestayId=${req.homestayId}`);
-      if (!r.ok) throw new Error(`status ${r.status}`);
-      item = await r.json();
+      item = await fetchCatalogItem(itemId, req.homestayId);
     } catch (err) {
-      return res.status(502).json({ error: `could not reach service-catalog: ${err.message}` });
+      console.error("[catalog] add service failed:", err);
+      if (err.status === 404) return res.status(404).json({ error: err.message });
+      return res.status(502).json({ error: "Danh mục dịch vụ đang phản hồi chậm, vui lòng thử lại sau vài giây." });
     }
 
     const row = await createRow("serviceCharges", {
@@ -872,11 +898,11 @@ app.post(
     // just tagged kind: "surcharge" — one catalog backend instead of two.
     let item;
     try {
-      const r = await fetch(`${SERVICE_CATALOG_URL}/api/items/${surchargeRuleId}?homestayId=${req.homestayId}`);
-      if (!r.ok) throw new Error(`status ${r.status}`);
-      item = await r.json();
+      item = await fetchCatalogItem(surchargeRuleId, req.homestayId);
     } catch (err) {
-      return res.status(502).json({ error: `could not reach service-catalog: ${err.message}` });
+      console.error("[catalog] add surcharge failed:", err);
+      if (err.status === 404) return res.status(404).json({ error: err.message });
+      return res.status(502).json({ error: "Danh mục dịch vụ đang phản hồi chậm, vui lòng thử lại sau vài giây." });
     }
 
     const quantity = Number(qty) || 1;
