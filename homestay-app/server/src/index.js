@@ -688,6 +688,7 @@ async function proxyToCatalog(req, res, path, method) {
       headers: { "Content-Type": "application/json", "x-api-key": CATALOG_ADMIN_KEY },
       body,
     });
+    if (r.ok) forgetCatalogItems(req.homestayId);
     if (r.status === 204) return res.status(204).end();
     const responseBody = await r.json().catch(() => ({}));
     res.status(r.status).json(responseBody);
@@ -717,6 +718,7 @@ app.get(
     if (req.query.categoryId) params.set("categoryId", req.query.categoryId);
     const r = await fetch(`${SERVICE_CATALOG_URL}/api/items?${params.toString()}`);
     const body = await r.json().catch(() => ({}));
+    if (r.ok) rememberCatalogItems(req.homestayId, body);
     res.status(r.status).json(body);
   })
 );
@@ -832,7 +834,30 @@ app.post(
 // catalog-service sits in front of NocoDB and occasionally times out or
 // rate-limits, which used to fail the whole "add" — so retry transient
 // failures (network error, 429, 5xx) once before giving up.
+// Items the stay-detail page already loaded through /api/catalog/items are
+// remembered here (per homestay), so adding one to a stay doesn't need a second
+// round-trip to catalog-service. Entries expire quickly and are dropped
+// whenever an admin edits the catalog, so a price change is never stale.
+const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
+const catalogItemCache = new Map();
+
+function rememberCatalogItems(homestayId, items) {
+  if (!Array.isArray(items)) return;
+  const at = Date.now();
+  for (const item of items) {
+    if (item?.id) catalogItemCache.set(`${homestayId}:${item.id}`, { item, at });
+  }
+}
+
+function forgetCatalogItems(homestayId) {
+  for (const key of catalogItemCache.keys()) {
+    if (key.startsWith(`${homestayId}:`)) catalogItemCache.delete(key);
+  }
+}
+
 async function fetchCatalogItem(itemId, homestayId) {
+  const cached = catalogItemCache.get(`${homestayId}:${itemId}`);
+  if (cached && Date.now() - cached.at < CATALOG_CACHE_TTL_MS) return cached.item;
   const url = `${SERVICE_CATALOG_URL}/api/items/${encodeURIComponent(itemId)}?homestayId=${encodeURIComponent(homestayId)}`;
   let lastErr;
   for (let attempt = 0; attempt < 3; attempt++) {
