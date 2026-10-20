@@ -31,21 +31,29 @@ export default function StayDetail() {
   const [qrLoading, setQrLoading] = useState(false);
   const [qrError, setQrError] = useState("");
 
+  // The catalog is a secondary service: if it times out or is down, log it to
+  // the console and keep showing the last-loaded catalog instead of an error.
+  const quietCatalog = (promise) =>
+    promise.catch((err) => {
+      console.error("[catalog]", err);
+      return null;
+    });
+
   async function refresh() {
     try {
       const [stayData, roomsData, items, categories, rules, settingsData] = await Promise.all([
         homestayApi.getStay(stayId),
         homestayApi.getRooms(),
-        catalogApi.getItems("service"),
-        catalogApi.getCategories(),
-        catalogApi.getItems("surcharge"),
+        quietCatalog(catalogApi.getItems("service")),
+        quietCatalog(catalogApi.getCategories()),
+        quietCatalog(catalogApi.getItems("surcharge")),
         homestayApi.getSettings(),
       ]);
       setStay(stayData);
       setRooms(roomsData);
-      setCatalogItems(items);
-      setCatalogCategories(categories);
-      setSurchargeRules(rules);
+      if (items) setCatalogItems(items);
+      if (categories) setCatalogCategories(categories);
+      if (rules) setSurchargeRules(rules);
       setSettings(settingsData);
     } catch (err) {
       setError(err.message);

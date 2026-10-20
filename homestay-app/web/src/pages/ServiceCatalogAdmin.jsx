@@ -22,15 +22,9 @@ export default function ServiceCatalogAdmin() {
       setItems(itemsData);
       setError("");
     } catch (err) {
-      // fetch() only throws TypeError for a genuine network failure (DNS,
-      // refused connection, ...) — an HTTP error (e.g. "homestayId is
-      // required") already came back from a running service, so don't
-      // blame that on service-catalog being down.
-      setError(
-        err instanceof TypeError
-          ? `${err.message} — service-catalog có thể chưa chạy (mặc định cổng 4100). Đây là backend dùng chung cho cả dịch vụ và phụ thu.`
-          : err.message
-      );
+      // Load failures (timeout, service down) go to the console only; the
+      // banner is reserved for errors from the user's own actions.
+      console.error("[catalog]", err);
     }
   }
 
