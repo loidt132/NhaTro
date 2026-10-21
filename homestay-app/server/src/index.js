@@ -10,7 +10,7 @@ import {
   createRow,
   updateRowByBusinessId,
   deleteRowByBusinessId,
-} from "./nocodb.js";
+} from "./db.js";
 import { computeStayRoomCharge } from "./pricing.js";
 import { createLockProvider } from "./lockProvider.js";
 import {
@@ -41,15 +41,15 @@ const CATALOG_TIMEOUT_MS = 8000;
 
 // ---- Health check ----
 // Public, no auth — used by uptime monitors/load balancers. Does a cheap
-// NocoDB round trip so "ok" actually means the app can serve real requests,
+// database round trip so "ok" actually means the app can serve real requests,
 // not just that the Node process is alive.
 app.get("/health", async (req, res) => {
-  let nocodb = "unknown";
+  let database = "unknown";
   try {
     await listRows("homestays", { limit: 1 });
-    nocodb = "ok";
+    database = "ok";
   } catch (err) {
-    nocodb = `error: ${err.message}`;
+    database = `error: ${err.message}`;
   }
   // catalog-service is a separate Vercel deployment. It is reported here so
   // monitors see it, but an outage only marks us "degraded" (HTTP stays 200)
@@ -61,19 +61,19 @@ app.get("/health", async (req, res) => {
   } catch (err) {
     catalog = `error: ${err.message}`;
   }
-  const coreOk = nocodb === "ok";
+  const coreOk = database === "ok";
   const status = coreOk && catalog === "ok" ? "ok" : "degraded";
   res.status(coreOk ? 200 : 503).json({
     status,
     service: "homestay-server",
     uptimeSeconds: Math.round((Date.now() - START_TIME) / 1000),
     timestamp: new Date().toISOString(),
-    dependencies: { nocodb, catalog },
+    dependencies: { database, catalog },
   });
 });
 
-// Every route handler below is async (NocoDB is an HTTP call away); this
-// wrapper means a thrown/rejected error (NocoDB down, misconfigured table,
+// Every route handler below is async (the database is a network call away); this
+// wrapper means a thrown/rejected error (database down, misconfigured table,
 // network blip) turns into a 502 instead of crashing the process or hanging
 // the request. Explicit res.status(...) calls inside handlers still work
 // exactly as before — this only catches what they don't handle themselves.
@@ -83,10 +83,7 @@ function asyncRoute(fn) {
       await fn(req, res);
     } catch (err) {
       console.error(err.detail || err);
-      if (err.code === "NOCODB_RATE_LIMIT") {
-        return res.status(503).json({ error: err.message });
-      }
-      res.status(502).json({ error: `NocoDB: ${err.message}` });
+      res.status(502).json({ error: `Database: ${err.message}` });
     }
   };
 }
@@ -111,10 +108,9 @@ function owned(row, req) {
 }
 
 // ---- Normalizers ----
-// NocoDB returns every column including its own system fields (Id,
-// CreatedAt, ...) and may serialize numbers/booleans loosely depending on
-// column type — these pin each row back down to the exact shape the rest of
-// the app (and the frontend) already expects, with numbers/booleans coerced.
+// Rows carry every column (created_at, ...) — these pin each row back down
+// to the exact shape the rest of the app (and the frontend) already expects,
+// with numbers/booleans coerced.
 
 function normUser(u) {
   return { id: u.id, username: u.username, name: u.name, role: u.role, homestayId: u.homestayId || null };
@@ -714,7 +710,7 @@ async function proxyToCatalog(req, res, path, method) {
 
 // Reads (GET categories/items) go through this app's backend too, not
 // straight from the browser to catalog-service — same reasoning as every
-// other NocoDB-backed read in this app: the browser never talks to a data
+// other database-backed read in this app: the browser never talks to a data
 // store directly, and a catalog-service error (rate limit, downtime) gets
 // one consistent place to be made presentable before it reaches the UI.
 app.get(
@@ -815,7 +811,7 @@ app.post(
       isMain: true,
       name: mainGuest.name,
       idNumber: mainGuest.idNumber || "",
-      dob: mainGuest.dob || null, // NocoDB rejects "" for a DATE column
+      dob: mainGuest.dob || null, // "" is not a valid DATE
       phone: mainGuest.phone || "",
     });
 
@@ -838,7 +834,7 @@ app.post(
       isMain: false,
       name,
       idNumber: idNumber || "",
-      dob: dob || null, // NocoDB rejects "" for a DATE column
+      dob: dob || null, // "" is not a valid DATE
       phone: phone || "",
     });
     res.status(201).json(normGuest(row));
@@ -846,7 +842,7 @@ app.post(
 );
 
 // Looks up one catalog item for adding a dịch vụ/phụ thu to a stay. The
-// catalog-service sits in front of NocoDB and occasionally times out or
+// catalog-service is a separate deployment and occasionally times out or
 // rate-limits, which used to fail the whole "add" — so retry transient
 // failures (network error, 429, 5xx) once before giving up.
 // Items the stay-detail page already loaded through /api/catalog/items are
@@ -1204,5 +1200,5 @@ app.get(
 app.listen(PORT, () => {
   console.log(`[homestay-server] listening on http://localhost:${PORT}`);
   console.log(`[homestay-server] lockProvider = ${lockProvider.constructor.name}`);
-  console.log(`[homestay-server] storage = NocoDB (${process.env.NOCODB_URL || "NOT CONFIGURED"})`);
+  console.log(`[homestay-server] storage = Postgres (${process.env.DATABASE_URL ? "configured" : "NOT CONFIGURED"})`);
 });
