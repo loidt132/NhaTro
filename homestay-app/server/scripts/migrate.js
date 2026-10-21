@@ -13,10 +13,14 @@ const schema = readFileSync(new URL("../schema.sql", import.meta.url), "utf8");
 const LEGACY_TABLES = {
   roomTypes: "room_types",
   roomtypes: "room_types",
-  rateplans: "ratePlans",
-  servicecharges: "serviceCharges",
-  roomtransfers: "roomTransfers",
-  lockeventslog: "lockEventsLog",
+  ratePlans: "rate_plans",
+  rateplans: "rate_plans",
+  serviceCharges: "service_charges",
+  servicecharges: "service_charges",
+  roomTransfers: "room_transfers",
+  roomtransfers: "room_transfers",
+  lockEventsLog: "lock_events_log",
+  lockeventslog: "lock_events_log",
 };
 const camelColumns = new Set(schema.match(/"[a-z]+[A-Z][A-Za-z]*"/g)?.map((s) => s.slice(1, -1)));
 

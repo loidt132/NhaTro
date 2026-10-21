@@ -3,7 +3,30 @@
 import { readFileSync } from "node:fs";
 import { query } from "../src/db.js";
 
-await query(readFileSync(new URL("../schema.sql", import.meta.url), "utf8"));
+const schema = readFileSync(new URL("../schema.sql", import.meta.url), "utf8");
+
+// Tables created from unquoted SQL (an old import, the Neon UI, ...) have
+// lowercase columns ("homestayid"), so rows come back with undefined camelCase
+// fields. Rename them to the names schema.sql uses, in place, keeping data;
+// and convert legacy TIMESTAMP columns to TIMESTAMPTZ (values read as UTC).
+const camelColumns = new Set(schema.match(/"[a-z]+[A-Z][A-Za-z]*"/g)?.map((s) => s.slice(1, -1)));
+const cols = await query(`SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = current_schema()`);
+const existing = new Set(cols.map((c) => `${c.table_name}.${c.column_name}`));
+const byLower = new Map([...camelColumns].map((name) => [name.toLowerCase(), name]));
+for (const { table_name, column_name } of cols) {
+  const proper = byLower.get(column_name);
+  if (proper && proper !== column_name && !existing.has(`${table_name}.${proper}`)) {
+    await query(`ALTER TABLE "${table_name}" RENAME COLUMN "${column_name}" TO "${proper}"`);
+    console.log(`Đã đổi tên cột ${table_name}.${column_name} -> ${proper}`);
+  }
+}
+for (const { table_name, column_name, data_type } of cols) {
+  if (data_type !== "timestamp without time zone") continue;
+  await query(`ALTER TABLE "${table_name}" ALTER COLUMN "${column_name}" TYPE TIMESTAMPTZ USING "${column_name}" AT TIME ZONE 'UTC'`);
+  console.log(`Đã đổi kiểu ${table_name}.${column_name} -> TIMESTAMPTZ`);
+}
+
+await query(schema);
 console.log("Schema đã được áp dụng.");
 
 // CREATE TABLE IF NOT EXISTS leaves a table that already existed untouched.
