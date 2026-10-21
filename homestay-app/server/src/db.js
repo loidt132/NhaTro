@@ -42,7 +42,13 @@ export async function query(text, params = []) {
 const q = (ident) => `"${ident.replace(/"/g, '""')}"`;
 
 // Table keys used by the routes -> real table names, where they differ.
-const TABLE_NAMES = { roomTypes: "room_types" };
+const TABLE_NAMES = {
+  roomTypes: "room_types",
+  ratePlans: "rate_plans",
+  serviceCharges: "service_charges",
+  roomTransfers: "room_transfers",
+  lockEventsLog: "lock_events_log",
+};
 export const tableName = (tableKey) => TABLE_NAMES[tableKey] || tableKey;
 
 const columnCache = new Map();

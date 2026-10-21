@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS rooms (
 CREATE INDEX IF NOT EXISTS idx_rooms_room_type ON rooms ("roomTypeId");
 CREATE INDEX IF NOT EXISTS idx_rooms_homestay ON rooms ("homestayId");
 
-CREATE TABLE IF NOT EXISTS "ratePlans" (
+CREATE TABLE IF NOT EXISTS rate_plans (
   id VARCHAR(64) PRIMARY KEY,
   "homestayId" VARCHAR(64) NOT NULL,
   "roomTypeId" VARCHAR(64) NOT NULL,
@@ -64,8 +64,8 @@ CREATE TABLE IF NOT EXISTS "ratePlans" (
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_rate_plans_room_type_unique ON "ratePlans" ("roomTypeId");
-CREATE INDEX IF NOT EXISTS idx_rate_plans_homestay ON "ratePlans" ("homestayId");
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rate_plans_room_type_unique ON rate_plans ("roomTypeId");
+CREATE INDEX IF NOT EXISTS idx_rate_plans_homestay ON rate_plans ("homestayId");
 
 -- One stay = one guest's booking of a room from check-in to check-out.
 -- Room transfers mid-stay do NOT create a new stay row.
@@ -105,7 +105,7 @@ CREATE INDEX IF NOT EXISTS idx_guests_stay ON guests ("stayId");
 
 -- Dịch vụ AND phụ thu lines added to a stay; name/unitPrice are snapshots
 -- from catalog-service at the moment they were added.
-CREATE TABLE IF NOT EXISTS "serviceCharges" (
+CREATE TABLE IF NOT EXISTS service_charges (
   id VARCHAR(64) PRIMARY KEY,
   "stayId" VARCHAR(64) NOT NULL,
   kind VARCHAR(20) NOT NULL, -- 'service' | 'surcharge'
@@ -118,10 +118,10 @@ CREATE TABLE IF NOT EXISTS "serviceCharges" (
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_service_charges_stay ON "serviceCharges" ("stayId");
+CREATE INDEX IF NOT EXISTS idx_service_charges_stay ON service_charges ("stayId");
 
 -- Audit trail of room moves within one stay (never used to re-price).
-CREATE TABLE IF NOT EXISTS "roomTransfers" (
+CREATE TABLE IF NOT EXISTS room_transfers (
   id VARCHAR(64) PRIMARY KEY,
   "stayId" VARCHAR(64) NOT NULL,
   "fromRoomId" VARCHAR(64) NOT NULL,
@@ -131,10 +131,10 @@ CREATE TABLE IF NOT EXISTS "roomTransfers" (
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_room_transfers_stay ON "roomTransfers" ("stayId");
+CREATE INDEX IF NOT EXISTS idx_room_transfers_stay ON room_transfers ("stayId");
 
 -- Raw TTLock card-swipe events, for audit/debug only.
-CREATE TABLE IF NOT EXISTS "lockEventsLog" (
+CREATE TABLE IF NOT EXISTS lock_events_log (
   id VARCHAR(64) PRIMARY KEY,
   "stayId" VARCHAR(64) NOT NULL,
   "lockCardId" VARCHAR(128),
@@ -143,7 +143,7 @@ CREATE TABLE IF NOT EXISTS "lockEventsLog" (
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_lock_events_stay ON "lockEventsLog" ("stayId");
+CREATE INDEX IF NOT EXISTS idx_lock_events_stay ON lock_events_log ("stayId");
 
 -- One settings row per homestay (payment QR info + owner info).
 CREATE TABLE IF NOT EXISTS settings (
