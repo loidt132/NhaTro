@@ -8,7 +8,7 @@
 // (reads .env via --env-file, see package.json; defaults to "Demo")
 import dayjs from "dayjs";
 import { v4 as uuid } from "uuid";
-import { listRows, createRow, findOneWhere } from "../src/nocodb.js";
+import { listRows, createRow, findOneWhere } from "../src/db.js";
 import { hashPassword } from "../src/auth.js";
 
 const homestayName = process.argv[2] || "Demo";
@@ -136,7 +136,7 @@ async function main() {
     isMain: true,
     name: "Nguyễn Văn Demo",
     idNumber: "012345678901",
-    dob: null, // NocoDB rejects "" for a DATE column
+    dob: null, // Postgres rejects "" for a DATE column
     phone: "0909000000",
   });
   await createRow("serviceCharges", {

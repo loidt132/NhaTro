@@ -16,7 +16,6 @@ export default function StayDetail() {
   const [stay, setStay] = useState(null);
   const [rooms, setRooms] = useState([]);
   const [catalogItems, setCatalogItems] = useState([]);
-  const [catalogCategories, setCatalogCategories] = useState([]);
   const [surchargeRules, setSurchargeRules] = useState([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -41,18 +40,16 @@ export default function StayDetail() {
 
   async function refresh() {
     try {
-      const [stayData, roomsData, items, categories, rules, settingsData] = await Promise.all([
+      const [stayData, roomsData, items, rules, settingsData] = await Promise.all([
         homestayApi.getStay(stayId),
         homestayApi.getRooms(),
         quietCatalog(catalogApi.getItems("service")),
-        quietCatalog(catalogApi.getCategories()),
         quietCatalog(catalogApi.getItems("surcharge")),
         homestayApi.getSettings(),
       ]);
       setStay(stayData);
       setRooms(roomsData);
       if (items) setCatalogItems(items);
-      if (categories) setCatalogCategories(categories);
       if (rules) setSurchargeRules(rules);
       setSettings(settingsData);
     } catch (err) {
@@ -69,6 +66,20 @@ export default function StayDetail() {
 
   if (!stay) {
     return <div className="text-sm text-slate-500">{error || "Đang tải..."}</div>;
+  }
+
+  // Items carry their category (categoryId + categoryName), so group them
+  // here instead of fetching /categories separately. Groups keep the order in
+  // which each category first appears in the item list.
+  const catalogGroups = [];
+  for (const item of catalogItems) {
+    if (!item.categoryId) continue;
+    let group = catalogGroups.find((g) => g.id === item.categoryId);
+    if (!group) {
+      group = { id: item.categoryId, name: item.categoryName || item.categoryId, items: [] };
+      catalogGroups.push(group);
+    }
+    group.items.push(item);
   }
 
   const emptyRooms = rooms.filter((r) => r.status === "empty");
@@ -275,9 +286,8 @@ export default function StayDetail() {
         <>
           <div className={card}>
             <h2 className="mb-3 font-semibold text-slate-900">Thêm dịch vụ</h2>
-            {catalogCategories.map((category) => {
-              const items = catalogItems.filter((item) => item.categoryId === category.id);
-              if (items.length === 0) return null;
+            {catalogGroups.map((category) => {
+              const items = category.items;
               return (
                 <div key={category.id} className="mb-4 last:mb-0">
                   <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">{category.name}</h3>

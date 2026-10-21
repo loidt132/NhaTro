@@ -1,11 +1,11 @@
 // One-off: encrypts idNumber/phone for every existing "guests" row in
-// NocoDB. nocodb.js already encrypts on write and decrypts on read going
+// Postgres. nocodb.js already encrypts on write and decrypts on read going
 // forward (see src/cryptoFields.js) — this just re-saves every row once so
 // rows written before that change get encrypted too, instead of waiting on
 // their next organic update.
 //
 // Run with: npm run migrate-encrypt-guests (reads .env via --env-file)
-import { listRows, updateRowByBusinessId } from "../src/nocodb.js";
+import { listRows, updateRowByBusinessId } from "../src/db.js";
 import { isEncryptionConfigured } from "../src/cryptoFields.js";
 
 if (!isEncryptionConfigured()) {
