@@ -41,90 +41,126 @@ export async function query(text, params = []) {
 
 const q = (ident) => `"${ident.replace(/"/g, '""')}"`;
 
-// Table keys used by the routes -> real table names, where they differ.
-const TABLE_NAMES = {
-  roomTypes: "room_types",
-  ratePlans: "rate_plans",
-  serviceCharges: "service_charges",
-  roomTransfers: "room_transfers",
-  lockEventsLog: "lock_events_log",
-};
+// ---- Naming: camelCase first, snake_case as fallback, otherwise an error ----
+// The routes use camelCase table keys ("roomTypes") and field names
+// ("homestayId"). The real table/column is the camelCase name if it exists,
+// else the snake_case one ("room_types", "homestay_id"); if neither exists a
+// clear error is thrown. Rows are always handed back with camelCase fields.
 
-// The real table may be snake_case (schema.sql) or still carry the older
-// camelCase / lowercase name (tables made by hand or by an earlier schema).
-// Use whichever exists, preferring the snake_case one, so the app works
-// before or after `npm run migrate` renames them.
+const toSnake = (name) => name.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+const toCamel = (name) => name.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
+// Bookkeeping columns keep their snake_case names in every schema.
+const KEEP_AS_IS = new Set(["created_at", "updated_at"]);
+
 const tableCache = new Map();
 export async function tableName(tableKey) {
   if (tableCache.has(tableKey)) return tableCache.get(tableKey);
-  const candidates = [...new Set([TABLE_NAMES[tableKey] || tableKey, tableKey, tableKey.toLowerCase()])];
+  const candidates = [...new Set([tableKey, toSnake(tableKey)])];
   const rows = await query(
     `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = ANY($1)`,
     [candidates]
   );
   const found = candidates.find((name) => rows.some((r) => r.table_name === name));
-  if (!found) throw new Error(`Không tìm thấy bảng "${tableKey}" — chạy npm run migrate.`);
+  if (!found) {
+    throw new Error(`Không tìm thấy bảng "${tableKey}" (đã thử: ${candidates.join(", ")}) — chạy npm run migrate.`);
+  }
   tableCache.set(tableKey, found);
   return found;
 }
 
-const columnCache = new Map();
-async function columnsOf(tableKey) {
-  if (columnCache.has(tableKey)) return columnCache.get(tableKey);
+const metaCache = new Map();
+async function metaOf(tableKey) {
+  if (metaCache.has(tableKey)) return metaCache.get(tableKey);
+  const table = await tableName(tableKey);
   const rows = await query(
     `SELECT column_name, data_type FROM information_schema.columns
      WHERE table_schema = current_schema() AND table_name = $1`,
-    [await tableName(tableKey)]
+    [table]
   );
-  if (!rows.length) throw new Error(`Bảng "${tableKey}" không có cột nào — chạy npm run migrate.`);
-  const map = new Map(rows.map((r) => [r.column_name, r.data_type]));
-  columnCache.set(tableKey, map);
-  return map;
+  const types = new Map(rows.map((r) => [r.column_name, r.data_type]));
+  const colToApp = new Map(rows.map((r) => [r.column_name, KEEP_AS_IS.has(r.column_name) ? r.column_name : toCamel(r.column_name)]));
+  const meta = { table, types, colToApp };
+  metaCache.set(tableKey, meta);
+  return meta;
+}
+
+// App field name -> real column name (camelCase first, then snake_case), or null.
+function columnFor(meta, field) {
+  if (meta.types.has(field)) return field;
+  const snake = toSnake(field);
+  return meta.types.has(snake) ? snake : null;
+}
+
+function columnOrThrow(meta, tableKey, field) {
+  const col = columnFor(meta, field);
+  if (!col) {
+    throw new Error(`Không tìm thấy cột "${field}" (hoặc "${toSnake(field)}") trong bảng "${meta.table}" — chạy npm run migrate.`);
+  }
+  return col;
 }
 
 const TEXT_TYPES = new Set(["text", "character varying", "character"]);
+const warnedFields = new Set();
 
-// Keeps only real columns; "" -> NULL for non-text columns (a blank date or
-// number input must not blow up the INSERT).
-function cleanData(columns, data) {
+// Maps app fields to real columns; unknown fields (e.g. stray keys in a
+// request body) are dropped with a one-time warning rather than failing the
+// write. "" -> NULL for non-text columns (a blank date/number input must not
+// blow up the INSERT).
+function cleanData(meta, tableKey, data) {
   const out = {};
-  for (const [key, value] of Object.entries(data || {})) {
-    if (!columns.has(key) || value === undefined) continue;
-    out[key] = value === "" && !TEXT_TYPES.has(columns.get(key)) ? null : value;
+  for (const [field, value] of Object.entries(data || {})) {
+    if (value === undefined) continue;
+    const col = columnFor(meta, field);
+    if (!col) {
+      const id = `${tableKey}.${field}`;
+      if (!warnedFields.has(id)) {
+        warnedFields.add(id);
+        console.warn(`[db] bỏ qua trường "${field}": bảng "${meta.table}" không có cột "${field}" hay "${toSnake(field)}"`);
+      }
+      continue;
+    }
+    out[col] = value === "" && !TEXT_TYPES.has(meta.types.get(col)) ? null : value;
   }
   return out;
+}
+
+// Real row -> app row (camelCase fields), then decrypt.
+function toAppRow(tableKey, meta, row) {
+  const out = {};
+  for (const [col, value] of Object.entries(row)) out[meta.colToApp.get(col) ?? toCamel(col)] = value;
+  return decryptRow(tableKey, out);
 }
 
 const OPS = { eq: "=", neq: "<>", gt: ">", gte: ">=", ge: ">=", lt: "<", lte: "<=", le: "<=" };
 
 // Parses "(a,eq,1)~and(b,neq,x)" into a WHERE clause + params. Value is
 // everything after the second comma, so values may contain commas.
-function buildWhere(columns, where, params) {
+function buildWhere(meta, tableKey, where, params) {
   if (!where) return "";
   const parts = where.split("~and").map((clause) => {
     const m = clause.trim().match(/^\((\w+),(\w+),([\s\S]*)\)$/);
     if (!m) throw new Error(`Bộ lọc không hợp lệ: ${clause}`);
     const [, field, op, value] = m;
-    if (!columns.has(field)) throw new Error(`Cột không tồn tại: ${field}`);
+    const col = columnOrThrow(meta, tableKey, field);
     if (!OPS[op]) throw new Error(`Toán tử không hỗ trợ: ${op}`);
-    if (value === "null") return `${q(field)} IS ${op === "neq" ? "NOT " : ""}NULL`;
+    if (value === "null") return `${q(col)} IS ${op === "neq" ? "NOT " : ""}NULL`;
     params.push(value);
-    return `${q(field)} ${OPS[op]} $${params.length}`;
+    return `${q(col)} ${OPS[op]} $${params.length}`;
   });
   return ` WHERE ${parts.join(" AND ")}`;
 }
 
 export async function listRows(tableKey, { where, limit = 1000 } = {}) {
-  const columns = await columnsOf(tableKey);
+  const meta = await metaOf(tableKey);
   const params = [];
-  const clause = buildWhere(columns, where, params);
+  const clause = buildWhere(meta, tableKey, where, params);
   params.push(limit);
-  const table = await tableName(tableKey);
+  const order = meta.types.has("created_at") ? "created_at, id" : "id";
   const rows = await query(
-    `SELECT * FROM ${q(table)}${clause} ORDER BY created_at, id LIMIT $${params.length}`,
+    `SELECT * FROM ${q(meta.table)}${clause} ORDER BY ${order} LIMIT $${params.length}`,
     params
   );
-  return rows.map((row) => decryptRow(tableKey, row));
+  return rows.map((row) => toAppRow(tableKey, meta, row));
 }
 
 export async function findOneByBusinessId(tableKey, id) {
@@ -138,20 +174,19 @@ export async function findOneWhere(tableKey, where) {
 }
 
 async function insert(tableKey, data) {
-  const columns = await columnsOf(tableKey);
-  const clean = cleanData(columns, data);
-  const keys = Object.keys(clean);
-  const table = await tableName(tableKey);
+  const meta = await metaOf(tableKey);
+  const clean = cleanData(meta, tableKey, data);
+  const cols = Object.keys(clean);
   const rows = await query(
-    `INSERT INTO ${q(table)} (${keys.map(q).join(", ")}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`,
-    keys.map((k) => clean[k])
+    `INSERT INTO ${q(meta.table)} (${cols.map(q).join(", ")}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`,
+    cols.map((c) => clean[c])
   );
-  return rows[0];
+  return toAppRow(tableKey, meta, rows[0]);
 }
 
+// Row as the app sees it (decrypted) — createRow encrypts first.
 export async function createRow(tableKey, data) {
-  const row = await insert(tableKey, encryptRow(tableKey, data));
-  return decryptRow(tableKey, row);
+  return insert(tableKey, encryptRow(tableKey, data));
 }
 
 // Used by the NocoDB import script: rows are copied as-is (already encrypted
@@ -159,23 +194,22 @@ export async function createRow(tableKey, data) {
 export const insertRaw = insert;
 
 export async function updateRowByBusinessId(tableKey, id, patch) {
-  const columns = await columnsOf(tableKey);
-  const clean = cleanData(columns, encryptRow(tableKey, patch));
+  const meta = await metaOf(tableKey);
+  const clean = cleanData(meta, tableKey, encryptRow(tableKey, patch));
   delete clean.id;
-  const keys = Object.keys(clean);
-  if (!keys.length) return findOneByBusinessId(tableKey, id);
-  const sets = keys.map((k, i) => `${q(k)} = $${i + 2}`);
-  if (columns.has("updated_at")) sets.push("updated_at = now()");
-  const table = await tableName(tableKey);
+  const cols = Object.keys(clean);
+  if (!cols.length) return findOneByBusinessId(tableKey, id);
+  const sets = cols.map((c, i) => `${q(c)} = $${i + 2}`);
+  if (meta.types.has("updated_at")) sets.push("updated_at = now()");
   const rows = await query(
-    `UPDATE ${q(table)} SET ${sets.join(", ")} WHERE id = $1 RETURNING *`,
-    [id, ...keys.map((k) => clean[k])]
+    `UPDATE ${q(meta.table)} SET ${sets.join(", ")} WHERE id = $1 RETURNING *`,
+    [id, ...cols.map((c) => clean[c])]
   );
-  return rows[0] ? decryptRow(tableKey, rows[0]) : null;
+  return rows[0] ? toAppRow(tableKey, meta, rows[0]) : null;
 }
 
 export async function deleteRowByBusinessId(tableKey, id) {
-  const table = await tableName(tableKey);
+  const { table } = await metaOf(tableKey);
   const rows = await query(`DELETE FROM ${q(table)} WHERE id = $1 RETURNING id`, [id]);
   return rows.length > 0;
 }
