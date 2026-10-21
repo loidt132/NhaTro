@@ -68,7 +68,9 @@ function asCategory(row) {
 function asItem(row) {
   return {
     id: row.id,
+    homestayId: row.homestayId,
     categoryId: row.categoryId ?? null,
+    categoryName: row.categoryName ?? null,
     name: row.name,
     unit: row.unit || "",
     price: Number(row.price),

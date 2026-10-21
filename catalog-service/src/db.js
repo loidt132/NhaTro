@@ -58,24 +58,31 @@ export async function countItemsInCategory(categoryId) {
   return rows[0].n;
 }
 
+// Items come back with their category's name joined in ("categoryName"), so
+// callers don't need a second request to /api/categories. Surcharges have no
+// category, hence LEFT JOIN and a NULL name.
+const ITEM_SELECT = `SELECT i.*, c.name AS "categoryName"
+  FROM items i LEFT JOIN categories c ON c.id = i."categoryId"`;
+
 export function listItems(homestayId, { categoryId, kind } = {}) {
   const params = [homestayId];
-  let sql = `SELECT * FROM items WHERE "homestayId" = $1`;
-  if (categoryId) { params.push(categoryId); sql += ` AND "categoryId" = $${params.length}`; }
-  if (kind) { params.push(kind); sql += ` AND kind = $${params.length}`; }
-  return query(`${sql} ORDER BY created_at, id`, params);
+  let sql = `${ITEM_SELECT} WHERE i."homestayId" = $1`;
+  if (categoryId) { params.push(categoryId); sql += ` AND i."categoryId" = $${params.length}`; }
+  if (kind) { params.push(kind); sql += ` AND i.kind = $${params.length}`; }
+  return query(`${sql} ORDER BY i.created_at, i.id`, params);
 }
 
 export async function getItem(id) {
-  return (await query(`SELECT * FROM items WHERE id = $1`, [id]))[0] || null;
+  return (await query(`${ITEM_SELECT} WHERE i.id = $1`, [id]))[0] || null;
 }
 
 export async function createItem({ id, homestayId, categoryId, name, unit, price, kind }) {
-  return (await query(
+  await query(
     `INSERT INTO items (id, "homestayId", "categoryId", name, unit, price, kind)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     [id, homestayId, categoryId, name, unit, price, kind]
-  ))[0];
+  );
+  return getItem(id);
 }
 
 const ITEM_PATCH_COLUMNS = { name: "name", unit: "unit", price: "price", categoryId: '"categoryId"', kind: "kind" };
@@ -89,10 +96,8 @@ export async function updateItem(id, patch) {
     sets.push(`${col} = $${params.length}`);
   }
   if (!sets.length) return getItem(id);
-  return (await query(
-    `UPDATE items SET ${sets.join(", ")}, updated_at = now() WHERE id = $1 RETURNING *`,
-    params
-  ))[0] || null;
+  await query(`UPDATE items SET ${sets.join(", ")}, updated_at = now() WHERE id = $1`, params);
+  return getItem(id);
 }
 
 export async function deleteItem(id) {
