@@ -12,6 +12,9 @@ export function hashPassword(password) {
 }
 
 export function verifyPassword(password, stored) {
+  // A user row without a usable "salt:hash" (missing column, bad import) must
+  // fail the login cleanly, not crash the request.
+  if (typeof stored !== "string" || !stored.includes(":")) return false;
   const [salt, hash] = stored.split(":");
   const candidate = crypto.scryptSync(password, salt, 64).toString("hex");
   return crypto.timingSafeEqual(Buffer.from(candidate, "hex"), Buffer.from(hash, "hex"));
