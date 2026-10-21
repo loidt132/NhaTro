@@ -3,6 +3,13 @@
 import { readFileSync } from "node:fs";
 import { query } from "../src/db.js";
 
+// Tables created before the rename: keep their data under the new name.
+await query(`DO $$ BEGIN
+  IF to_regclass('"roomTypes"') IS NOT NULL AND to_regclass('room_types') IS NULL THEN
+    ALTER TABLE "roomTypes" RENAME TO room_types;
+  END IF;
+END $$`);
+
 await query(readFileSync(new URL("../schema.sql", import.meta.url), "utf8"));
 console.log("Schema đã được áp dụng.");
 

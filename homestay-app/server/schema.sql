@@ -28,14 +28,14 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users (username);
 CREATE INDEX IF NOT EXISTS idx_users_homestay ON users ("homestayId");
 
-CREATE TABLE IF NOT EXISTS "roomTypes" (
+CREATE TABLE IF NOT EXISTS room_types (
   id VARCHAR(64) PRIMARY KEY,
   "homestayId" VARCHAR(64) NOT NULL,
   name VARCHAR(100) NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_room_types_homestay ON "roomTypes" ("homestayId");
+CREATE INDEX IF NOT EXISTS idx_room_types_homestay ON room_types ("homestayId");
 
 CREATE TABLE IF NOT EXISTS rooms (
   id VARCHAR(64) PRIMARY KEY,

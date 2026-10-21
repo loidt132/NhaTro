@@ -41,13 +41,17 @@ export async function query(text, params = []) {
 
 const q = (ident) => `"${ident.replace(/"/g, '""')}"`;
 
+// Table keys used by the routes -> real table names, where they differ.
+const TABLE_NAMES = { roomTypes: "room_types" };
+export const tableName = (tableKey) => TABLE_NAMES[tableKey] || tableKey;
+
 const columnCache = new Map();
 async function columnsOf(tableKey) {
   if (columnCache.has(tableKey)) return columnCache.get(tableKey);
   const rows = await query(
     `SELECT column_name, data_type FROM information_schema.columns
      WHERE table_schema = current_schema() AND table_name = $1`,
-    [tableKey]
+    [tableName(tableKey)]
   );
   if (!rows.length) throw new Error(`Không tìm thấy bảng "${tableKey}" — chạy npm run migrate.`);
   const map = new Map(rows.map((r) => [r.column_name, r.data_type]));
@@ -93,7 +97,7 @@ export async function listRows(tableKey, { where, limit = 1000 } = {}) {
   const clause = buildWhere(columns, where, params);
   params.push(limit);
   const rows = await query(
-    `SELECT * FROM ${q(tableKey)}${clause} ORDER BY created_at, id LIMIT $${params.length}`,
+    `SELECT * FROM ${q(tableName(tableKey))}${clause} ORDER BY created_at, id LIMIT $${params.length}`,
     params
   );
   return rows.map((row) => decryptRow(tableKey, row));
@@ -114,7 +118,7 @@ async function insert(tableKey, data) {
   const clean = cleanData(columns, data);
   const keys = Object.keys(clean);
   const rows = await query(
-    `INSERT INTO ${q(tableKey)} (${keys.map(q).join(", ")}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`,
+    `INSERT INTO ${q(tableName(tableKey))} (${keys.map(q).join(", ")}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`,
     keys.map((k) => clean[k])
   );
   return rows[0];
@@ -138,14 +142,14 @@ export async function updateRowByBusinessId(tableKey, id, patch) {
   const sets = keys.map((k, i) => `${q(k)} = $${i + 2}`);
   if (columns.has("updated_at")) sets.push("updated_at = now()");
   const rows = await query(
-    `UPDATE ${q(tableKey)} SET ${sets.join(", ")} WHERE id = $1 RETURNING *`,
+    `UPDATE ${q(tableName(tableKey))} SET ${sets.join(", ")} WHERE id = $1 RETURNING *`,
     [id, ...keys.map((k) => clean[k])]
   );
   return rows[0] ? decryptRow(tableKey, rows[0]) : null;
 }
 
 export async function deleteRowByBusinessId(tableKey, id) {
-  const rows = await query(`DELETE FROM ${q(tableKey)} WHERE id = $1 RETURNING id`, [id]);
+  const rows = await query(`DELETE FROM ${q(tableName(tableKey))} WHERE id = $1 RETURNING id`, [id]);
   return rows.length > 0;
 }
 
