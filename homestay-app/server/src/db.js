@@ -49,7 +49,24 @@ const TABLE_NAMES = {
   roomTransfers: "room_transfers",
   lockEventsLog: "lock_events_log",
 };
-export const tableName = (tableKey) => TABLE_NAMES[tableKey] || tableKey;
+
+// The real table may be snake_case (schema.sql) or still carry the older
+// camelCase / lowercase name (tables made by hand or by an earlier schema).
+// Use whichever exists, preferring the snake_case one, so the app works
+// before or after `npm run migrate` renames them.
+const tableCache = new Map();
+export async function tableName(tableKey) {
+  if (tableCache.has(tableKey)) return tableCache.get(tableKey);
+  const candidates = [...new Set([TABLE_NAMES[tableKey] || tableKey, tableKey, tableKey.toLowerCase()])];
+  const rows = await query(
+    `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = ANY($1)`,
+    [candidates]
+  );
+  const found = candidates.find((name) => rows.some((r) => r.table_name === name));
+  if (!found) throw new Error(`Không tìm thấy bảng "${tableKey}" — chạy npm run migrate.`);
+  tableCache.set(tableKey, found);
+  return found;
+}
 
 const columnCache = new Map();
 async function columnsOf(tableKey) {
@@ -57,9 +74,9 @@ async function columnsOf(tableKey) {
   const rows = await query(
     `SELECT column_name, data_type FROM information_schema.columns
      WHERE table_schema = current_schema() AND table_name = $1`,
-    [tableName(tableKey)]
+    [await tableName(tableKey)]
   );
-  if (!rows.length) throw new Error(`Không tìm thấy bảng "${tableKey}" — chạy npm run migrate.`);
+  if (!rows.length) throw new Error(`Bảng "${tableKey}" không có cột nào — chạy npm run migrate.`);
   const map = new Map(rows.map((r) => [r.column_name, r.data_type]));
   columnCache.set(tableKey, map);
   return map;
@@ -102,8 +119,9 @@ export async function listRows(tableKey, { where, limit = 1000 } = {}) {
   const params = [];
   const clause = buildWhere(columns, where, params);
   params.push(limit);
+  const table = await tableName(tableKey);
   const rows = await query(
-    `SELECT * FROM ${q(tableName(tableKey))}${clause} ORDER BY created_at, id LIMIT $${params.length}`,
+    `SELECT * FROM ${q(table)}${clause} ORDER BY created_at, id LIMIT $${params.length}`,
     params
   );
   return rows.map((row) => decryptRow(tableKey, row));
@@ -123,8 +141,9 @@ async function insert(tableKey, data) {
   const columns = await columnsOf(tableKey);
   const clean = cleanData(columns, data);
   const keys = Object.keys(clean);
+  const table = await tableName(tableKey);
   const rows = await query(
-    `INSERT INTO ${q(tableName(tableKey))} (${keys.map(q).join(", ")}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`,
+    `INSERT INTO ${q(table)} (${keys.map(q).join(", ")}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`,
     keys.map((k) => clean[k])
   );
   return rows[0];
@@ -147,15 +166,17 @@ export async function updateRowByBusinessId(tableKey, id, patch) {
   if (!keys.length) return findOneByBusinessId(tableKey, id);
   const sets = keys.map((k, i) => `${q(k)} = $${i + 2}`);
   if (columns.has("updated_at")) sets.push("updated_at = now()");
+  const table = await tableName(tableKey);
   const rows = await query(
-    `UPDATE ${q(tableName(tableKey))} SET ${sets.join(", ")} WHERE id = $1 RETURNING *`,
+    `UPDATE ${q(table)} SET ${sets.join(", ")} WHERE id = $1 RETURNING *`,
     [id, ...keys.map((k) => clean[k])]
   );
   return rows[0] ? decryptRow(tableKey, rows[0]) : null;
 }
 
 export async function deleteRowByBusinessId(tableKey, id) {
-  const rows = await query(`DELETE FROM ${q(tableName(tableKey))} WHERE id = $1 RETURNING id`, [id]);
+  const table = await tableName(tableKey);
+  const rows = await query(`DELETE FROM ${q(table)} WHERE id = $1 RETURNING id`, [id]);
   return rows.length > 0;
 }
 
