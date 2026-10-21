@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "node --env-file=.env src/index.js",
-    "seed": "node --env-file=.env scripts/seed-nocodb.js",
-    "fix-links": "node --env-file=.env scripts/fix-link-columns.js"
+    "seed": "node --env-file=.env scripts/seed.js",
+    "migrate": "node --env-file=.env scripts/migrate.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "node-fetch": "^3.3.2",
+    "pg": "^8.23.1",
     "uuid": "^9.0.1"
   }
 }
