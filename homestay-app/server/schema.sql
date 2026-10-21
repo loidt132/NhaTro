@@ -3,8 +3,9 @@
 -- isolated by the "homestayId" column on every table below except
 -- guests/serviceCharges/roomTransfers/lockEventsLog (only ever reached
 -- through an already-scoped stayId).
--- Identifiers are quoted camelCase so they match the JS objects in
--- src/index.js field-for-field. Apply with: npm run migrate
+-- Table and column names are camelCase (quoted) so they match the JS objects
+-- in src/index.js field-for-field. The app also accepts snake_case names
+-- (room_types, homestay_id) if that is what a database already has. Apply with: npm run migrate
 
 CREATE TABLE IF NOT EXISTS homestays (
   id VARCHAR(64) PRIMARY KEY,
@@ -28,14 +29,14 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users (username);
 CREATE INDEX IF NOT EXISTS idx_users_homestay ON users ("homestayId");
 
-CREATE TABLE IF NOT EXISTS room_types (
+CREATE TABLE IF NOT EXISTS "roomTypes" (
   id VARCHAR(64) PRIMARY KEY,
   "homestayId" VARCHAR(64) NOT NULL,
   name VARCHAR(100) NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_room_types_homestay ON room_types ("homestayId");
+CREATE INDEX IF NOT EXISTS idx_room_types_homestay ON "roomTypes" ("homestayId");
 
 CREATE TABLE IF NOT EXISTS rooms (
   id VARCHAR(64) PRIMARY KEY,
@@ -51,7 +52,7 @@ CREATE TABLE IF NOT EXISTS rooms (
 CREATE INDEX IF NOT EXISTS idx_rooms_room_type ON rooms ("roomTypeId");
 CREATE INDEX IF NOT EXISTS idx_rooms_homestay ON rooms ("homestayId");
 
-CREATE TABLE IF NOT EXISTS rate_plans (
+CREATE TABLE IF NOT EXISTS "ratePlans" (
   id VARCHAR(64) PRIMARY KEY,
   "homestayId" VARCHAR(64) NOT NULL,
   "roomTypeId" VARCHAR(64) NOT NULL,
@@ -64,8 +65,8 @@ CREATE TABLE IF NOT EXISTS rate_plans (
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_rate_plans_room_type_unique ON rate_plans ("roomTypeId");
-CREATE INDEX IF NOT EXISTS idx_rate_plans_homestay ON rate_plans ("homestayId");
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rate_plans_room_type_unique ON "ratePlans" ("roomTypeId");
+CREATE INDEX IF NOT EXISTS idx_rate_plans_homestay ON "ratePlans" ("homestayId");
 
 -- One stay = one guest's booking of a room from check-in to check-out.
 -- Room transfers mid-stay do NOT create a new stay row.
@@ -105,7 +106,7 @@ CREATE INDEX IF NOT EXISTS idx_guests_stay ON guests ("stayId");
 
 -- Dịch vụ AND phụ thu lines added to a stay; name/unitPrice are snapshots
 -- from catalog-service at the moment they were added.
-CREATE TABLE IF NOT EXISTS service_charges (
+CREATE TABLE IF NOT EXISTS "serviceCharges" (
   id VARCHAR(64) PRIMARY KEY,
   "stayId" VARCHAR(64) NOT NULL,
   kind VARCHAR(20) NOT NULL, -- 'service' | 'surcharge'
@@ -118,10 +119,10 @@ CREATE TABLE IF NOT EXISTS service_charges (
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_service_charges_stay ON service_charges ("stayId");
+CREATE INDEX IF NOT EXISTS idx_service_charges_stay ON "serviceCharges" ("stayId");
 
 -- Audit trail of room moves within one stay (never used to re-price).
-CREATE TABLE IF NOT EXISTS room_transfers (
+CREATE TABLE IF NOT EXISTS "roomTransfers" (
   id VARCHAR(64) PRIMARY KEY,
   "stayId" VARCHAR(64) NOT NULL,
   "fromRoomId" VARCHAR(64) NOT NULL,
@@ -131,10 +132,10 @@ CREATE TABLE IF NOT EXISTS room_transfers (
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_room_transfers_stay ON room_transfers ("stayId");
+CREATE INDEX IF NOT EXISTS idx_room_transfers_stay ON "roomTransfers" ("stayId");
 
 -- Raw TTLock card-swipe events, for audit/debug only.
-CREATE TABLE IF NOT EXISTS lock_events_log (
+CREATE TABLE IF NOT EXISTS "lockEventsLog" (
   id VARCHAR(64) PRIMARY KEY,
   "stayId" VARCHAR(64) NOT NULL,
   "lockCardId" VARCHAR(128),
@@ -143,7 +144,7 @@ CREATE TABLE IF NOT EXISTS lock_events_log (
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_lock_events_stay ON lock_events_log ("stayId");
+CREATE INDEX IF NOT EXISTS idx_lock_events_stay ON "lockEventsLog" ("stayId");
 
 -- One settings row per homestay (payment QR info + owner info).
 CREATE TABLE IF NOT EXISTS settings (

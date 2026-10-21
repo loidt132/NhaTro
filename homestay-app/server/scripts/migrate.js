@@ -5,22 +5,25 @@ import { query } from "../src/db.js";
 
 const schema = readFileSync(new URL("../schema.sql", import.meta.url), "utf8");
 
+// The canonical names are camelCase (the app also tolerates snake_case, but
+// leaving a snake_case table beside the empty camelCase one schema.sql would
+// create is a trap — so rename it in place).
 // Tables/columns created from unquoted SQL (the old nocodb-schema.sql, a UI
 // import, ...) were folded to lowercase by Postgres — "passwordhash" instead
 // of "passwordHash". The app reads camelCase, so such rows would come back
 // with undefined fields (e.g. login crashing on passwordHash). Rename them
 // to the names schema.sql uses, in place, keeping the data.
 const LEGACY_TABLES = {
-  roomTypes: "room_types",
-  roomtypes: "room_types",
-  ratePlans: "rate_plans",
-  rateplans: "rate_plans",
-  serviceCharges: "service_charges",
-  servicecharges: "service_charges",
-  roomTransfers: "room_transfers",
-  roomtransfers: "room_transfers",
-  lockEventsLog: "lock_events_log",
-  lockeventslog: "lock_events_log",
+  room_types: "roomTypes",
+  roomtypes: "roomTypes",
+  rate_plans: "ratePlans",
+  rateplans: "ratePlans",
+  service_charges: "serviceCharges",
+  servicecharges: "serviceCharges",
+  room_transfers: "roomTransfers",
+  roomtransfers: "roomTransfers",
+  lock_events_log: "lockEventsLog",
+  lockeventslog: "lockEventsLog",
 };
 const camelColumns = new Set(schema.match(/"[a-z]+[A-Z][A-Za-z]*"/g)?.map((s) => s.slice(1, -1)));
 
@@ -40,9 +43,15 @@ async function normalizeLegacy() {
     `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema()`
   );
   const existing = new Set(cols.map((c) => `${c.table_name}.${c.column_name}`));
-  const byLower = new Map([...camelColumns].map((name) => [name.toLowerCase(), name]));
+  // lowercase ("homestayid") and snake_case ("homestay_id") -> camelCase.
+  const toSnake = (name) => name.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+  const legacyToCamel = new Map();
+  for (const name of camelColumns) {
+    legacyToCamel.set(name.toLowerCase(), name);
+    legacyToCamel.set(toSnake(name), name);
+  }
   for (const { table_name, column_name } of cols) {
-    const proper = byLower.get(column_name);
+    const proper = legacyToCamel.get(column_name);
     if (proper && proper !== column_name && !existing.has(`${table_name}.${proper}`)) {
       await query(`ALTER TABLE "${table_name}" RENAME COLUMN "${column_name}" TO "${proper}"`);
       console.log(`Đã đổi tên cột ${table_name}.${column_name} -> ${proper}`);
