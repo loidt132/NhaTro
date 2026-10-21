@@ -8,7 +8,9 @@ import fetch from "node-fetch";
 
 class MockLockProvider {
   async issueCard({ lockId, validFrom, validTo }) {
-    const cardId = `mock-card-${Math.random().toString(36).slice(2, 10)}`;
+    // Card id carries the room's own lock name (e.g. "mock-lock-101") so it is
+    // traceable to the door it opens; the suffix keeps cards for one lock unique.
+    const cardId = `${lockId}-card-${Math.random().toString(36).slice(2, 10)}`;
     console.log(`[lockProvider:mock] issued card ${cardId} for lock ${lockId} (${validFrom} -> ${validTo})`);
     return { cardId, provider: "mock" };
   }

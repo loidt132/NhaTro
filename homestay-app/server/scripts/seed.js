@@ -128,7 +128,7 @@ async function main() {
     checkInAt,
     expectedCheckOutAt: null,
     checkOutAt,
-    lockCardId: "mock-card-seed",
+    lockCardId: `${room.lockId}-card-seed`,
   });
   await createRow("guests", {
     id: uuid(),
