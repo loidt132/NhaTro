@@ -176,6 +176,10 @@ export async function findOneWhere(tableKey, where) {
 async function insert(tableKey, data) {
   const meta = await metaOf(tableKey);
   const clean = cleanData(meta, tableKey, data);
+  // Don't rely on the column DEFAULT: tables that pre-date schema.sql may have none.
+  for (const col of KEEP_AS_IS) {
+    if (meta.types.has(col) && clean[col] == null) clean[col] = new Date().toISOString();
+  }
   const cols = Object.keys(clean);
   const rows = await query(
     `INSERT INTO ${q(meta.table)} (${cols.map(q).join(", ")}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`,

@@ -37,7 +37,7 @@ export async function getCategory(id) {
 
 export async function createCategory({ id, homestayId, name }) {
   return (await query(
-    `INSERT INTO categories (id, "homestayId", name) VALUES ($1,$2,$3) RETURNING *`,
+    `INSERT INTO categories (id, "homestayId", name, created_at, updated_at) VALUES ($1,$2,$3,now(),now()) RETURNING *`,
     [id, homestayId, name]
   ))[0];
 }
@@ -78,8 +78,8 @@ export async function getItem(id) {
 
 export async function createItem({ id, homestayId, categoryId, name, unit, price, kind }) {
   await query(
-    `INSERT INTO items (id, "homestayId", "categoryId", name, unit, price, kind)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+    `INSERT INTO items (id, "homestayId", "categoryId", name, unit, price, kind, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,now(),now())`,
     [id, homestayId, categoryId, name, unit, price, kind]
   );
   return getItem(id);

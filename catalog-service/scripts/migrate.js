@@ -29,6 +29,20 @@ for (const { table_name, column_name, data_type } of cols) {
 await query(schema);
 console.log("Schema đã được áp dụng.");
 
+// CREATE TABLE IF NOT EXISTS never touches a table that already existed, so one
+// created without DEFAULT now() would keep writing NULL created_at/updated_at.
+// Force the default on every such column and backfill the NULLs.
+for (const { table_name, column_name } of await query(
+  `SELECT table_name, column_name FROM information_schema.columns
+    WHERE table_schema = current_schema() AND column_name IN ('created_at', 'updated_at')`
+)) {
+  await query(`ALTER TABLE "${table_name}" ALTER COLUMN "${column_name}" SET DEFAULT now()`);
+  const filled = await query(
+    `UPDATE "${table_name}" SET "${column_name}" = now() WHERE "${column_name}" IS NULL RETURNING 1`
+  );
+  if (filled.length) console.log(`Đã điền ${filled.length} giá trị NULL ở ${table_name}.${column_name}`);
+}
+
 // CREATE TABLE IF NOT EXISTS leaves a table that already existed untouched.
 // If it was created some other way (Neon UI, an old import), "id" can be an
 // auto-increment/integer column — the app writes string ids, so inserts fail
