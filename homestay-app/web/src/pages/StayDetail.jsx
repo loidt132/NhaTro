@@ -245,7 +245,15 @@ export default function StayDetail() {
         )}
         {qrDataUrl ? (
           <div className="flex items-center gap-4">
-            <img src={qrDataUrl} alt="Mã QR thanh toán" className="h-40 w-40 rounded-lg border border-slate-200" />
+            <img
+              src={qrDataUrl}
+              alt="Mã QR thanh toán"
+              className="h-40 w-40 rounded-lg border border-slate-200"
+              onError={() => {
+                setQrDataUrl(null);
+                setQrError("Không tải được ảnh QR từ img.vietqr.io — kiểm tra kết nối mạng/tiện ích chặn quảng cáo, hoặc Mã NH và số tài khoản trong Cài đặt.");
+              }}
+            />
             <div className="text-sm text-slate-600">
               <p>Số tiền: <strong className="text-slate-900">{formatVnd(stay.breakdown.total)}</strong></p>
               <p className="text-xs text-slate-500">Mã QR dựa trên tổng tiền hiện tại — bấm "Tạo lại mã QR" nếu phát sinh thêm dịch vụ/phụ thu sau khi đã trả phòng.</p>
