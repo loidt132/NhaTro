@@ -35,6 +35,9 @@ const SERVICE_CATALOG_URL = process.env.SERVICE_CATALOG_URL || "http://localhost
 const CATALOG_ADMIN_KEY = process.env.CATALOG_ADMIN_KEY || "dev-catalog-admin-key-change-me";
 const lockProvider = createLockProvider();
 const START_TIME = Date.now();
+// Fail fast instead of hanging until the OS gives up (ETIMEDOUT) when
+// catalog-service is slow or unreachable.
+const CATALOG_TIMEOUT_MS = 8000;
 
 // ---- Health check ----
 // Public, no auth — used by uptime monitors/load balancers. Does a cheap
@@ -48,13 +51,24 @@ app.get("/health", async (req, res) => {
   } catch (err) {
     nocodb = `error: ${err.message}`;
   }
-  const status = nocodb === "ok" ? "ok" : "degraded";
-  res.status(status === "ok" ? 200 : 503).json({
+  // catalog-service is a separate Vercel deployment. It is reported here so
+  // monitors see it, but an outage only marks us "degraded" (HTTP stays 200)
+  // — the rest of the app still works without the price list.
+  let catalog = "unknown";
+  try {
+    const r = await fetch(`${SERVICE_CATALOG_URL}/health`, { signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS) });
+    catalog = r.ok ? "ok" : `error: HTTP ${r.status}`;
+  } catch (err) {
+    catalog = `error: ${err.message}`;
+  }
+  const coreOk = nocodb === "ok";
+  const status = coreOk && catalog === "ok" ? "ok" : "degraded";
+  res.status(coreOk ? 200 : 503).json({
     status,
     service: "homestay-server",
     uptimeSeconds: Math.round((Date.now() - START_TIME) / 1000),
     timestamp: new Date().toISOString(),
-    dependencies: { nocodb },
+    dependencies: { nocodb, catalog },
   });
 });
 
@@ -687,6 +701,7 @@ async function proxyToCatalog(req, res, path, method) {
       method,
       headers: { "Content-Type": "application/json", "x-api-key": CATALOG_ADMIN_KEY },
       body,
+      signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS),
     });
     if (r.ok) forgetCatalogItems(req.homestayId);
     if (r.status === 204) return res.status(204).end();
@@ -705,7 +720,7 @@ async function proxyToCatalog(req, res, path, method) {
 app.get(
   "/api/catalog/categories",
   asyncRoute(async (req, res) => {
-    const r = await fetch(`${SERVICE_CATALOG_URL}/api/categories?homestayId=${req.homestayId}`);
+    const r = await fetch(`${SERVICE_CATALOG_URL}/api/categories?homestayId=${req.homestayId}`, { signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS) });
     const body = await r.json().catch(() => ({}));
     res.status(r.status).json(body);
   })
@@ -716,7 +731,7 @@ app.get(
     const params = new URLSearchParams({ homestayId: req.homestayId });
     if (req.query.kind) params.set("kind", req.query.kind);
     if (req.query.categoryId) params.set("categoryId", req.query.categoryId);
-    const r = await fetch(`${SERVICE_CATALOG_URL}/api/items?${params.toString()}`);
+    const r = await fetch(`${SERVICE_CATALOG_URL}/api/items?${params.toString()}`, { signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS) });
     const body = await r.json().catch(() => ({}));
     if (r.ok) rememberCatalogItems(req.homestayId, body);
     res.status(r.status).json(body);
