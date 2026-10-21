@@ -62,7 +62,7 @@ for (const [title, envVar] of TABLES) {
   const rows = await fetchAll(await tableId(title, envVar));
   let added = 0;
   for (const row of rows) {
-    if ((await query(`SELECT 1 FROM "${tableName(title)}" WHERE id = $1`, [row.id])).length) continue;
+    if ((await query(`SELECT 1 FROM "${await tableName(title)}" WHERE id = $1`, [row.id])).length) continue;
     const data = { ...row };
     if (data.CreatedAt) data.created_at = data.CreatedAt;
     if (data.UpdatedAt) data.updated_at = data.UpdatedAt;
