@@ -278,7 +278,7 @@ export default function StayDetail() {
               <tbody>
                 {stay.transfers.map((t) => (
                   <tr key={t.id}>
-                    <td className={td}>{new Date(t.transferredAt).toLocaleString("vi-VN")}</td>
+                    <td className={td}>{t.transferredAt && !Number.isNaN(new Date(t.transferredAt).getTime()) ? new Date(t.transferredAt).toLocaleString("vi-VN") : "—"}</td>
                     <td className={td}>{t.fromRoomName}</td>
                     <td className={td}>{t.toRoomName}</td>
                     <td className={td}>{t.reason}</td>

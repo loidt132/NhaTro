@@ -446,7 +446,7 @@ async function buildStayView(stay, req) {
         fromRoomId: t.fromRoomId,
         toRoomId: t.toRoomId,
         reason: t.reason || "",
-        transferredAt: t.transferredAt,
+        transferredAt: t.transferredAt || t.created_at || null,
         fromRoomName: fromRoom?.name || t.fromRoomId,
         toRoomName: toRoom?.name || t.toRoomId,
       };
@@ -876,9 +876,16 @@ async function fetchCatalogItem(itemId, homestayId) {
       const r = await fetch(url, { signal: AbortSignal.timeout(3000) });
       if (r.ok) return await r.json();
       if (r.status === 404) {
-        const err = new Error("Không tìm thấy mục này trong danh mục dịch vụ");
-        err.status = 404;
-        throw err;
+        // Only catalog-service's own {error:"not found"} means the item is
+        // really gone. Any other 404 (cold start, wrong route, platform page)
+        // is transient/misconfiguration — retry instead of blaming the item.
+        const body = await r.json().catch(() => null);
+        if (body?.error === "not found") {
+          const err = new Error("Không tìm thấy mục này trong danh mục dịch vụ");
+          err.status = 404;
+          throw err;
+        }
+        console.warn(`[catalog] ${url} -> 404 without catalog body, retrying`);
       }
       lastErr = new Error(`status ${r.status}`);
     } catch (err) {
