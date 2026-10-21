@@ -85,3 +85,16 @@ An item looks like:
 ```
 
 Surcharge items use `"kind": "surcharge"` and `"categoryId": null`.
+
+## Database (PostgreSQL)
+
+Storage is PostgreSQL (Neon free tier works). Set `DATABASE_URL` (see `.env.example`; use the *pooled* connection string on Vercel), then:
+
+```
+npm install
+npm run migrate            # creates the tables from schema.sql (safe to re-run)
+npm run seed -- <homestayId>   # optional starter price list
+npm run dev
+```
+
+On Vercel, add `DATABASE_URL` and `CATALOG_ADMIN_KEY` as environment variables.

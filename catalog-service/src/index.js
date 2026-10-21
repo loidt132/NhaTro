@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { v4 as uuid } from "uuid";
-import { listRows, findOneByBusinessId, createRow, updateRowByBusinessId, deleteRowByBusinessId } from "./nocodb.js";
+import * as db from "./db.js";
 
 const app = express();
 app.use(cors());
@@ -18,23 +18,23 @@ const ADMIN_KEY = process.env.CATALOG_ADMIN_KEY || "dev-catalog-admin-key-change
 const START_TIME = Date.now();
 
 // Public, no auth — used by uptime monitors/load balancers. Does a cheap
-// NocoDB round trip so "ok" actually means the app can serve real requests,
+// database round trip so "ok" actually means the app can serve real requests,
 // not just that the Node process is alive.
 app.get("/health", async (req, res) => {
-  let nocodb = "unknown";
+  let database = "unknown";
   try {
-    await listRows("categories", { limit: 1 });
-    nocodb = "ok";
+    await db.ping();
+    database = "ok";
   } catch (err) {
-    nocodb = `error: ${err.message}`;
+    database = `error: ${err.message}`;
   }
-  const status = nocodb === "ok" ? "ok" : "degraded";
+  const status = database === "ok" ? "ok" : "degraded";
   res.status(status === "ok" ? 200 : 503).json({
     status,
     service: "catalog-service",
     uptimeSeconds: Math.round((Date.now() - START_TIME) / 1000),
     timestamp: new Date().toISOString(),
-    dependencies: { nocodb },
+    dependencies: { database },
   });
 });
 
@@ -59,8 +59,8 @@ function requireHomestayId(req, res, next) {
   next();
 }
 
-// Strip NocoDB's own system columns (Id, CreatedAt, ...) so responses only
-// carry the business fields the frontend/homestay-server already expect.
+// Strip DB-only columns (timestamps, ...) so responses only carry the
+// business fields the frontend/homestay-server already expect.
 function asCategory(row) {
   return { id: row.id, name: row.name };
 }
@@ -68,7 +68,9 @@ function asCategory(row) {
 function asItem(row) {
   return {
     id: row.id,
+    homestayId: row.homestayId,
     categoryId: row.categoryId ?? null,
+    categoryName: row.categoryName ?? null,
     name: row.name,
     unit: row.unit || "",
     price: Number(row.price),
@@ -76,20 +78,17 @@ function asItem(row) {
   };
 }
 
-function nocoErrorToHttp(res, err) {
-  console.error(err.detail || err);
-  if (err.code === "NOCODB_RATE_LIMIT") {
-    return res.status(503).json({ error: err.message });
-  }
-  res.status(502).json({ error: `NocoDB: ${err.message}` });
+function dbErrorToHttp(res, err) {
+  console.error(err);
+  res.status(502).json({ error: `Database: ${err.message}` });
 }
 
 app.get("/api/categories", requireHomestayId, async (req, res) => {
   try {
-    const rows = await listRows("categories", { where: `(homestayId,eq,${req.homestayId})` });
+    const rows = await db.listCategories(req.homestayId);
     res.json(rows.map(asCategory));
   } catch (err) {
-    nocoErrorToHttp(res, err);
+    dbErrorToHttp(res, err);
   }
 });
 
@@ -97,10 +96,10 @@ app.post("/api/categories", requireApiKey, requireHomestayId, async (req, res) =
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "name is required" });
   try {
-    const row = await createRow("categories", { id: uuid(), homestayId: req.homestayId, name });
+    const row = await db.createCategory({ id: uuid(), homestayId: req.homestayId, name });
     res.status(201).json(asCategory(row));
   } catch (err) {
-    nocoErrorToHttp(res, err);
+    dbErrorToHttp(res, err);
   }
 });
 
@@ -108,27 +107,26 @@ app.put("/api/categories/:id", requireApiKey, requireHomestayId, async (req, res
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "name is required" });
   try {
-    const existing = await findOneByBusinessId("categories", req.params.id);
+    const existing = await db.getCategory(req.params.id);
     if (!existing || existing.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
-    const row = await updateRowByBusinessId("categories", req.params.id, { name });
+    const row = await db.updateCategory(req.params.id, name);
     res.json(asCategory(row));
   } catch (err) {
-    nocoErrorToHttp(res, err);
+    dbErrorToHttp(res, err);
   }
 });
 
 app.delete("/api/categories/:id", requireApiKey, requireHomestayId, async (req, res) => {
   try {
-    const category = await findOneByBusinessId("categories", req.params.id);
+    const category = await db.getCategory(req.params.id);
     if (!category || category.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
-    const itemsInCategory = await listRows("items", { where: `(categoryId,eq,${category.id})`, limit: 1 });
-    if (itemsInCategory.length > 0) {
+    if ((await db.countItemsInCategory(category.id)) > 0) {
       return res.status(409).json({ error: "Danh mục đang có dịch vụ — hãy chuyển/xoá dịch vụ trong danh mục này trước." });
     }
-    await deleteRowByBusinessId("categories", req.params.id);
+    await db.deleteCategory(req.params.id);
     res.status(204).end();
   } catch (err) {
-    nocoErrorToHttp(res, err);
+    dbErrorToHttp(res, err);
   }
 });
 
@@ -138,23 +136,20 @@ app.delete("/api/categories/:id", requireApiKey, requireHomestayId, async (req, 
 app.get("/api/items", requireHomestayId, async (req, res) => {
   try {
     const { categoryId, kind } = req.query;
-    const clauses = [`(homestayId,eq,${req.homestayId})`];
-    if (categoryId) clauses.push(`(categoryId,eq,${categoryId})`);
-    if (kind) clauses.push(`(kind,eq,${kind})`);
-    const rows = await listRows("items", { where: clauses.join("~and") });
+    const rows = await db.listItems(req.homestayId, { categoryId, kind });
     res.json(rows.map(asItem));
   } catch (err) {
-    nocoErrorToHttp(res, err);
+    dbErrorToHttp(res, err);
   }
 });
 
 app.get("/api/items/:id", requireHomestayId, async (req, res) => {
   try {
-    const row = await findOneByBusinessId("items", req.params.id);
+    const row = await db.getItem(req.params.id);
     if (!row || row.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
     res.json(asItem(row));
   } catch (err) {
-    nocoErrorToHttp(res, err);
+    dbErrorToHttp(res, err);
   }
 });
 
@@ -168,7 +163,7 @@ app.post("/api/items", requireApiKey, requireHomestayId, async (req, res) => {
     return res.status(400).json({ error: "categoryId is required for service items" });
   }
   try {
-    const row = await createRow("items", {
+    const row = await db.createItem({
       id: uuid(),
       homestayId: req.homestayId,
       categoryId: categoryId || null,
@@ -179,13 +174,11 @@ app.post("/api/items", requireApiKey, requireHomestayId, async (req, res) => {
     });
     res.status(201).json(asItem(row));
   } catch (err) {
-    nocoErrorToHttp(res, err);
+    dbErrorToHttp(res, err);
   }
 });
 
 app.put("/api/items/:id", requireApiKey, requireHomestayId, async (req, res) => {
-  const existing = await findOneByBusinessId("items", req.params.id);
-  if (!existing || existing.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
   const patch = {};
   if (req.body.name != null) patch.name = req.body.name;
   if (req.body.unit != null) patch.unit = req.body.unit;
@@ -193,21 +186,23 @@ app.put("/api/items/:id", requireApiKey, requireHomestayId, async (req, res) => 
   if (req.body.categoryId !== undefined) patch.categoryId = req.body.categoryId;
   if (req.body.kind != null) patch.kind = req.body.kind === "surcharge" ? "surcharge" : "service";
   try {
-    const row = await updateRowByBusinessId("items", req.params.id, patch);
+    const existing = await db.getItem(req.params.id);
+    if (!existing || existing.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
+    const row = await db.updateItem(req.params.id, patch);
     res.json(asItem(row));
   } catch (err) {
-    nocoErrorToHttp(res, err);
+    dbErrorToHttp(res, err);
   }
 });
 
 app.delete("/api/items/:id", requireApiKey, requireHomestayId, async (req, res) => {
   try {
-    const existing = await findOneByBusinessId("items", req.params.id);
+    const existing = await db.getItem(req.params.id);
     if (!existing || existing.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
-    await deleteRowByBusinessId("items", req.params.id);
+    await db.deleteItem(req.params.id);
     res.status(204).end();
   } catch (err) {
-    nocoErrorToHttp(res, err);
+    dbErrorToHttp(res, err);
   }
 });
 
@@ -216,7 +211,7 @@ app.delete("/api/items/:id", requireApiKey, requireHomestayId, async (req, res) 
 if (!process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`[catalog-service] listening on http://localhost:${PORT}`);
-    console.log(`[catalog-service] storage = NocoDB (${process.env.NOCODB_URL || "NOT CONFIGURED"})`);
+    console.log(`[catalog-service] storage = Postgres (${process.env.DATABASE_URL ? "configured" : "NOT CONFIGURED"})`);
   });
 }
 
