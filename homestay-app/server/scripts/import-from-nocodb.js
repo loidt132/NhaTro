@@ -5,7 +5,7 @@
 //   DATABASE_URL
 // Run `npm run migrate` first, then: npm run import-from-nocodb
 // Rows whose id already exists in Postgres are skipped, so it is safe to re-run.
-import { insertRaw, query } from "../src/db.js";
+import { insertRaw, query, tableName } from "../src/db.js";
 
 const BASE = (process.env.NOCODB_URL || "").replace(/\/+$/, "");
 const TOKEN = process.env.NOCODB_API_KEY || "";
@@ -62,7 +62,7 @@ for (const [title, envVar] of TABLES) {
   const rows = await fetchAll(await tableId(title, envVar));
   let added = 0;
   for (const row of rows) {
-    if ((await query(`SELECT 1 FROM "${title}" WHERE id = $1`, [row.id])).length) continue;
+    if ((await query(`SELECT 1 FROM "${tableName(title)}" WHERE id = $1`, [row.id])).length) continue;
     const data = { ...row };
     if (data.CreatedAt) data.created_at = data.CreatedAt;
     if (data.UpdatedAt) data.updated_at = data.UpdatedAt;
