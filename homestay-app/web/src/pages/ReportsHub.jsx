@@ -55,7 +55,7 @@ function DateField({ label: text, value, onChange }) {
 
 function DateRangePicker({ from, to, setFrom, setTo }) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-end">
+    <div className="grid grid-cols-2 gap-2 sm:flex sm:gap-3 sm:flex-wrap sm:items-end">
       <DateField label="Từ ngày" value={from} onChange={setFrom} />
       <DateField label="Đến ngày" value={to} onChange={setTo} />
     </div>
@@ -84,7 +84,7 @@ function RevenueReport() {
 
   return (
     <div className="space-y-4">
-      <div className={card}>
+      <div className="sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-white sm:p-4 sm:shadow-sm">
         <DateRangePicker from={from} to={to} setFrom={setFrom} setTo={setTo} />
       </div>
       {error && (
@@ -172,7 +172,7 @@ function OccupancyReport() {
 
   return (
     <div className="space-y-4">
-      <div className={card}>
+      <div className="sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-white sm:p-4 sm:shadow-sm">
         <DateRangePicker from={from} to={to} setFrom={setFrom} setTo={setTo} />
       </div>
       {error && (
