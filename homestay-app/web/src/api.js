@@ -62,7 +62,12 @@ export const homestayApi = {
   getRatePlans: () => request(HOMESTAY_API, "/api/rate-plans"),
   updateRatePlan: (id, body) =>
     request(HOMESTAY_API, `/api/rate-plans/${id}`, { method: "PUT", body: JSON.stringify(body) }),
-  getStayHistory: (roomId) => request(HOMESTAY_API, `/api/stay-history${roomId ? `?roomId=${roomId}` : ""}`),
+  getStayHistory: (roomId, status) => {
+    const params = new URLSearchParams();
+    if (roomId) params.set("roomId", roomId);
+    if (status) params.set("status", status);
+    return request(HOMESTAY_API, `/api/stay-history?${params.toString()}`);
+  },
   getStay: (id) => request(HOMESTAY_API, `/api/stays/${id}`),
   checkIn: (body) => request(HOMESTAY_API, "/api/stays", { method: "POST", body: JSON.stringify(body) }),
   addGuest: (stayId, body) =>

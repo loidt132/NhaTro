@@ -783,17 +783,18 @@ app.get(
   })
 );
 
-// Past (checked-out) stays, newest first, optionally for one room — backs the
+// Stays by status (default checked-out), newest first, optionally for one room — backs the
 // "Lịch sử" page so an invoice/QR can be re-issued later.
 app.get(
   "/api/stay-history",
   asyncRoute(async (req, res) => {
-    const where = withTenant(req, "(status,eq,checked_out)");
+    const status = ["active", "cancelled"].includes(req.query.status) ? req.query.status : "checked_out";
+    const where = withTenant(req, `(status,eq,${status})`);
     const [rows, rooms] = await Promise.all([listRows("stays", { where }), listRows("rooms", { where: withTenant(req) })]);
     const roomById = new Map(rooms.map((r) => [r.id, r]));
     const picked = rows
       .filter((s) => !req.query.roomId || s.roomId === req.query.roomId)
-      .sort((a, b) => dayjs(b.checkOutAt).diff(dayjs(a.checkOutAt)))
+      .sort((a, b) => dayjs(b.checkOutAt || b.checkInAt).diff(dayjs(a.checkOutAt || a.checkInAt)))
       .slice(0, 100);
     const out = await Promise.all(
       picked.map(async (s) => {
@@ -807,6 +808,7 @@ app.get(
           pricingType: s.pricingType,
           checkInAt: s.checkInAt,
           checkOutAt: s.checkOutAt,
+          status,
           total: view.breakdown.total,
         };
       })
