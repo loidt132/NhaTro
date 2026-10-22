@@ -526,7 +526,7 @@ function AddGuestModal({ stayId, onClose, onAdded }) {
     <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <form
         onSubmit={submit}
-        className="modal-panel w-full max-w-xs space-y-2 rounded-2xl bg-white p-3 shadow-xl"
+        className="modal-panel w-full max-w-[19rem] space-y-2 overflow-x-hidden rounded-2xl bg-white p-3 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="text-[15px] font-semibold text-slate-900">Thêm khách đi cùng</div>
