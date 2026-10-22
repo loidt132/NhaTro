@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import { homestayApi, formatVnd } from "../api.js";
-import { badgeBase, card, input, label, table, tableWrap, td, th } from "../ui.js";
+import { badgeBase, card, label, table, tableWrap, td, th } from "../ui.js";
 import { useHomestay } from "../HomestayContext.js";
 
 const PRICING_LABEL = { hourly: "Theo giờ", overnight: "Qua đêm", fullday: "Cả ngày" };
