@@ -1,8 +1,9 @@
 import { useState } from "react";
 import dayjs from "dayjs";
 import { homestayApi } from "../api.js";
+import DateField from "../components/DateField.jsx";
 import { exportExcel } from "../utils/exportExcel.js";
-import { btn, btnPrimary, card, input, label } from "../ui.js";
+import { btn, btnPrimary, card } from "../ui.js";
 
 export default function GuestReport() {
   const [date, setDate] = useState(dayjs().format("YYYY-MM-DD"));
@@ -38,10 +39,7 @@ export default function GuestReport() {
       </div>
       <div className={card}>
         <div className="flex flex-wrap items-end gap-3">
-          <div className="space-y-1">
-            <label className={label}>Ngày nhận phòng</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={`${input} w-44`} />
-          </div>
+          <DateField label="Ngày nhận phòng" value={date} onChange={setDate} />
           <a className={btnPrimary} href={homestayApi.guestReportUrl(date)}>Tải CSV</a>
           <button className={btn} onClick={downloadExcel}>Tải Excel</button>
         </div>

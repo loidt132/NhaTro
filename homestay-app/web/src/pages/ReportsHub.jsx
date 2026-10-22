@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import { homestayApi, formatVnd } from "../api.js";
 import { exportExcel } from "../utils/exportExcel.js";
-import { badgeBase, btn, btnPrimary, card, label, table, tableWrap, td, th } from "../ui.js";
+import { badgeBase, btn, btnPrimary, card, table, tableWrap, td, th } from "../ui.js";
+import DateField from "../components/DateField.jsx";
 import { useHomestay } from "../HomestayContext.js";
 
 const PRICING_LABEL = { hourly: "Theo giờ", overnight: "Qua đêm", fullday: "Cả ngày" };
@@ -32,33 +33,6 @@ function TabButton({ active, onClick, children }) {
     >
       {children}
     </button>
-  );
-}
-
-function DateField({ label: text, value, onChange }) {
-  return (
-    <div className="min-w-0 space-y-1">
-      <label className={`${label} block`}>{text}</label>
-      <div className="relative h-9 w-full rounded-xl border border-slate-200 bg-white focus-within:ring-2 focus-within:ring-emerald-500/40 sm:w-44">
-        <div className="pointer-events-none flex h-full items-center px-3 text-sm text-slate-900">
-          {value ? dayjs(value).format("DD/MM/YYYY") : "—"}
-        </div>
-        <input
-          type="date"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onClick={(e) => {
-            // Desktop browsers only open the picker from the tiny built-in icon; open it on any click.
-            try {
-              e.currentTarget.showPicker?.();
-            } catch {
-              /* already open / unsupported */
-            }
-          }}
-          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-        />
-      </div>
-    </div>
   );
 }
 
