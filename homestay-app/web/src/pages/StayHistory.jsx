@@ -71,7 +71,7 @@ export default function StayHistory() {
             {rows.map((r) => (
               <Link key={r.stayId} to={`/stays/${r.stayId}`} className="block py-2.5 text-sm hover:bg-slate-50">
                 <div className="flex items-baseline justify-between gap-2">
-                  <span className="font-medium text-slate-900">Phòng {r.roomName} · {r.guestName}</span>
+                  <span className="font-medium text-slate-900">Phòng {r.roomName} · {(r.guestNames?.length ? r.guestNames : [r.guestName]).join(", ")}</span>
                   {r.status === "cancelled" ? (
                     <span className="shrink-0 text-xs font-medium text-slate-500">Đã huỷ</span>
                   ) : (

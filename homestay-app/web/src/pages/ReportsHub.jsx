@@ -242,7 +242,9 @@ function OccupancyReport() {
             {data.stays.map((s) => (
               <div key={s.stayId} className="space-y-1 py-2.5 text-sm">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-slate-900">{s.roomName} · {(s.guestNames?.length ? s.guestNames : [s.guestName]).join(", ")}</span>
+                  <span className="font-medium text-slate-900">
+                    {s.roomName} · {(s.guestNames?.length ? s.guestNames : [s.guestName]).map((n) => <span key={n} className="block">{n}</span>)}
+                  </span>
                   <span className={`${badgeBase} shrink-0 ${s.status === "active" ? "bg-sky-100 text-sky-700" : "bg-emerald-100 text-emerald-700"}`}>
                     {s.status === "active" ? "Đang ở" : "Đã trả"}
                   </span>
@@ -274,7 +276,7 @@ function OccupancyReport() {
                 {data.stays.map((s) => (
                   <tr key={s.stayId}>
                     <td className={td}>{s.roomName}</td>
-                    <td className={`${td} !whitespace-normal`}>{(s.guestNames?.length ? s.guestNames : [s.guestName]).join(", ")}</td>
+                    <td className={`${td} !whitespace-normal`}>{(s.guestNames?.length ? s.guestNames : [s.guestName]).map((n) => <div key={n}>{n}</div>)}</td>
                     <td className={td}>{s.guestCount}</td>
                     <td className={td}>{PRICING_LABEL[s.pricingType]}</td>
                     <td className={td}>{dayjs(s.checkInAt).format("DD/MM HH:mm")}</td>

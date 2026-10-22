@@ -168,6 +168,9 @@ function normStay(s) {
     lockCardId: s.lockCardId || null,
   };
 }
+function isMainGuest(g) {
+  return g.isMain === true || g.isMain === 1 || g.isMain === "true";
+}
 function normGuest(g) {
   return {
     id: g.id,
@@ -805,6 +808,7 @@ app.get(
           roomId: s.roomId,
           roomName: roomById.get(s.roomId)?.name || "",
           guestName: main?.name || "",
+          guestNames: view.guests.map((g) => g.name).filter(Boolean),
           pricingType: s.pricingType,
           checkInAt: s.checkInAt,
           checkOutAt: s.checkOutAt,
@@ -1262,14 +1266,14 @@ app.get(
     const stays = await Promise.all(
       filtered.map(async (s) => {
         const guests = await listRows("guests", { where: `(stayId,eq,${s.id})` });
-        const mainGuest = guests.find((g) => g.isMain === true || g.isMain === 1 || g.isMain === "true");
+        const mainGuest = guests.find(isMainGuest);
         const endAt = s.checkOutAt || dayjs().toISOString();
         const durationHours = Math.round(dayjs(endAt).diff(dayjs(s.checkInAt), "minute") / 6) / 10;
         return {
           stayId: s.id,
           roomName: roomById.get(s.roomId)?.name || "",
           guestName: mainGuest?.name || "",
-          guestNames: guests.map((g) => g.name).filter(Boolean),
+          guestNames: [...guests].sort((a, b) => Number(isMainGuest(b)) - Number(isMainGuest(a))).map((g) => g.name).filter(Boolean),
           guestCount: guests.length,
           pricingType: s.pricingType,
           status: s.status,
