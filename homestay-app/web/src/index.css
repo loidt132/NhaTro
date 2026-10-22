@@ -32,3 +32,26 @@
     display: none !important;
   }
 }
+
+/* iOS Safari zooms the page when a focused input is under 16px, which pushes
+   popups off the right edge — keep inputs at 16px on phones. */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+  .modal-panel {
+    max-height: 88dvh;
+    overflow-y: auto;
+    padding: 0.75rem !important;
+  }
+  .modal-panel input,
+  .modal-panel select {
+    padding-top: 0.375rem;
+    padding-bottom: 0.375rem;
+  }
+  .modal-panel .space-y-3 > :not(:last-child) {
+    margin-bottom: 0.5rem;
+  }
+}

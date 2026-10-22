@@ -265,7 +265,7 @@ function CategoryModal({ mode, category, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
-      <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel w-full max-w-sm rounded-2xl bg-white p-4 shadow" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 text-lg font-semibold text-slate-900">{mode === "edit" ? "Sửa danh mục" : "Thêm danh mục"}</div>
         {error && (
           <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
@@ -332,7 +332,7 @@ function ItemModal({ mode, item, categories, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel w-full max-w-md rounded-2xl bg-white p-4 shadow" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 text-lg font-semibold text-slate-900">
           {mode === "edit" ? "Cập nhật" : "Thêm mới"} {kind === "surcharge" ? "phụ thu" : "dịch vụ"}
         </div>

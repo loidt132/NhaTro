@@ -120,7 +120,7 @@ function HomestayModal({ mode, homestay, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
-      <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel w-full max-w-sm rounded-2xl bg-white p-4 shadow" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 text-lg font-semibold text-slate-900">
           {mode === "edit" ? "Sửa homestay" : "Thêm homestay"}
         </div>

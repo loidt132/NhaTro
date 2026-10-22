@@ -213,7 +213,7 @@ function RoomModal({ mode, room, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel w-full max-w-md rounded-2xl bg-white p-4 shadow" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 text-lg font-semibold text-slate-900">{mode === "edit" ? "Cập nhật phòng" : "Thêm phòng"}</div>
         {error && (
           <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
@@ -298,7 +298,7 @@ function CheckInModal({ room, onClose, onDone }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="w-full max-w-md space-y-3 rounded-2xl bg-white p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel w-full max-w-md space-y-3 rounded-2xl bg-white p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-lg font-bold text-slate-900">Nhận phòng {room.name}</h2>
         {error && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>

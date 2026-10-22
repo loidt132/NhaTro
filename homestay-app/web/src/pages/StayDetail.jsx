@@ -360,7 +360,7 @@ export default function StayDetail() {
 
       {confirmCancel && (
         <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setConfirmCancel(false)}>
-          <div className="w-full max-w-sm space-y-3 rounded-2xl bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-panel w-full max-w-sm space-y-3 rounded-2xl bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="text-base font-semibold text-slate-900">Huỷ lượt nhận phòng {roomName}?</div>
             <p className="text-sm text-slate-600">
               Dùng khi nhận phòng nhầm hoặc khách không ở. Lượt này sẽ không có hoá đơn và không tính vào doanh thu; phòng trở về trạng thái trống.
