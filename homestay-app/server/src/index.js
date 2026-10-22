@@ -564,12 +564,20 @@ app.delete(
 app.get(
   "/api/rooms",
   asyncRoute(async (req, res) => {
-    const [rooms, activeStays] = await Promise.all([
+    const [rooms, activeStays, roomTypes] = await Promise.all([
       listRows("rooms", { where: withTenant(req) }),
       listRows("stays", { where: withTenant(req, "(status,eq,active)") }),
+      listRows("roomTypes", { where: withTenant(req) }),
     ]);
     const activeByRoom = new Map(activeStays.map((s) => [s.roomId, s.id]));
-    res.json(rooms.map((r) => ({ ...normRoom(r), activeStayId: activeByRoom.get(r.id) || null })));
+    const typeNameById = new Map(roomTypes.map((t) => [t.id, t.name]));
+    res.json(
+      rooms.map((r) => ({
+        ...normRoom(r),
+        roomTypeName: typeNameById.get(r.roomTypeId) || "",
+        activeStayId: activeByRoom.get(r.id) || null,
+      }))
+    );
   })
 );
 

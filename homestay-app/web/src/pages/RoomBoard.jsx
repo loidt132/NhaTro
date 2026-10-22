@@ -10,7 +10,6 @@ export default function RoomBoard() {
   const { currentHomestayId } = useHomestay();
   const isAdmin = user?.role === "admin";
   const [rooms, setRooms] = useState([]);
-  const [roomTypes, setRoomTypes] = useState([]);
   const [maxRooms, setMaxRooms] = useState(null);
   const [checkInRoom, setCheckInRoom] = useState(null);
   const [roomModal, setRoomModal] = useState(null); // { mode: "create" | "edit", room? }
@@ -20,13 +19,11 @@ export default function RoomBoard() {
 
   async function refresh() {
     try {
-      const [roomsData, typesData, homestayData] = await Promise.all([
+      const [roomsData, homestayData] = await Promise.all([
         homestayApi.getRooms(),
-        homestayApi.getRoomTypes(),
         homestayApi.getCurrentHomestay(),
       ]);
       setRooms(roomsData);
-      setRoomTypes(typesData);
       setMaxRooms(homestayData.maxRooms);
     } catch (err) {
       setError(err.message);
@@ -36,10 +33,6 @@ export default function RoomBoard() {
   useEffect(() => {
     refresh();
   }, [currentHomestayId]);
-
-  function roomTypeName(id) {
-    return roomTypes.find((t) => t.id === id)?.name || id;
-  }
 
   function onRoomClick(room) {
     // An inactive room still has to be reachable if it somehow has a guest
@@ -107,7 +100,7 @@ export default function RoomBoard() {
               )}
               <span className={`${badgeBase} ${st.badge} !px-2 !py-0.5 !text-[11px] sm:!px-3 sm:!py-1 sm:!text-xs`}>{st.label}</span>
               <div className="text-lg font-bold leading-tight text-slate-900 sm:text-2xl">{room.name}</div>
-              <div className="text-xs text-slate-500 sm:text-sm">{roomTypeName(room.roomTypeId)}</div>
+              <div className="text-xs text-slate-500 sm:text-sm">{room.roomTypeName}</div>
               {room.active !== false && room.status === "cleaning" && (
                 <span onClick={(e) => markClean(room.id, e)} className={`${btn} mt-1 !py-1.5 !text-xs`}>
                   Đã dọn xong
@@ -133,7 +126,6 @@ export default function RoomBoard() {
         <RoomModal
           mode={roomModal.mode}
           room={roomModal.room}
-          roomTypes={roomTypes}
           onClose={() => setRoomModal(null)}
           onSaved={() => {
             setRoomModal(null);
@@ -145,12 +137,25 @@ export default function RoomBoard() {
   );
 }
 
-function RoomModal({ mode, room, roomTypes, onClose, onSaved }) {
+function RoomModal({ mode, room, onClose, onSaved }) {
+  // Room types are only needed here, so fetch them when the modal opens
+  // instead of on every visit to the room board.
+  const [roomTypes, setRoomTypes] = useState([]);
   const [name, setName] = useState(room?.name || "");
-  const [roomTypeId, setRoomTypeId] = useState(room?.roomTypeId || roomTypes[0]?.id || "");
+  const [roomTypeId, setRoomTypeId] = useState(room?.roomTypeId || "");
   const [lockId, setLockId] = useState(room?.lockId || "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    homestayApi
+      .getRoomTypes()
+      .then((types) => {
+        setRoomTypes(types);
+        setRoomTypeId((current) => current || types[0]?.id || "");
+      })
+      .catch((err) => setError(err.message));
+  }, []);
 
   async function submit(e) {
     e.preventDefault();
