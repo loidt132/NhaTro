@@ -67,6 +67,9 @@ export const homestayApi = {
   checkIn: (body) => request(HOMESTAY_API, "/api/stays", { method: "POST", body: JSON.stringify(body) }),
   addGuest: (stayId, body) =>
     request(HOMESTAY_API, `/api/stays/${stayId}/guests`, { method: "POST", body: JSON.stringify(body) }),
+  removeGuest: (stayId, guestId) =>
+    request(HOMESTAY_API, `/api/stays/${stayId}/guests/${guestId}`, { method: "DELETE" }),
+  cancelStay: (stayId) => request(HOMESTAY_API, `/api/stays/${stayId}/cancel`, { method: "POST" }),
   addService: (stayId, body) =>
     request(HOMESTAY_API, `/api/stays/${stayId}/services`, { method: "POST", body: JSON.stringify(body) }),
   addSurcharge: (stayId, body) =>

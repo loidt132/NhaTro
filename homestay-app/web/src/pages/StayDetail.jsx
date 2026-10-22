@@ -24,6 +24,8 @@ export default function StayDetail() {
   const [stay, setStay] = useState(null);
   const [rooms, setRooms] = useState([]);
   const [addOpen, setAddOpen] = useState(false);
+  const [guestOpen, setGuestOpen] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const [transfersOpen, setTransfersOpen] = useState(false);
   const [settings, setSettings] = useState(null);
   const [homestayName, setHomestayName] = useState("");
@@ -86,6 +88,7 @@ export default function StayDetail() {
 
   const roomName = stay.currentRoomName;
   const isActive = stay.status === "active";
+  const isCancelled = stay.status === "cancelled";
 
   const emptyRooms = rooms.filter((r) => r.status === "empty");
 
@@ -168,16 +171,16 @@ export default function StayDetail() {
 
   return (
     <div className="space-y-3">
-      <Link to={isActive ? "/" : "/history"} className="no-print inline-block text-sm font-medium text-emerald-700 hover:underline">
-        &larr; {isActive ? "Quay lại sơ đồ phòng" : "Quay lại lịch sử"}
+      <Link to={isActive || isCancelled ? "/" : "/history"} className="no-print inline-block text-sm font-medium text-emerald-700 hover:underline">
+        &larr; {isActive || isCancelled ? "Quay lại sơ đồ phòng" : "Quay lại lịch sử"}
       </Link>
 
       <div className="no-print flex flex-wrap items-center gap-2">
         <h1 className="text-lg font-bold text-slate-900 sm:text-xl">
           {roomName} — {PRICING_LABEL[stay.pricingType]}
         </h1>
-        <span className={`${badgeBase} ${isActive ? "bg-sky-100 text-sky-700" : "bg-emerald-100 text-emerald-700"}`}>
-          {isActive ? "Đang lưu trú" : "Đã trả phòng"}
+        <span className={`${badgeBase} ${isActive ? "bg-sky-100 text-sky-700" : isCancelled ? "bg-slate-200 text-slate-600" : "bg-emerald-100 text-emerald-700"}`}>
+          {isActive ? "Đang lưu trú" : isCancelled ? "Đã huỷ" : "Đã trả phòng"}
         </span>
       </div>
       {error && (
@@ -187,7 +190,13 @@ export default function StayDetail() {
         <div className="no-print rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div>
       )}
 
-      {!isActive && (
+      {isCancelled && (
+        <div className="no-print rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-600">
+          Lượt nhận phòng này đã bị huỷ — không có hoá đơn và không tính vào doanh thu.
+        </div>
+      )}
+
+      {stay.status === "checked_out" && (
         <div className={`${cardCls} invoice-print`}>
           <div className="mb-3 text-center">
             <div className="text-base font-bold text-slate-900">{homestayName}</div>
@@ -214,7 +223,10 @@ export default function StayDetail() {
       )}
 
       <div className={`${cardCls} no-print`}>
-        <h2 className={h2Cls}>Khách lưu trú</h2>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="text-[15px] font-semibold text-slate-900 sm:text-base">Khách lưu trú</h2>
+          {isActive && <button className={smallBtn} onClick={() => setGuestOpen(true)}>+ Thêm khách</button>}
+        </div>
         <div className="divide-y divide-slate-100">
           {stay.guests.map((g) => (
             <div key={g.id} className="flex items-start justify-between gap-2 py-2 text-sm">
@@ -224,11 +236,21 @@ export default function StayDetail() {
                   CCCD: {g.idNumber || "—"}{g.phone ? ` · ${g.phone}` : ""}
                 </div>
               </div>
-              <span className="shrink-0 text-xs text-slate-500">{g.isMain ? "Khách chính" : "Đi cùng"}</span>
+              <span className="flex shrink-0 items-center gap-2 text-xs text-slate-500">
+                {g.isMain ? "Khách chính" : "Đi cùng"}
+                {isActive && !g.isMain && (
+                  <button
+                    className={`${btnDanger} !px-2 !py-0.5`}
+                    onClick={() => act(() => homestayApi.removeGuest(stayId, g.id), "Đã xoá khách đi cùng.")}
+                    aria-label="Xoá khách"
+                  >
+                    ✕
+                  </button>
+                )}
+              </span>
             </div>
           ))}
         </div>
-        {isActive && <AddGuestForm stayId={stayId} onAdded={refresh} />}
       </div>
 
       {isActive && (
@@ -317,10 +339,46 @@ export default function StayDetail() {
             </div>
           )}
 
-          <div className="flex justify-end">
+          <div className="flex flex-wrap justify-end gap-2">
+            <button className={btnDanger} onClick={() => setConfirmCancel(true)}>Huỷ phòng</button>
             <button className={btnPrimary} onClick={doCheckout}>Trả phòng &amp; xuất hoá đơn</button>
           </div>
         </>
+      )}
+
+      {guestOpen && (
+        <AddGuestModal
+          stayId={stayId}
+          onClose={() => setGuestOpen(false)}
+          onAdded={async () => {
+            setGuestOpen(false);
+            await refresh();
+            showNotice("Đã thêm khách đi cùng.");
+          }}
+        />
+      )}
+
+      {confirmCancel && (
+        <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setConfirmCancel(false)}>
+          <div className="w-full max-w-sm space-y-3 rounded-2xl bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="text-base font-semibold text-slate-900">Huỷ lượt nhận phòng {roomName}?</div>
+            <p className="text-sm text-slate-600">
+              Dùng khi nhận phòng nhầm hoặc khách không ở. Lượt này sẽ không có hoá đơn và không tính vào doanh thu; phòng trở về trạng thái trống.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button className={btn} onClick={() => setConfirmCancel(false)}>Không</button>
+              <button
+                className={btnDanger}
+                onClick={async () => {
+                  setConfirmCancel(false);
+                  await act(() => homestayApi.cancelStay(stayId), "Đã huỷ lượt nhận phòng.");
+                }}
+              >
+                Huỷ phòng
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {addOpen && (
@@ -440,32 +498,56 @@ function Breakdown({ breakdown, onRemoveCharge }) {
   );
 }
 
-function AddGuestForm({ stayId, onAdded }) {
+function AddGuestModal({ stayId, onClose, onAdded }) {
   const [name, setName] = useState("");
   const [idNumber, setIdNumber] = useState("");
+  const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
-  async function submit() {
-    if (!name.trim() || saving) return;
+  async function submit(e) {
+    e.preventDefault();
+    if (!name.trim()) {
+      setError("Vui lòng nhập họ tên");
+      return;
+    }
     setSaving(true);
+    setError("");
     try {
-      await homestayApi.addGuest(stayId, { name, idNumber });
-      setName("");
-      setIdNumber("");
+      await homestayApi.addGuest(stayId, { name, idNumber, phone });
       onAdded();
-    } finally {
+    } catch (err) {
+      setError(err.message);
       setSaving(false);
     }
   }
 
   return (
-    <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
-      <label className={label}>Thêm khách đi cùng</label>
-      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Họ tên" className={input} />
-      <div className="flex gap-2">
-        <input value={idNumber} onChange={(e) => setIdNumber(e.target.value)} placeholder="CCCD" className={`${input} min-w-0 flex-1`} />
-        <button className={`${btn} shrink-0 !py-2`} disabled={saving} onClick={submit}>Thêm</button>
-      </div>
+    <div className="no-print fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onClick={onClose}>
+      <form
+        onSubmit={submit}
+        className="w-full max-w-md space-y-3 rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="text-base font-semibold text-slate-900">Thêm khách đi cùng</div>
+        {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
+        <div className="space-y-1">
+          <label className={label}>Họ tên</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} className={input} autoFocus />
+        </div>
+        <div className="space-y-1">
+          <label className={label}>CCCD / hộ chiếu</label>
+          <input value={idNumber} onChange={(e) => setIdNumber(e.target.value)} className={input} />
+        </div>
+        <div className="space-y-1">
+          <label className={label}>Số điện thoại</label>
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} className={input} />
+        </div>
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" className={btn} onClick={onClose}>Huỷ</button>
+          <button className={btnPrimary} disabled={saving}>{saving ? "Đang lưu..." : "Thêm"}</button>
+        </div>
+      </form>
     </div>
   );
 }

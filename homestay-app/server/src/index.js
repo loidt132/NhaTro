@@ -1071,6 +1071,44 @@ app.post(
   })
 );
 
+// Removes a companion guest; the main guest can't be removed.
+app.delete(
+  "/api/stays/:id/guests/:guestId",
+  asyncRoute(async (req, res) => {
+    const stay = owned(await findOneByBusinessId("stays", req.params.id), req);
+    if (!stay) return res.status(404).json({ error: "not found" });
+    if (stay.status !== "active") return res.status(409).json({ error: "stay is not active" });
+    const guest = await findOneByBusinessId("guests", req.params.guestId);
+    if (!guest || guest.stayId !== stay.id) return res.status(404).json({ error: "guest not found" });
+    if (normGuest(guest).isMain) return res.status(409).json({ error: "Không thể xoá khách chính." });
+    await deleteRowByBusinessId("guests", guest.id);
+    res.status(204).end();
+  })
+);
+
+// Cancels a stay that was started by mistake: no invoice, no revenue, the
+// room goes straight back to empty (nobody used it, so no cleaning needed).
+app.post(
+  "/api/stays/:id/cancel",
+  asyncRoute(async (req, res) => {
+    const stay = owned(await findOneByBusinessId("stays", req.params.id), req);
+    if (!stay) return res.status(404).json({ error: "not found" });
+    if (stay.status !== "active") return res.status(409).json({ error: "stay is not active" });
+
+    const updatedStay = await updateRowByBusinessId("stays", stay.id, {
+      checkOutAt: dayjs().toISOString(),
+      status: "cancelled",
+    });
+    const room = await updateRowByBusinessId("rooms", stay.roomId, { status: "empty" });
+    try {
+      await lockProvider.revokeCard({ lockId: room.lockId, cardId: stay.lockCardId });
+    } catch (err) {
+      console.warn(`lockProvider.revokeCard failed: ${err.message}`);
+    }
+    res.json(await buildStayView(normStay(updatedStay), req));
+  })
+);
+
 app.post(
   "/api/stays/:id/checkout",
   asyncRoute(async (req, res) => {
@@ -1098,7 +1136,7 @@ app.get(
   "/api/guest-report",
   asyncRoute(async (req, res) => {
     const { date } = req.query; // YYYY-MM-DD
-    const allStays = await listRows("stays", { where: withTenant(req) });
+    const allStays = (await listRows("stays", { where: withTenant(req) })).filter((s) => s.status !== "cancelled");
     const stays = date ? allStays.filter((s) => dayjs(s.checkInAt).format("YYYY-MM-DD") === date) : allStays;
     const rooms = await listRows("rooms", { where: withTenant(req) });
     const roomById = new Map(rooms.map((r) => [r.id, r]));
@@ -1209,7 +1247,7 @@ app.get(
     const currentEmpty = totalRooms - currentOccupied - currentCleaning;
     const roomById = new Map(rooms.map((r) => [r.id, r]));
 
-    const allStays = await listRows("stays", { where: withTenant(req) });
+    const allStays = (await listRows("stays", { where: withTenant(req) })).filter((s) => s.status !== "cancelled");
     const filtered = allStays
       .filter((s) => {
         const day = dayjs(s.checkInAt).format("YYYY-MM-DD");
