@@ -36,14 +36,14 @@ function TabButton({ active, onClick, children }) {
 
 function DateRangePicker({ from, to, setFrom, setTo }) {
   return (
-    <div className="flex flex-wrap items-end gap-3">
-      <div className="space-y-1">
+    <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end sm:gap-3">
+      <div className="min-w-0 space-y-1">
         <label className={label}>Từ ngày</label>
-        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={`${input} w-44`} />
+        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={`${input} min-w-0 !px-2 sm:w-44 sm:!px-3`} />
       </div>
-      <div className="space-y-1">
+      <div className="min-w-0 space-y-1">
         <label className={label}>Đến ngày</label>
-        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={`${input} w-44`} />
+        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={`${input} min-w-0 !px-2 sm:w-44 sm:!px-3`} />
       </div>
     </div>
   );
@@ -78,7 +78,7 @@ function RevenueReport() {
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
         <StatCard label="Lượt trả phòng" value={data.grandTotal.stayCount} />
         <StatCard label="Doanh thu phòng" value={formatVnd(data.grandTotal.roomRevenue)} />
         <StatCard label="Doanh thu dịch vụ/phụ thu" value={formatVnd(data.grandTotal.serviceRevenue)} />
@@ -91,7 +91,22 @@ function RevenueReport() {
         {data.rows.length === 0 ? (
           <p className="text-sm text-slate-500">Chưa có dữ liệu trong khoảng ngày đã chọn.</p>
         ) : (
-          <div className={tableWrap}>
+          <>
+          <div className="divide-y divide-slate-100 sm:hidden">
+            {data.rows.map((r) => (
+              <div key={r.date} className="space-y-1 py-2.5 text-sm">
+                <div className="flex items-baseline justify-between">
+                  <span className="font-medium text-slate-900">{dayjs(r.date).format("DD/MM/YYYY")}</span>
+                  <span className="font-semibold tabular-nums text-emerald-700">{formatVnd(r.total)}</span>
+                </div>
+                <div className="flex justify-between text-xs text-slate-500">
+                  <span>{r.stayCount} lượt trả</span>
+                  <span className="tabular-nums">Phòng {formatVnd(r.roomRevenue)} · DV {formatVnd(r.serviceRevenue)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className={`${tableWrap} hidden sm:block`}>
             <table className={table}>
               <thead>
                 <tr>
@@ -115,6 +130,7 @@ function RevenueReport() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
     </div>
@@ -143,7 +159,7 @@ function OccupancyReport() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
         <StatCard label="Tổng số phòng" value={data.totalRooms} />
         <StatCard label="Đang ở" value={data.currentOccupied} />
         <StatCard label="Tỷ lệ lấp đầy hiện tại" value={`${data.occupancyRate}%`} highlight />
@@ -163,7 +179,26 @@ function OccupancyReport() {
         {data.stays.length === 0 ? (
           <p className="text-sm text-slate-500">Chưa có dữ liệu trong khoảng ngày đã chọn.</p>
         ) : (
-          <div className={tableWrap}>
+          <>
+          <div className="divide-y divide-slate-100 sm:hidden">
+            {data.stays.map((s) => (
+              <div key={s.stayId} className="space-y-1 py-2.5 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-slate-900">{s.roomName} · {s.guestName}</span>
+                  <span className={`${badgeBase} shrink-0 ${s.status === "active" ? "bg-sky-100 text-sky-700" : "bg-emerald-100 text-emerald-700"}`}>
+                    {s.status === "active" ? "Đang ở" : "Đã trả"}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-500">
+                  {dayjs(s.checkInAt).format("DD/MM HH:mm")} → {s.checkOutAt ? dayjs(s.checkOutAt).format("DD/MM HH:mm") : "—"} · {s.durationHours}h
+                </div>
+                <div className="text-xs text-slate-500">
+                  {PRICING_LABEL[s.pricingType]} · {s.guestCount} khách
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className={`${tableWrap} hidden sm:block`}>
             <table className={table}>
               <thead>
                 <tr>
@@ -197,6 +232,7 @@ function OccupancyReport() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
     </div>
@@ -205,9 +241,9 @@ function OccupancyReport() {
 
 function StatCard({ label: statLabel, value, highlight }) {
   return (
-    <div className={`${card} ${highlight ? "border-emerald-300 bg-emerald-50/60" : ""}`}>
-      <div className="text-xs text-slate-500">{statLabel}</div>
-      <div className={`mt-1 text-xl font-bold ${highlight ? "text-emerald-700" : "text-slate-900"}`}>{value}</div>
+    <div className={`${card} !p-3 sm:!p-4 ${highlight ? "border-emerald-300 bg-emerald-50/60" : ""}`}>
+      <div className="text-[11px] leading-tight text-slate-500 sm:text-xs">{statLabel}</div>
+      <div className={`mt-1 text-base font-bold sm:text-xl ${highlight ? "text-emerald-700" : "text-slate-900"}`}>{value}</div>
     </div>
   );
 }
