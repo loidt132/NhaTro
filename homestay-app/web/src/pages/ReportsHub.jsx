@@ -121,7 +121,6 @@ function RevenueReport() {
       <h2 className="hidden text-lg font-bold print:block">Báo cáo doanh thu {dayjs(from).format("DD/MM/YYYY")} – {dayjs(to).format("DD/MM/YYYY")}</h2>
       <div className="no-print space-y-3 sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-white sm:p-4 sm:shadow-sm">
         <DateRangePicker from={from} to={to} setFrom={setFrom} setTo={setTo} />
-        <ExportButtons onExcel={download} disabled={data.rows.length === 0} />
       </div>
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
@@ -135,7 +134,10 @@ function RevenueReport() {
       </div>
 
       <div className={card}>
-        <h2 className="mb-2 font-semibold text-slate-900">Doanh thu theo ngày</h2>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-semibold text-slate-900">Doanh thu theo ngày</h2>
+          <ExportButtons onExcel={download} disabled={data.rows.length === 0} />
+        </div>
         <p className="mb-2 text-xs text-slate-500">Tính theo ngày trả phòng (checkout) của các lượt lưu trú đã hoàn tất.</p>
         {data.rows.length === 0 ? (
           <p className="text-sm text-slate-500">Chưa có dữ liệu trong khoảng ngày đã chọn.</p>
@@ -233,7 +235,6 @@ function OccupancyReport() {
       <h2 className="hidden text-lg font-bold print:block">Báo cáo khách ở {dayjs(from).format("DD/MM/YYYY")} – {dayjs(to).format("DD/MM/YYYY")}</h2>
       <div className="no-print space-y-3 sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-white sm:p-4 sm:shadow-sm">
         <DateRangePicker from={from} to={to} setFrom={setFrom} setTo={setTo} />
-        <ExportButtons onExcel={download} disabled={data.stays.length === 0} />
       </div>
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
@@ -247,7 +248,10 @@ function OccupancyReport() {
       </div>
 
       <div className={card}>
-        <h2 className="mb-2 font-semibold text-slate-900">Danh sách khách lưu trú</h2>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-semibold text-slate-900">Danh sách khách lưu trú</h2>
+          <ExportButtons onExcel={download} disabled={data.stays.length === 0} />
+        </div>
         <p className="mb-2 text-xs text-slate-500">Lọc theo ngày nhận phòng.</p>
         {data.stays.length === 0 ? (
           <p className="text-sm text-slate-500">Chưa có dữ liệu trong khoảng ngày đã chọn.</p>
