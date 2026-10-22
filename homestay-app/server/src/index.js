@@ -1269,6 +1269,7 @@ app.get(
           stayId: s.id,
           roomName: roomById.get(s.roomId)?.name || "",
           guestName: mainGuest?.name || "",
+          guestNames: guests.map((g) => g.name).filter(Boolean),
           guestCount: guests.length,
           pricingType: s.pricingType,
           status: s.status,

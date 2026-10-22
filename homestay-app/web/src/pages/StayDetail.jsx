@@ -523,10 +523,10 @@ function AddGuestModal({ stayId, onClose, onAdded }) {
   }
 
   return (
-    <div className="no-print fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onClick={onClose}>
+    <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <form
         onSubmit={submit}
-        className="max-h-[85dvh] w-full max-w-md space-y-2 overflow-y-auto rounded-t-2xl bg-white p-3 pb-5 shadow-xl sm:space-y-3 sm:rounded-2xl sm:p-4"
+        className="modal-panel w-full max-w-xs space-y-2 rounded-2xl bg-white p-3 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="text-[15px] font-semibold text-slate-900">Thêm khách đi cùng</div>
