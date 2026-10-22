@@ -36,6 +36,24 @@ async function request(base, path, options) {
   return res.json();
 }
 
+// Room types rarely change, so they're fetched once per homestay and reused
+// (the add/edit-room modal opens often). Any room-type edit clears the cache.
+let roomTypesCache = null; // { homestayId, promise }
+function getRoomTypesCached() {
+  if (roomTypesCache && roomTypesCache.homestayId === currentHomestayId) return roomTypesCache.promise;
+  const promise = request(HOMESTAY_API, "/api/room-types");
+  const entry = { homestayId: currentHomestayId, promise };
+  roomTypesCache = entry;
+  promise.catch(() => {
+    if (roomTypesCache === entry) roomTypesCache = null;
+  });
+  return promise;
+}
+function clearRoomTypesCache(result) {
+  roomTypesCache = null;
+  return result;
+}
+
 export const authApi = {
   login: (username, password) =>
     request(HOMESTAY_API, "/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
@@ -54,11 +72,13 @@ export const ownerApi = {
 export const homestayApi = {
   getCurrentHomestay: () => request(HOMESTAY_API, "/api/homestay"),
   getRooms: () => request(HOMESTAY_API, "/api/rooms"),
-  getRoomTypes: () => request(HOMESTAY_API, "/api/room-types"),
-  addRoomType: (name) => request(HOMESTAY_API, "/api/room-types", { method: "POST", body: JSON.stringify({ name }) }),
+  getRoomTypes: getRoomTypesCached,
+  addRoomType: (name) =>
+    request(HOMESTAY_API, "/api/room-types", { method: "POST", body: JSON.stringify({ name }) }).then(clearRoomTypesCache),
   renameRoomType: (id, name) =>
-    request(HOMESTAY_API, `/api/room-types/${id}`, { method: "PUT", body: JSON.stringify({ name }) }),
-  deleteRoomType: (id) => request(HOMESTAY_API, `/api/room-types/${id}`, { method: "DELETE" }),
+    request(HOMESTAY_API, `/api/room-types/${id}`, { method: "PUT", body: JSON.stringify({ name }) }).then(clearRoomTypesCache),
+  deleteRoomType: (id) =>
+    request(HOMESTAY_API, `/api/room-types/${id}`, { method: "DELETE" }).then(clearRoomTypesCache),
   getRatePlans: () => request(HOMESTAY_API, "/api/rate-plans"),
   updateRatePlan: (id, body) =>
     request(HOMESTAY_API, `/api/rate-plans/${id}`, { method: "PUT", body: JSON.stringify(body) }),
