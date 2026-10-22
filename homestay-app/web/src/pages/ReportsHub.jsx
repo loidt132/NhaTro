@@ -34,17 +34,30 @@ function TabButton({ active, onClick, children }) {
   );
 }
 
+function DateField({ label: text, value, onChange }) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <label className={`${label} block`}>{text}</label>
+      <div className="relative h-9 w-full rounded-xl border border-slate-200 bg-white focus-within:ring-2 focus-within:ring-emerald-500/40 sm:w-44">
+        <div className="pointer-events-none flex h-full items-center px-3 text-sm text-slate-900">
+          {value ? dayjs(value).format("DD/MM/YYYY") : "—"}
+        </div>
+        <input
+          type="date"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        />
+      </div>
+    </div>
+  );
+}
+
 function DateRangePicker({ from, to, setFrom, setTo }) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-end sm:gap-3">
-      <div className="min-w-0 space-y-1">
-        <label className={label}>Từ ngày</label>
-        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={`${input} block w-full min-w-0 max-w-full !px-2 !py-1.5 !text-[13px] sm:w-44 sm:!px-3 sm:!py-2 sm:!text-sm`} />
-      </div>
-      <div className="min-w-0 space-y-1">
-        <label className={label}>Đến ngày</label>
-        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={`${input} block w-full min-w-0 max-w-full !px-2 !py-1.5 !text-[13px] sm:w-44 sm:!px-3 sm:!py-2 sm:!text-sm`} />
-      </div>
+    <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-end">
+      <DateField label="Từ ngày" value={from} onChange={setFrom} />
+      <DateField label="Đến ngày" value={to} onChange={setTo} />
     </div>
   );
 }
