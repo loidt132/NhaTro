@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import { homestayApi, formatVnd } from "../api.js";
 import { exportExcel } from "../utils/exportExcel.js";
-import { badgeBase, btn, card, label, table, tableWrap, td, th } from "../ui.js";
+import { badgeBase, btn, btnPrimary, card, label, table, tableWrap, td, th } from "../ui.js";
 import { useHomestay } from "../HomestayContext.js";
 
 const PRICING_LABEL = { hourly: "Theo giờ", overnight: "Qua đêm", fullday: "Cả ngày" };
@@ -63,9 +63,14 @@ function DateRangePicker({ from, to, setFrom, setTo }) {
   );
 }
 
-function ExcelButton({ onClick, disabled }) {
+// PDF = the browser's print dialog ("Save as PDF") on just the report area
+// (.invoice-print), so Vietnamese text needs no embedded font.
+function ExportButtons({ onExcel, disabled }) {
   return (
-    <button className={`${btn} !py-1.5`} onClick={onClick} disabled={disabled}>Xuất Excel</button>
+    <div className="no-print flex gap-2">
+      <button className={btnPrimary} onClick={onExcel} disabled={disabled}>Xuất Excel</button>
+      <button className={btn} onClick={() => window.print()} disabled={disabled}>Xuất PDF</button>
+    </div>
   );
 }
 
@@ -104,10 +109,11 @@ function RevenueReport() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-end justify-between gap-3 sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-white sm:p-4 sm:shadow-sm">
+    <div className="invoice-print space-y-4">
+      <h2 className="hidden text-lg font-bold print:block">Báo cáo doanh thu {dayjs(from).format("DD/MM/YYYY")} – {dayjs(to).format("DD/MM/YYYY")}</h2>
+      <div className="no-print space-y-3 sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-white sm:p-4 sm:shadow-sm">
         <DateRangePicker from={from} to={to} setFrom={setFrom} setTo={setTo} />
-        <ExcelButton onClick={download} disabled={data.rows.length === 0} />
+        <ExportButtons onExcel={download} disabled={data.rows.length === 0} />
       </div>
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
@@ -215,10 +221,11 @@ function OccupancyReport() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-end justify-between gap-3 sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-white sm:p-4 sm:shadow-sm">
+    <div className="invoice-print space-y-4">
+      <h2 className="hidden text-lg font-bold print:block">Báo cáo khách ở {dayjs(from).format("DD/MM/YYYY")} – {dayjs(to).format("DD/MM/YYYY")}</h2>
+      <div className="no-print space-y-3 sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-white sm:p-4 sm:shadow-sm">
         <DateRangePicker from={from} to={to} setFrom={setFrom} setTo={setTo} />
-        <ExcelButton onClick={download} disabled={data.stays.length === 0} />
+        <ExportButtons onExcel={download} disabled={data.stays.length === 0} />
       </div>
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
