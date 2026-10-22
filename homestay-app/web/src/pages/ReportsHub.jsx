@@ -36,14 +36,14 @@ function TabButton({ active, onClick, children }) {
 
 function DateRangePicker({ from, to, setFrom, setTo }) {
   return (
-    <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end sm:gap-3">
+    <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-end sm:gap-3">
       <div className="min-w-0 space-y-1">
         <label className={label}>Từ ngày</label>
-        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={`${input} min-w-0 !px-2 sm:w-44 sm:!px-3`} />
+        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={`${input} block w-full min-w-0 max-w-full !px-2 !py-1.5 !text-[13px] sm:w-44 sm:!px-3 sm:!py-2 sm:!text-sm`} />
       </div>
       <div className="min-w-0 space-y-1">
         <label className={label}>Đến ngày</label>
-        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={`${input} min-w-0 !px-2 sm:w-44 sm:!px-3`} />
+        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={`${input} block w-full min-w-0 max-w-full !px-2 !py-1.5 !text-[13px] sm:w-44 sm:!px-3 sm:!py-2 sm:!text-sm`} />
       </div>
     </div>
   );
@@ -241,9 +241,9 @@ function OccupancyReport() {
 
 function StatCard({ label: statLabel, value, highlight }) {
   return (
-    <div className={`${card} !p-3 sm:!p-4 ${highlight ? "border-emerald-300 bg-emerald-50/60" : ""}`}>
-      <div className="text-[11px] leading-tight text-slate-500 sm:text-xs">{statLabel}</div>
-      <div className={`mt-1 text-base font-bold sm:text-xl ${highlight ? "text-emerald-700" : "text-slate-900"}`}>{value}</div>
+    <div className={`${card} !rounded-xl !p-2.5 sm:!rounded-2xl sm:!p-4 ${highlight ? "border-emerald-300 bg-emerald-50/60" : ""}`}>
+      <div className="text-[10px] leading-tight text-slate-500 sm:text-xs">{statLabel}</div>
+      <div className={`mt-0.5 text-sm font-bold sm:mt-1 sm:text-xl ${highlight ? "text-emerald-700" : "text-slate-900"}`}>{value}</div>
     </div>
   );
 }
