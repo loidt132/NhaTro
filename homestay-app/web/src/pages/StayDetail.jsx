@@ -23,8 +23,8 @@ export default function StayDetail() {
   const { stayId } = useParams();
   const [stay, setStay] = useState(null);
   const [rooms, setRooms] = useState([]);
-  const [catalogItems, setCatalogItems] = useState([]);
-  const [surchargeRules, setSurchargeRules] = useState([]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [transfersOpen, setTransfersOpen] = useState(false);
   const [settings, setSettings] = useState(null);
   const [homestayName, setHomestayName] = useState("");
   const [error, setError] = useState("");
@@ -63,11 +63,9 @@ export default function StayDetail() {
   const status = stay?.status;
   useEffect(() => {
     if (status !== "active") return undefined;
-    // Extra data is only needed while the stay is open (adding services,
-    // surcharges, transferring rooms).
+    // Rooms are only needed while the stay is open (transferring rooms). The
+    // service catalog is fetched only when the "add" popup is opened.
     homestayApi.getRooms().then(setRooms).catch((err) => console.error("[rooms]", err));
-    catalogApi.getItems("service").then(setCatalogItems).catch((err) => console.error("[catalog]", err));
-    catalogApi.getItems("surcharge").then(setSurchargeRules).catch((err) => console.error("[catalog]", err));
     const timer = setInterval(refresh, 15000);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -88,17 +86,6 @@ export default function StayDetail() {
 
   const roomName = stay.currentRoomName;
   const isActive = stay.status === "active";
-
-  const catalogGroups = [];
-  for (const item of catalogItems) {
-    if (!item.categoryId) continue;
-    let group = catalogGroups.find((g) => g.id === item.categoryId);
-    if (!group) {
-      group = { id: item.categoryId, name: item.categoryName || item.categoryId, items: [] };
-      catalogGroups.push(group);
-    }
-    group.items.push(item);
-  }
 
   const emptyRooms = rooms.filter((r) => r.status === "empty");
 
@@ -247,7 +234,10 @@ export default function StayDetail() {
       {isActive && (
         <>
           <div className={cardCls}>
-            <h2 className={h2Cls}>Tạm tính hiện tại</h2>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h2 className="text-[15px] font-semibold text-slate-900 sm:text-base">Tạm tính hiện tại</h2>
+              <button className={smallBtn} onClick={() => setAddOpen(true)}>+ Dịch vụ / phụ thu</button>
+            </div>
             <Breakdown breakdown={stay.breakdown} onRemoveCharge={removeCharge} />
           </div>
 
@@ -265,51 +255,35 @@ export default function StayDetail() {
 
       {stay.transfers.length > 0 && (
         <div className={`${cardCls} no-print`}>
-          <h2 className="mb-1 text-[15px] font-semibold text-slate-900 sm:text-base">Lịch sử đổi phòng</h2>
-          <p className="mb-2 text-xs text-slate-500">Chỉ để đối soát — không ảnh hưởng tới cách tính tiền phòng.</p>
-          <div className="divide-y divide-slate-100">
-            {stay.transfers.map((t) => (
-              <div key={t.id} className="py-2 text-sm">
-                <div className="font-medium text-slate-900">{t.fromRoomName} → {t.toRoomName}</div>
-                <div className="text-xs text-slate-500">{fmtDateTime(t.transferredAt)}{t.reason ? ` · ${t.reason}` : ""}</div>
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-2 text-left"
+            onClick={() => setTransfersOpen((v) => !v)}
+            aria-expanded={transfersOpen}
+          >
+            <span className="text-[15px] font-semibold text-slate-900 sm:text-base">
+              Lịch sử đổi phòng ({stay.transfers.length})
+            </span>
+            <span className="text-slate-500">{transfersOpen ? "▲" : "▼"}</span>
+          </button>
+          {transfersOpen && (
+            <>
+              <p className="mb-1 mt-1 text-xs text-slate-500">Chỉ để đối soát — không ảnh hưởng tới cách tính tiền phòng.</p>
+              <div className="divide-y divide-slate-100">
+                {stay.transfers.map((t) => (
+                  <div key={t.id} className="py-2 text-sm">
+                    <div className="font-medium text-slate-900">{t.fromRoomName} → {t.toRoomName}</div>
+                    <div className="text-xs text-slate-500">{fmtDateTime(t.transferredAt)}{t.reason ? ` · ${t.reason}` : ""}</div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          )}
         </div>
       )}
 
       {isActive && (
         <>
-          <div className={cardCls}>
-            <h2 className={h2Cls}>Thêm dịch vụ</h2>
-            {catalogGroups.length === 0 && <p className="text-sm text-slate-500">Đang tải danh mục dịch vụ...</p>}
-            {catalogGroups.map((category) => (
-              <div key={category.id} className="mb-3 last:mb-0">
-                <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">{category.name}</h3>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                  {category.items.map((item) => (
-                    <div key={item.id} className="flex flex-col gap-0.5 rounded-xl border border-slate-200 bg-slate-50/60 p-2 sm:p-3">
-                      <strong className="truncate text-[13px] text-slate-900 sm:text-sm">{item.name}</strong>
-                      <span className="text-[11px] text-slate-500 sm:text-xs">{formatVnd(item.price)} / {item.unit}</span>
-                      <button className={`${btn} mt-1 !py-1 !text-xs`} onClick={() => addService(item.id, 1)}>+ Thêm 1</button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className={cardCls}>
-            <h2 className={h2Cls}>Phụ thu</h2>
-            <div className="flex flex-wrap gap-1.5">
-              {surchargeRules.map((rule) => (
-                <button key={rule.id} className={`${btn} !px-2.5 !py-1 !text-xs`} onClick={() => addSurcharge(rule.id)}>
-                  + {rule.name} ({formatVnd(rule.price)})
-                </button>
-              ))}
-            </div>
-          </div>
-
           <div className={cardCls}>
             <h2 className="mb-1 text-[15px] font-semibold text-slate-900 sm:text-base">Đổi phòng</h2>
             <p className="mb-2 text-xs text-slate-500">
@@ -348,6 +322,92 @@ export default function StayDetail() {
           </div>
         </>
       )}
+
+      {addOpen && (
+        <AddChargesModal onClose={() => setAddOpen(false)} onAddService={addService} onAddSurcharge={addSurcharge} />
+      )}
+    </div>
+  );
+}
+
+// Loads the service catalog only when opened, so the stay screen itself stays light.
+function AddChargesModal({ onClose, onAddService, onAddSurcharge }) {
+  const [items, setItems] = useState(null);
+  const [rules, setRules] = useState([]);
+  const [loadError, setLoadError] = useState("");
+  const [added, setAdded] = useState("");
+
+  useEffect(() => {
+    Promise.all([catalogApi.getItems("service"), catalogApi.getItems("surcharge")])
+      .then(([svc, sur]) => {
+        setItems(svc);
+        setRules(sur);
+      })
+      .catch((err) => {
+        console.error("[catalog]", err);
+        setLoadError("Không tải được danh mục dịch vụ, thử lại sau.");
+        setItems([]);
+      });
+  }, []);
+
+  const groups = [];
+  for (const item of items || []) {
+    if (!item.categoryId) continue;
+    let group = groups.find((g) => g.id === item.categoryId);
+    if (!group) {
+      group = { id: item.categoryId, name: item.categoryName || item.categoryId, items: [] };
+      groups.push(group);
+    }
+    group.items.push(item);
+  }
+
+  async function add(fn, name) {
+    await fn();
+    setAdded(`Đã thêm: ${name}`);
+  }
+
+  return (
+    <div className="no-print fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onClick={onClose}>
+      <div
+        className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-t-2xl bg-white shadow-xl sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+          <div className="text-base font-semibold text-slate-900">Thêm dịch vụ / phụ thu</div>
+          <button className={`${btn} !px-3 !py-1 !text-xs`} onClick={onClose}>Đóng</button>
+        </div>
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+          {added && <div className="rounded-lg bg-emerald-50 px-3 py-1.5 text-xs text-emerald-700">{added}</div>}
+          {items === null && <p className="text-sm text-slate-500">Đang tải danh mục...</p>}
+          {loadError && <p className="text-sm text-rose-600">{loadError}</p>}
+          {groups.map((category) => (
+            <div key={category.id}>
+              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">{category.name}</h3>
+              <div className="grid grid-cols-2 gap-2">
+                {category.items.map((item) => (
+                  <div key={item.id} className="flex flex-col gap-0.5 rounded-xl border border-slate-200 bg-slate-50/60 p-2">
+                    <strong className="truncate text-[13px] text-slate-900">{item.name}</strong>
+                    <span className="text-[11px] text-slate-500">{formatVnd(item.price)} / {item.unit}</span>
+                    <button className={`${btn} mt-1 !py-1 !text-xs`} onClick={() => add(() => onAddService(item.id, 1), item.name)}>+ Thêm 1</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          {rules.length > 0 && (
+            <div>
+              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Phụ thu</h3>
+              <div className="flex flex-wrap gap-1.5">
+                {rules.map((rule) => (
+                  <button key={rule.id} className={`${btn} !px-2.5 !py-1 !text-xs`} onClick={() => add(() => onAddSurcharge(rule.id), rule.name)}>
+                    + {rule.name} ({formatVnd(rule.price)})
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
