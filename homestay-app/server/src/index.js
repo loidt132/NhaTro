@@ -765,7 +765,45 @@ app.get(
   asyncRoute(async (req, res) => {
     const stay = owned(await findOneByBusinessId("stays", req.params.id), req);
     if (!stay) return res.status(404).json({ error: "not found" });
-    res.json(await buildStayView(normStay(stay), req));
+    const [view, events] = await Promise.all([
+      buildStayView(normStay(stay), req),
+      listRows("lockEventsLog", { where: `(stayId,eq,${stay.id})` }),
+    ]);
+    view.swipedIn = events.some((e) => e.type === "checkin-swipe");
+    view.swipedOut = events.some((e) => e.type === "checkout-swipe");
+    res.json(view);
+  })
+);
+
+// Past (checked-out) stays, newest first, optionally for one room — backs the
+// "Lịch sử" page so an invoice/QR can be re-issued later.
+app.get(
+  "/api/stay-history",
+  asyncRoute(async (req, res) => {
+    const where = withTenant(req, "(status,eq,checked_out)");
+    const [rows, rooms] = await Promise.all([listRows("stays", { where }), listRows("rooms", { where: withTenant(req) })]);
+    const roomById = new Map(rooms.map((r) => [r.id, r]));
+    const picked = rows
+      .filter((s) => !req.query.roomId || s.roomId === req.query.roomId)
+      .sort((a, b) => dayjs(b.checkOutAt).diff(dayjs(a.checkOutAt)))
+      .slice(0, 100);
+    const out = await Promise.all(
+      picked.map(async (s) => {
+        const view = await buildStayView(normStay(s), req);
+        const main = view.guests.find((g) => g.isMain) || view.guests[0];
+        return {
+          stayId: s.id,
+          roomId: s.roomId,
+          roomName: roomById.get(s.roomId)?.name || "",
+          guestName: main?.name || "",
+          pricingType: s.pricingType,
+          checkInAt: s.checkInAt,
+          checkOutAt: s.checkOutAt,
+          total: view.breakdown.total,
+        };
+      })
+    );
+    res.json(out);
   })
 );
 

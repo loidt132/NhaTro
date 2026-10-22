@@ -8,6 +8,7 @@ import ServiceCatalogAdmin from "./pages/ServiceCatalogAdmin.jsx";
 import RatePlanAdmin from "./pages/RatePlanAdmin.jsx";
 import GuestReport from "./pages/GuestReport.jsx";
 import ReportsHub from "./pages/ReportsHub.jsx";
+import StayHistory from "./pages/StayHistory.jsx";
 import Settings from "./pages/Settings.jsx";
 import HomestayAdmin from "./pages/HomestayAdmin.jsx";
 import { AuthContext } from "./AuthContext.js";
@@ -158,6 +159,7 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<RoomBoard />} />
                 <Route path="/stays/:stayId" element={<StayDetail />} />
+                <Route path="/history" element={<StayHistory />} />
                 <Route path="/rate-plans" element={<RatePlanAdmin />} />
                 <Route path="/service-catalog" element={<ServiceCatalogAdmin />} />
                 <Route path="/guest-report" element={<GuestReport />} />

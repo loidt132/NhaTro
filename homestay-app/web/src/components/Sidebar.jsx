@@ -18,6 +18,7 @@ const LinkItem = ({ to, icon, children, onClick }) => (
 
 const LINKS = [
   { to: "/", icon: "🛎️", label: "Sơ đồ phòng" },
+  { to: "/history", icon: "🧾", label: "Lịch sử & hoá đơn" },
   { to: "/rate-plans", icon: "💰", label: "Bảng giá phòng" },
   { to: "/service-catalog", icon: "🧺", label: "Dịch vụ & phụ thu" },
   { to: "/reports", icon: "📊", label: "Báo cáo" },
