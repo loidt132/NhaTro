@@ -172,19 +172,19 @@ function OccupancyReport() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
-        <StatCard label="Tổng số phòng" value={data.totalRooms} />
-        <StatCard label="Đang ở" value={data.currentOccupied} />
-        <StatCard label="Tỷ lệ lấp đầy hiện tại" value={`${data.occupancyRate}%`} highlight />
-        <StatCard label="Trống / Cần dọn" value={`${data.currentEmpty} / ${data.currentCleaning}`} />
-      </div>
-
       <div className={card}>
         <DateRangePicker from={from} to={to} setFrom={setFrom} setTo={setTo} />
       </div>
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
       )}
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+        <StatCard label="Tổng số phòng" value={data.totalRooms} />
+        <StatCard label="Đang ở" value={data.currentOccupied} />
+        <StatCard label="Tỷ lệ lấp đầy hiện tại" value={`${data.occupancyRate}%`} highlight />
+        <StatCard label="Trống / Cần dọn" value={`${data.currentEmpty} / ${data.currentCleaning}`} />
+      </div>
 
       <div className={card}>
         <h2 className="mb-2 font-semibold text-slate-900">Danh sách khách lưu trú</h2>
