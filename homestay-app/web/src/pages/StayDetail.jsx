@@ -526,26 +526,28 @@ function AddGuestModal({ stayId, onClose, onAdded }) {
     <div className="no-print fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onClick={onClose}>
       <form
         onSubmit={submit}
-        className="w-full max-w-md space-y-3 rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl"
+        className="max-h-[85dvh] w-full max-w-md space-y-2 overflow-y-auto rounded-t-2xl bg-white p-3 pb-5 shadow-xl sm:space-y-3 sm:rounded-2xl sm:p-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="text-base font-semibold text-slate-900">Thêm khách đi cùng</div>
+        <div className="text-[15px] font-semibold text-slate-900">Thêm khách đi cùng</div>
         {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
-        <div className="space-y-1">
+        <div className="space-y-0.5">
           <label className={label}>Họ tên</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} className={input} autoFocus />
+          <input value={name} onChange={(e) => setName(e.target.value)} className={`${input} !py-1.5`} autoFocus />
         </div>
-        <div className="space-y-1">
-          <label className={label}>CCCD / hộ chiếu</label>
-          <input value={idNumber} onChange={(e) => setIdNumber(e.target.value)} className={input} />
+        <div className="grid grid-cols-2 gap-2">
+          <div className="min-w-0 space-y-0.5">
+            <label className={label}>CCCD / hộ chiếu</label>
+            <input value={idNumber} onChange={(e) => setIdNumber(e.target.value)} className={`${input} !py-1.5`} />
+          </div>
+          <div className="min-w-0 space-y-0.5">
+            <label className={label}>Số điện thoại</label>
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" className={`${input} !py-1.5`} />
+          </div>
         </div>
-        <div className="space-y-1">
-          <label className={label}>Số điện thoại</label>
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} className={input} />
-        </div>
-        <div className="flex justify-end gap-2 pt-1">
-          <button type="button" className={btn} onClick={onClose}>Huỷ</button>
-          <button className={btnPrimary} disabled={saving}>{saving ? "Đang lưu..." : "Thêm"}</button>
+        <div className="flex justify-end gap-2 pt-0.5">
+          <button type="button" className={`${btn} !py-1.5`} onClick={onClose}>Huỷ</button>
+          <button className={`${btnPrimary} !py-1.5`} disabled={saving}>{saving ? "Đang lưu..." : "Thêm"}</button>
         </div>
       </form>
     </div>
