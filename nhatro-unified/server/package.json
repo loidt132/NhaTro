@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "migrate": "node --env-file=.env scripts/migrate.js",
+    "import-from-nocodb": "node --env-file=.env scripts/import-from-nocodb.js"
   },
   "dependencies": {
     "cloudinary": "^2.5.1",
@@ -12,6 +14,7 @@
     "firebase-admin": "^12.7.0",
     "multer": "^2.0.1",
     "node-fetch": "^3.3.2",
+    "pg": "^8.13.1",
     "tesseract.js": "^5.1.1"
   }
 }

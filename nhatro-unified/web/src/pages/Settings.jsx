@@ -9,7 +9,7 @@ import UserManagement from '../components/UserManagement';
 export default function Settings({ user = null }) {
   const [state, setState] = useState(loadState());
   const [s, setS] = useState(() => state.settings || {});
-  const [nocoStatus, setNocoStatus] = useState({ baseConfigured: false, tokenConfigured: false, missingTables: [] });
+  const [dbStatus, setDbStatus] = useState({ databaseConfigured: false, connected: false, missingTables: [] });
   const [activeTab, setActiveTab] = useState('general');
   const [currentUser, setCurrentUser] = useState(user);
 
@@ -19,7 +19,7 @@ export default function Settings({ user = null }) {
     fetch('/api/config/status', { headers: { Authorization: `Bearer ${token}` } })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data) setNocoStatus(data);
+        if (data) setDbStatus(data);
       })
       .catch(() => {
         // silently fail
@@ -136,11 +136,11 @@ export default function Settings({ user = null }) {
       {activeTab === 'general' && (
         <>
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
-        <h3 className="text-lg font-semibold">Trạng thái NocoDB</h3>
+        <h3 className="text-lg font-semibold">Trạng thái cơ sở dữ liệu</h3>
         <div className="mt-3 space-y-1 text-sm text-slate-700">
-          <div>URL: {nocoStatus.baseConfigured ? 'OK' : 'Thiếu NOCODB_URL trên server'}</div>
-          <div>API key: {nocoStatus.tokenConfigured ? 'OK' : 'Thiếu NOCODB_API_KEY trên server'}</div>
-          <div>Bảng thiếu: {nocoStatus.missingTables.length ? nocoStatus.missingTables.join(', ') : 'Không thiếu'}</div>
+          <div>DATABASE_URL: {dbStatus.databaseConfigured ? 'OK' : 'Thiếu DATABASE_URL trên server'}</div>
+          <div>Kết nối: {dbStatus.connected ? 'OK' : (dbStatus.error ? `Lỗi: ${dbStatus.error}` : 'Chưa kết nối')}</div>
+          <div>Bảng thiếu: {dbStatus.missingTables.length ? dbStatus.missingTables.join(', ') : 'Không thiếu'}</div>
         </div>
       </div>
 

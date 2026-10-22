@@ -1,110 +1,55 @@
-# Nhatro-unified Server (JSON file)
+# Nhatro-unified Server
 
-This server exposes auth + `/api/state` and persists fallback state as per-user JSON files under **`data/states/`** when NocoDB is not used.
+Express API (auth, `/api/state`, tenant/meter endpoints) backed by **PostgreSQL (Neon)**.
+All app data lives in the database — nothing is written to local disk, so it runs on Vercel.
 
 ## Setup
 
 ```
 cd server
 npm install
+cp .env.example .env     # fill in DATABASE_URL, AUTH_SECRET, ENCRYPTION_KEY, ...
+npm run migrate          # creates the tables from schema.sql (safe to re-run)
 npm start
 ```
 
-## Vercel Deploy
+`DATABASE_URL` is the Neon connection string. On Vercel use the **pooled** one (host contains `-pooler`).
 
-If you deploy the backend on Vercel, set the project root to `server/`.
-This repo now exposes a Vercel serverless catch-all entry at `server/api/[...all].js`, so these routes work on Vercel:
+## Data model
 
-- `/api/auth/register`
-- `/api/auth/login`
-- `/api/auth/me`
-- `/api/state`
+`schema.sql` defines 14 tables (users, rooms, tenants, readings, invoices, payments, rent_periods,
+payment_allocations, rental_contracts, deposits, deposit_transactions, deposit_refunds, settings,
+meter_submissions). Column names are camelCase (quoted) so rows match the JS objects field-for-field.
 
-Required Vercel env vars for the `server` project:
+- Every business row has `created_by` (the landlord's user id) and `modified_by`; the API only
+  reads/writes rows where `created_by` is the logged-in landlord.
+- Deletes are soft (`"isDeleted"`).
+- Tenant `cccd`/`phone` and user `phone` are AES-256-GCM encrypted at rest (`ENCRYPTION_KEY`).
+  Do not change this key after data exists.
+- App-level timestamps (`createdAt`, `paidAt`, ...) are `TEXT`, stored exactly as the browser sent them.
 
-```
-AUTH_SECRET=change-this-secret
-NOCODB_URL=https://app.nocodb.com
-NOCODB_API_KEY=...
-NOCODB_TABLE_USERS=...
-```
+## Migrating from NocoDB
 
-On start, the console prints the absolute path to the state file.
+1. Put the old `NOCODB_URL`, `NOCODB_API_KEY` and `NOCODB_PROJECT` (base id; or `NOCODB_TABLE_<NAME>`
+   table ids) in `.env` next to `DATABASE_URL`, with the **same `ENCRYPTION_KEY`** as before.
+2. `npm run migrate`
+3. `npm run import-from-nocodb -- --add-missing`
 
-## Endpoints
+The import copies rows as-is, skips ids that already exist (safe to re-run) and prints NocoDB vs
+Postgres row counts per table. `--add-missing` also keeps columns that exist only in NocoDB (as
+TEXT); without it they are skipped and listed. Run with `--add-missing` from the first run — rows
+already imported are not updated by a later run.
 
-- GET /api/state  -> { state: { ... } }
-- POST /api/state -> { state: {...} }
-- POST /api/auth/register
-- POST /api/auth/login
-- GET /api/auth/me
-
-The frontend reads this endpoint on startup and POSTs on every `saveState`. All three endpoints require login except register/login.
-
-## Note
-
-- If the server is offline, the frontend still uses IndexedDB.
-- Optional layer for syncing across devices on your LAN or host.
-- If you previously used `data.db` (SQLite), that file is no longer read; migrate by exporting from the app or copying state into `data/state.json` if you have a JSON backup.
-
-## NocoDB alternative
-
-You can use NocoDB for multi-user app data and user accounts.
-
-Frontend env vars in `web/.env`:
+## Admin CLI
 
 ```
-VITE_NOCODB_URL=https://your-nocodb-host
-VITE_NOCODB_API_KEY=your_api_key
-VITE_TABLE_ROOMS=...
-VITE_TABLE_TENANTS=...
-VITE_TABLE_READINGS=...
-VITE_TABLE_INVOICES=...
-VITE_TABLE_PAYMENTS=...
-VITE_TABLE_RENT_PERIODS=...
-VITE_TABLE_PAYMENT_ALLOCATIONS=...
-VITE_TABLE_DEPOSITS=...
-VITE_TABLE_DEPOSIT_TRANSACTIONS=...
-VITE_TABLE_SETTINGS=...
+node --env-file=.env promote-to-admin.js list
+node --env-file=.env promote-to-admin.js promote <email_or_phone>
+node --env-file=.env promote-to-admin.js limit <email_or_phone> <n>
 ```
 
-Server env vars:
+## Vercel
 
-```
-NOCODB_URL=https://your-nocodb-host
-NOCODB_API_KEY=your_api_key
-NOCODB_TABLE_USERS=...
-NOCODB_TABLE_ROOMS=...
-NOCODB_TABLE_TENANTS=...
-NOCODB_TABLE_READINGS=...
-NOCODB_TABLE_INVOICES=...
-NOCODB_TABLE_PAYMENTS=...
-NOCODB_TABLE_RENT_PERIODS=...
-NOCODB_TABLE_PAYMENT_ALLOCATIONS=...
-NOCODB_TABLE_DEPOSITS=...
-NOCODB_TABLE_DEPOSIT_TRANSACTIONS=...
-AUTH_SECRET=change-this-secret
-```
-
-Storage rule:
-
-- Có `NOCODB_URL` hoặc `VITE_NOCODB_URL`: backend auth đọc/ghi user trên NocoDB
-- Không có `NOCODB_URL`/`VITE_NOCODB_URL`: backend auth dùng `server/data/users.json`
-- Có `VITE_NOCODB_URL`: frontend state dùng NocoDB
-- Không có `VITE_NOCODB_URL`: frontend state dùng `/api/state` và file `server/data/states/*.json`
-
-The server now also auto-loads `.env` from `server/`, repo root, and `web/`.
-It accepts fallback variable names `VITE_NOCODB_URL`, `VITE_NOCODB_API_KEY`, and `VITE_TABLE_USERS` for the auth users table.
-
-Use the schema in `server/nocodb-schema.sql`. Important rule: every business table must have `created_by` and `modified_by`, and the frontend only reads/writes rows where `created_by` equals the logged-in user's `id`.
-
-For the `users` table, passwords are not stored as plain text.
-The server stores:
-
-- `password_hash`
-- `password_salt`
-
-If you do not see these fields in NocoDB, your `users` table schema does not match the server auth schema yet.
-The backend also accepts the variants `passwordhash` / `passwordsalt` and `createdat` for existing NocoDB tables.
-
-The app tries NocoDB first, then `/api/state` + IndexedDB.
+Set the project root to `server/`; `api/[...all].js` is the serverless entry. Set the variables from
+`.env.example` in Project Settings → Environment Variables (at minimum `DATABASE_URL`, `AUTH_SECRET`,
+`ENCRYPTION_KEY`; `CORS_ORIGIN` must include the web app's URL).
