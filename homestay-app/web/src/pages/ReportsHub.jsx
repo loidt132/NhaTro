@@ -47,6 +47,14 @@ function DateField({ label: text, value, onChange }) {
           type="date"
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onClick={(e) => {
+            // Desktop browsers only open the picker from the tiny built-in icon; open it on any click.
+            try {
+              e.currentTarget.showPicker?.();
+            } catch {
+              /* already open / unsupported */
+            }
+          }}
           className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
         />
       </div>
