@@ -48,7 +48,7 @@ export default function ServiceCatalogAdmin() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Bảng giá dịch vụ &amp; phụ thu</h1>
+          <h1 className="text-lg font-bold text-slate-900 sm:text-xl">Bảng giá dịch vụ &amp; phụ thu</h1>
         </div>
         {isAdmin && (
           <button className={btnPrimary} onClick={() => setItemModal({ mode: "create" })}>+ Thêm mới</button>
@@ -90,7 +90,20 @@ export default function ServiceCatalogAdmin() {
 
       <div className={card}>
         <h2 className="mb-2 font-semibold text-slate-900">Dịch vụ / hàng hoá</h2>
-        <div className={tableWrap}>
+        <div className="divide-y divide-slate-100 sm:hidden">
+          {serviceItems.map((item) => (
+            <ItemRow
+              key={item.id}
+              name={item.name}
+              sub={`${categoryName(item.categoryId)} · ${item.unit}`}
+              price={item.price}
+              isAdmin={isAdmin}
+              onEdit={() => setItemModal({ mode: "edit", item })}
+              onDelete={() => removeItem(item.id)}
+            />
+          ))}
+        </div>
+        <div className={`${tableWrap} hidden sm:block`}>
           <table className={table}>
             <thead>
               <tr>
@@ -122,7 +135,20 @@ export default function ServiceCatalogAdmin() {
 
       <div className={card}>
         <h2 className="mb-2 font-semibold text-slate-900">Phụ thu</h2>
-        <div className={tableWrap}>
+        <div className="divide-y divide-slate-100 sm:hidden">
+          {surchargeItems.map((item) => (
+            <ItemRow
+              key={item.id}
+              name={item.name}
+              sub={item.unit}
+              price={item.price}
+              isAdmin={isAdmin}
+              onEdit={() => setItemModal({ mode: "edit", item })}
+              onDelete={() => removeItem(item.id)}
+            />
+          ))}
+        </div>
+        <div className={`${tableWrap} hidden sm:block`}>
           <table className={table}>
             <thead>
               <tr>
@@ -174,6 +200,24 @@ export default function ServiceCatalogAdmin() {
             refresh();
           }}
         />
+      )}
+    </div>
+  );
+}
+
+function ItemRow({ name, sub, price, isAdmin, onEdit, onDelete }) {
+  return (
+    <div className="flex items-center justify-between gap-2 py-2.5 text-sm">
+      <div className="min-w-0">
+        <div className="truncate font-medium text-slate-900">{name}</div>
+        <div className="truncate text-xs text-slate-500">{sub}</div>
+        <div className="mt-0.5 font-semibold tabular-nums text-emerald-700">{formatVnd(price)}</div>
+      </div>
+      {isAdmin && (
+        <div className="flex shrink-0 gap-1.5">
+          <button className={`${btn} !px-2.5 !py-1 !text-xs`} onClick={onEdit}>Sửa</button>
+          <button className={`${btnDanger} !px-2.5 !py-1`} onClick={onDelete}>Xoá</button>
+        </div>
       )}
     </div>
   );

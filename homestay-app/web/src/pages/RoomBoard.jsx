@@ -67,7 +67,7 @@ export default function RoomBoard() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <h1 className="text-xl font-bold text-slate-900">Sơ đồ phòng</h1>
+          <h1 className="text-lg font-bold text-slate-900 sm:text-xl">Sơ đồ phòng</h1>
           {maxRooms != null && (
             <span className="text-sm text-slate-500">
               ({rooms.length}/{maxRooms} phòng)
@@ -88,26 +88,26 @@ export default function RoomBoard() {
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
       )}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4">
         {rooms.map((room) => {
           const st = roomStatus(room);
           return (
             <button
               key={room.id}
               onClick={() => onRoomClick(room)}
-              className={`${card} ${st.border} relative flex flex-col items-start gap-1.5 text-left transition hover:shadow-md`}
+              className={`${card} ${st.border} relative flex flex-col items-start gap-1 !p-3 text-left sm:gap-1.5 sm:!p-4 transition hover:shadow-md`}
             >
               {isAdmin && (
                 <span
                   onClick={(e) => openEditRoom(room, e)}
-                  className="absolute right-3 top-3 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-50"
+                  className="absolute right-2 top-2 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] sm:right-3 sm:top-3 sm:rounded-lg sm:px-2 sm:py-1 sm:text-xs font-medium text-slate-500 hover:bg-slate-50"
                 >
                   Sửa
                 </span>
               )}
-              <span className={`${badgeBase} ${st.badge}`}>{st.label}</span>
-              <div className="text-2xl font-bold text-slate-900">{room.name}</div>
-              <div className="text-sm text-slate-500">{roomTypeName(room.roomTypeId)}</div>
+              <span className={`${badgeBase} ${st.badge} !px-2 !py-0.5 !text-[11px] sm:!px-3 sm:!py-1 sm:!text-xs`}>{st.label}</span>
+              <div className="text-lg font-bold leading-tight text-slate-900 sm:text-2xl">{room.name}</div>
+              <div className="text-xs text-slate-500 sm:text-sm">{roomTypeName(room.roomTypeId)}</div>
               {room.active !== false && room.status === "cleaning" && (
                 <span onClick={(e) => markClean(room.id, e)} className={`${btn} mt-1 !py-1.5 !text-xs`}>
                   Đã dọn xong
