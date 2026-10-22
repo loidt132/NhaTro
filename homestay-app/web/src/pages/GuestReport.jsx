@@ -1,10 +1,31 @@
 import { useState } from "react";
 import dayjs from "dayjs";
 import { homestayApi } from "../api.js";
-import { btnPrimary, card, input, label } from "../ui.js";
+import { exportExcel } from "../utils/exportExcel.js";
+import { btn, btnPrimary, card, input, label } from "../ui.js";
 
 export default function GuestReport() {
   const [date, setDate] = useState(dayjs().format("YYYY-MM-DD"));
+  const [error, setError] = useState("");
+
+  async function downloadExcel() {
+    setError("");
+    try {
+      const data = await homestayApi.getGuestReport(date);
+      const fmt = (v) => (v ? dayjs(v).format("DD/MM/YYYY HH:mm") : "");
+      await exportExcel(
+        `bao-cao-luu-tru-${date}.xlsx`,
+        "Lưu trú",
+        [
+          ["Phòng", "Họ tên", "CCCD", "Ngày sinh", "Điện thoại", "Nhận phòng", "Trả phòng"],
+          ...data.map((r) => [r.room, r.name, r.idNumber, r.dob, r.phone, fmt(r.checkInAt), fmt(r.checkOutAt)]),
+        ],
+        [10, 26, 16, 12, 14, 18, 18]
+      );
+    } catch (err) {
+      setError(err.message);
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -22,7 +43,9 @@ export default function GuestReport() {
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={`${input} w-44`} />
           </div>
           <a className={btnPrimary} href={homestayApi.guestReportUrl(date)}>Tải CSV</a>
+          <button className={btn} onClick={downloadExcel}>Tải Excel</button>
         </div>
+        {error && <div className="mt-3 text-sm text-rose-700">{error}</div>}
       </div>
     </div>
   );

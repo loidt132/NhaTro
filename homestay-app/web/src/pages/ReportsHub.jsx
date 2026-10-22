@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import { homestayApi, formatVnd } from "../api.js";
-import { badgeBase, card, label, table, tableWrap, td, th } from "../ui.js";
+import { exportExcel } from "../utils/exportExcel.js";
+import { badgeBase, btn, card, label, table, tableWrap, td, th } from "../ui.js";
 import { useHomestay } from "../HomestayContext.js";
 
 const PRICING_LABEL = { hourly: "Theo giờ", overnight: "Qua đêm", fullday: "Cả ngày" };
@@ -62,6 +63,12 @@ function DateRangePicker({ from, to, setFrom, setTo }) {
   );
 }
 
+function ExcelButton({ onClick, disabled }) {
+  return (
+    <button className={`${btn} !py-1.5`} onClick={onClick} disabled={disabled}>Xuất Excel</button>
+  );
+}
+
 function RevenueReport() {
   const { currentHomestayId } = useHomestay();
   const [from, setFrom] = useState(dayjs().startOf("month").format("YYYY-MM-DD"));
@@ -82,10 +89,25 @@ function RevenueReport() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, currentHomestayId]);
 
+  function download() {
+    const g = data.grandTotal;
+    exportExcel(
+      `doanh-thu-${from}-${to}.xlsx`,
+      "Doanh thu",
+      [
+        ["Ngày", "Lượt trả phòng", "Doanh thu phòng", "Dịch vụ/phụ thu", "Tổng"],
+        ...data.rows.map((r) => [dayjs(r.date).format("DD/MM/YYYY"), r.stayCount, r.roomRevenue, r.serviceRevenue, r.total]),
+        ["Tổng cộng", g.stayCount, g.roomRevenue, g.serviceRevenue, g.total],
+      ],
+      [14, 16, 18, 18, 16]
+    );
+  }
+
   return (
     <div className="space-y-4">
-      <div className="sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-white sm:p-4 sm:shadow-sm">
+      <div className="flex items-end justify-between gap-3 sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-white sm:p-4 sm:shadow-sm">
         <DateRangePicker from={from} to={to} setFrom={setFrom} setTo={setTo} />
+        <ExcelButton onClick={download} disabled={data.rows.length === 0} />
       </div>
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
@@ -170,10 +192,33 @@ function OccupancyReport() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, currentHomestayId]);
 
+  function download() {
+    const fmt = (v) => (v ? dayjs(v).format("DD/MM/YYYY HH:mm") : "");
+    exportExcel(
+      `khach-luu-tru-${from}-${to}.xlsx`,
+      "Khách lưu trú",
+      [
+        ["Phòng", "Khách", "Số khách", "Loại giá", "Nhận phòng", "Trả phòng", "Số giờ", "Trạng thái"],
+        ...data.stays.map((s) => [
+          s.roomName,
+          (s.guestNames?.length ? s.guestNames : [s.guestName]).join(", "),
+          s.guestCount,
+          PRICING_LABEL[s.pricingType] || s.pricingType,
+          fmt(s.checkInAt),
+          fmt(s.checkOutAt),
+          s.durationHours,
+          s.status === "active" ? "Đang ở" : "Đã trả phòng",
+        ]),
+      ],
+      [10, 36, 10, 12, 18, 18, 8, 14]
+    );
+  }
+
   return (
     <div className="space-y-4">
-      <div className="sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-white sm:p-4 sm:shadow-sm">
+      <div className="flex items-end justify-between gap-3 sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-white sm:p-4 sm:shadow-sm">
         <DateRangePicker from={from} to={to} setFrom={setFrom} setTo={setTo} />
+        <ExcelButton onClick={download} disabled={data.stays.length === 0} />
       </div>
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>

@@ -92,6 +92,7 @@ export const homestayApi = {
   updateRoom: (roomId, body) =>
     request(HOMESTAY_API, `/api/rooms/${roomId}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteRoom: (roomId) => request(HOMESTAY_API, `/api/rooms/${roomId}`, { method: "DELETE" }),
+  getGuestReport: (date) => request(HOMESTAY_API, `/api/guest-report?date=${date || ""}`),
   guestReportUrl: (date) => `${HOMESTAY_API}/api/guest-report?date=${date}&format=csv`,
   getSettings: () => request(HOMESTAY_API, "/api/settings"),
   updateSettings: (body) => request(HOMESTAY_API, "/api/settings", { method: "PUT", body: JSON.stringify(body) }),
