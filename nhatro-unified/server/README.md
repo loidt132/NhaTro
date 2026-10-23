@@ -27,15 +27,23 @@ The browser never talks to the database: the web app only calls this API.
 
 1. Put `DATABASE_URL` plus the old `NOCODB_URL`, `NOCODB_API_KEY` and `NOCODB_TABLE_*` ids in `.env`
    (see `.env.example`), with the **same `ENCRYPTION_KEY`** the app already uses.
-2. `npm run migrate-to-neon -- --dry-run` reads NocoDB and reports what it would copy (writes nothing).
-3. `npm run migrate-to-neon` creates the tables from `neon-schema.sql`, copies every row as-is
-   (encrypted values stay encrypted), then compares row counts per table.
+2. `npm run migrate-to-neon -- --dry-run` reads NocoDB and reports what it would do (changes nothing).
+3. `npm run migrate-to-neon` rebuilds Neon from scratch: it reads all of NocoDB first, then in one
+   transaction drops the app tables if they exist, recreates them from `neon-schema.sql` and copies every
+   row (encrypted values stay encrypted). If anything fails the transaction rolls back and Neon is untouched.
+   It finishes by comparing row counts per table.
 4. Deploy with `DATABASE_URL` set. NocoDB is never modified, so you can roll back by redeploying the old build.
 
-The script is safe to re-run: rows whose `id` already exists in Postgres are skipped.
-Rows without `id` or `created_by` can't be used by the app and are skipped (they are listed in the log).
-Columns that exist in NocoDB but not in `neon-schema.sql` are added to Postgres automatically.
-Legacy users that only had a plaintext `password` column get a salted hash instead.
+Details:
+- Only columns defined in `neon-schema.sql` are copied (case-insensitive). Extra NocoDB columns such as
+  `created_by_1`, `createdby`, `modifiedby` are ignored and listed in the log; no columns are ever added.
+- Rows without `id` or `created_by` can't be used by the app and are skipped (listed in the log).
+- Legacy users that only had a plaintext `password` column get a salted hash instead.
+- **Safety stop:** if NocoDB has fewer rows than Neon already holds in any table (or a table's
+  `NOCODB_TABLE_*` id is not set while Neon has rows), the script stops instead of dropping data — NocoDB may
+  have lost data and Neon may be the only copy. Snapshot Neon first (a Neon branch is instant), then add
+  `--force` if you really want to overwrite.
+- `--schema-only` drops and recreates the empty tables without copying anything.
 
 ## Schema
 
