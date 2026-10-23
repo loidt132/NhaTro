@@ -6,6 +6,8 @@ const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const { createWorker } = require('tesseract.js');
 const stateStore = require('./stateStore');
+const { registerTableRoutes } = require('./tableRoutes');
+const { registerPaymentWorkflowRoutes } = require('./paymentWorkflowRoutes');
 const db = require('./db');
 const { decryptRow, decryptField, encryptField } = require('./cryptoFields');
 const getDbPool = () => db.getPool();
@@ -118,6 +120,13 @@ const TUYA_ENERGY_CODES = firstEnv('TUYA_ENERGY_CODES', 'TUYA_ENERGY_CODE')
 const TUYA_DEBUG_CURL = firstEnv('TUYA_DEBUG_CURL').toLowerCase() === 'true';
 let tuyaTokenCache = null;
 
+// Dịch vụ/phụ thu (giặt là, nước uống...) sống trong catalog-service — một
+// deployment riêng dùng chung với homestay-app. catalog-service chỉ cần một
+// "businessId" chung: với nhà trọ, đó là userId của chủ trọ.
+const SERVICE_CATALOG_URL = firstEnv('SERVICE_CATALOG_URL') || 'http://localhost:4100';
+const CATALOG_ADMIN_KEY = firstEnv('CATALOG_ADMIN_KEY') || 'dev-catalog-admin-key-change-me';
+const CATALOG_TIMEOUT_MS = Number(process.env.CATALOG_TIMEOUT_MS || 8000);
+
 const START_TIME = Date.now();
 
 app.get('/', (req, res) => {
@@ -137,6 +146,16 @@ app.get('/health', async (req, res) => {
       database = `error: ${error.message}`;
     }
   }
+  // catalog-service is a separate deployment; an outage there only marks us
+  // "degraded" (HTTP stays 200 if the database itself is fine) since the
+  // rest of the app still works without the service catalog.
+  let catalog = 'unknown';
+  try {
+    const r = await fetchApi(`${SERVICE_CATALOG_URL}/health`, { signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS) });
+    catalog = r.ok ? 'ok' : `error: HTTP ${r.status}`;
+  } catch (error) {
+    catalog = `error: ${error.message}`;
+  }
   const status = database === 'ok' || database === 'not_configured' ? 'ok' : 'degraded';
   res.status(status === 'ok' ? 200 : 503).json({
     status,
@@ -147,6 +166,7 @@ app.get('/health', async (req, res) => {
       database,
       cloudinary: HAS_CLOUDINARY_CONFIG ? 'configured' : 'not_configured',
       tuya: TUYA_API_ENDPOINT && TUYA_ACCESS_ID && TUYA_ACCESS_SECRET ? 'configured' : 'not_configured',
+      catalog,
     },
   });
 });
@@ -931,6 +951,76 @@ function authMiddleware(req, res, next) {
   next();
 }
 
+// ---- Catalog proxy (dịch vụ/phụ thu từ catalog-service) ----
+// Browser never talks to catalog-service directly: writes need this app's
+// own auth check, and catalog-service can't see our JWTs — so every call
+// goes through here, same reasoning as homestay-server's /api/admin/catalog
+// proxy. req.userId doubles as catalog-service's businessId.
+async function proxyToCatalog(req, res, path, method) {
+  try {
+    const body = method === 'DELETE' ? undefined : JSON.stringify({ ...req.body, businessId: req.userId });
+    const r = await fetchApi(`${SERVICE_CATALOG_URL}${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json', 'x-api-key': CATALOG_ADMIN_KEY, 'x-actor-id': String(req.userId || 'system') },
+      body,
+      signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS),
+    });
+    if (r.status === 204) return res.status(204).end();
+    const responseBody = await r.json().catch(() => ({}));
+    res.status(r.status).json(responseBody);
+  } catch (error) {
+    res.status(502).json({ error: `Không kết nối được tới catalog-service: ${error.message}` });
+  }
+}
+
+async function readFromCatalog(req, res, path, extraParams = {}) {
+  try {
+    const params = new URLSearchParams({ businessId: req.userId, ...extraParams });
+    const r = await fetchApi(`${SERVICE_CATALOG_URL}${path}?${params.toString()}`, { signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS) });
+    const body = await r.json().catch(() => ({}));
+    res.status(r.status).json(body);
+  } catch (error) {
+    res.status(502).json({ error: `Không kết nối được tới catalog-service: ${error.message}` });
+  }
+}
+
+app.get('/api/catalog/categories', authMiddleware, (req, res) => readFromCatalog(req, res, '/api/categories'));
+app.get('/api/catalog/items', authMiddleware, (req, res) => {
+  const extra = {};
+  if (req.query.kind) extra.kind = req.query.kind;
+  if (req.query.categoryId) extra.categoryId = req.query.categoryId;
+  return readFromCatalog(req, res, '/api/items', extra);
+});
+app.get('/api/catalog/orders', authMiddleware, (req, res) => {
+  const extra = {};
+  if (req.query.roomId) extra.roomId = req.query.roomId;
+  if (req.query.month) extra.month = req.query.month;
+  if (req.query.status) extra.status = req.query.status;
+  return readFromCatalog(req, res, '/api/orders', extra);
+});
+
+app.post('/api/admin/catalog/categories', authMiddleware, (req, res) => proxyToCatalog(req, res, '/api/categories', 'POST'));
+app.put('/api/admin/catalog/categories/:id', authMiddleware, (req, res) =>
+  proxyToCatalog(req, res, `/api/categories/${req.params.id}?businessId=${encodeURIComponent(req.userId)}`, 'PUT')
+);
+app.delete('/api/admin/catalog/categories/:id', authMiddleware, (req, res) =>
+  proxyToCatalog(req, res, `/api/categories/${req.params.id}?businessId=${encodeURIComponent(req.userId)}`, 'DELETE')
+);
+app.post('/api/admin/catalog/items', authMiddleware, (req, res) => proxyToCatalog(req, res, '/api/items', 'POST'));
+app.put('/api/admin/catalog/items/:id', authMiddleware, (req, res) =>
+  proxyToCatalog(req, res, `/api/items/${req.params.id}?businessId=${encodeURIComponent(req.userId)}`, 'PUT')
+);
+app.delete('/api/admin/catalog/items/:id', authMiddleware, (req, res) =>
+  proxyToCatalog(req, res, `/api/items/${req.params.id}?businessId=${encodeURIComponent(req.userId)}`, 'DELETE')
+);
+app.post('/api/admin/catalog/orders', authMiddleware, (req, res) => proxyToCatalog(req, res, '/api/orders', 'POST'));
+app.put('/api/admin/catalog/orders/:id', authMiddleware, (req, res) =>
+  proxyToCatalog(req, res, `/api/orders/${req.params.id}?businessId=${encodeURIComponent(req.userId)}`, 'PUT')
+);
+app.delete('/api/admin/catalog/orders/:id', authMiddleware, (req, res) =>
+  proxyToCatalog(req, res, `/api/orders/${req.params.id}?businessId=${encodeURIComponent(req.userId)}`, 'DELETE')
+);
+
 app.post('/api/tuya/statuses', authMiddleware, async (req, res) => {
   const rooms = Array.isArray(req.body?.rooms) ? req.body.rooms : [];
   const month = String(req.body?.month || '');
@@ -986,6 +1076,12 @@ async function adminMiddleware(req, res, next) {
     return res.status(500).json({ error: 'Error checking admin status' });
   }
 }
+
+// Per-table REST CRUD for rooms/tenants/readings/invoices/payments/
+// rentPeriods/paymentAllocations/deposits/depositTransactions. Additive to
+// /api/state below — the web app migrates to these one table at a time.
+registerTableRoutes(app, { authMiddleware, adminMiddleware });
+registerPaymentWorkflowRoutes(app, { authMiddleware, fetchApi, SERVICE_CATALOG_URL, CATALOG_TIMEOUT_MS });
 
 app.post('/api/auth/register', async (req, res) => {
   const { email = '', phone = '', password = '', name = '' } = req.body || {};

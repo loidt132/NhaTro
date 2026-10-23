@@ -42,23 +42,24 @@ function requireApiKey(req, res, next) {
   if (req.headers["x-api-key"] !== ADMIN_KEY) {
     return res.status(401).json({ error: "Thiếu hoặc sai API key cho thao tác ghi." });
   }
-  // homestay-server forwards the logged-in user's id; it is stamped into
-  // created_by / updated_by ("system" when a caller sends none).
+  // The calling backend (homestay-server, nhà trọ's server, ...) forwards the
+  // logged-in user's id; it is stamped into created_by / updated_by ("system"
+  // when a caller sends none).
   req.actorId = String(req.headers["x-actor-id"] || "").trim().slice(0, 64) || "system";
   next();
 }
 
-// This catalog is shared by multiple homestays (and, later, nhà trọ), each
-// with its own price list — every read/write is scoped by homestayId so
-// one homestay never sees or edits another's catalog. Unlike the admin-key
-// check above (proves the *caller* is a trusted backend), this check
-// doesn't verify WHO is asking, only WHICH homestay's data they asked
-// for — the caller (homestay-server's proxy) is what already validated the
-// user's JWT before ever reaching here.
-function requireHomestayId(req, res, next) {
-  const homestayId = req.query.homestayId || req.body?.homestayId;
-  if (!homestayId) return res.status(400).json({ error: "homestayId is required" });
-  req.homestayId = homestayId;
+// This catalog is shared by multiple businesses (homestays, nhà trọ, ...),
+// each with its own price list — every read/write is scoped by businessId
+// so one business never sees or edits another's catalog. Unlike the
+// admin-key check above (proves the *caller* is a trusted backend), this
+// check doesn't verify WHO is asking, only WHICH business's data they asked
+// for — the caller (homestay-server's or nhà trọ server's proxy) is what
+// already validated the user's JWT before ever reaching here.
+function requireBusinessId(req, res, next) {
+  const businessId = req.query.businessId || req.body?.businessId;
+  if (!businessId) return res.status(400).json({ error: "businessId is required" });
+  req.businessId = businessId;
   next();
 }
 
@@ -71,7 +72,7 @@ function asCategory(row) {
 function asItem(row) {
   return {
     id: row.id,
-    homestayId: row.homestayId,
+    businessId: row.businessId,
     categoryId: row.categoryId ?? null,
     categoryName: row.categoryName ?? null,
     name: row.name,
@@ -81,37 +82,58 @@ function asItem(row) {
   };
 }
 
+function asOrder(row) {
+  return {
+    id: row.id,
+    businessId: row.businessId,
+    itemId: row.itemId ?? null,
+    itemName: row.itemName,
+    unit: row.unit || "",
+    price: Number(row.price),
+    quantity: Number(row.quantity),
+    amount: Number(row.amount),
+    roomId: row.roomId ?? null,
+    tenantId: row.tenantId ?? null,
+    customerName: row.customerName ?? null,
+    month: row.month ?? null,
+    status: row.status || "pending",
+    note: row.note ?? null,
+    orderedAt: row.orderedAt,
+    completedAt: row.completedAt ?? null,
+  };
+}
+
 function dbErrorToHttp(res, err) {
   console.error(err);
   res.status(502).json({ error: `Database: ${err.message}` });
 }
 
-app.get("/api/categories", requireHomestayId, async (req, res) => {
+app.get("/api/categories", requireBusinessId, async (req, res) => {
   try {
-    const rows = await db.listCategories(req.homestayId);
+    const rows = await db.listCategories(req.businessId);
     res.json(rows.map(asCategory));
   } catch (err) {
     dbErrorToHttp(res, err);
   }
 });
 
-app.post("/api/categories", requireApiKey, requireHomestayId, async (req, res) => {
+app.post("/api/categories", requireApiKey, requireBusinessId, async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "name is required" });
   try {
-    const row = await db.createCategory({ id: uuid(), homestayId: req.homestayId, name }, req.actorId);
+    const row = await db.createCategory({ id: uuid(), businessId: req.businessId, name }, req.actorId);
     res.status(201).json(asCategory(row));
   } catch (err) {
     dbErrorToHttp(res, err);
   }
 });
 
-app.put("/api/categories/:id", requireApiKey, requireHomestayId, async (req, res) => {
+app.put("/api/categories/:id", requireApiKey, requireBusinessId, async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "name is required" });
   try {
     const existing = await db.getCategory(req.params.id);
-    if (!existing || existing.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
+    if (!existing || existing.businessId !== req.businessId) return res.status(404).json({ error: "not found" });
     const row = await db.updateCategory(req.params.id, name, req.actorId);
     res.json(asCategory(row));
   } catch (err) {
@@ -119,10 +141,10 @@ app.put("/api/categories/:id", requireApiKey, requireHomestayId, async (req, res
   }
 });
 
-app.delete("/api/categories/:id", requireApiKey, requireHomestayId, async (req, res) => {
+app.delete("/api/categories/:id", requireApiKey, requireBusinessId, async (req, res) => {
   try {
     const category = await db.getCategory(req.params.id);
-    if (!category || category.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
+    if (!category || category.businessId !== req.businessId) return res.status(404).json({ error: "not found" });
     if ((await db.countItemsInCategory(category.id)) > 0) {
       return res.status(409).json({ error: "Danh mục đang có dịch vụ — hãy chuyển/xoá dịch vụ trong danh mục này trước." });
     }
@@ -136,27 +158,27 @@ app.delete("/api/categories/:id", requireApiKey, requireHomestayId, async (req, 
 // `kind` tells "service" (ăn uống, giặt là...) apart from "surcharge" (phụ
 // thu) items in the same catalog — one backend/admin page for both instead
 // of a second near-identical service.
-app.get("/api/items", requireHomestayId, async (req, res) => {
+app.get("/api/items", requireBusinessId, async (req, res) => {
   try {
     const { categoryId, kind } = req.query;
-    const rows = await db.listItems(req.homestayId, { categoryId, kind });
+    const rows = await db.listItems(req.businessId, { categoryId, kind });
     res.json(rows.map(asItem));
   } catch (err) {
     dbErrorToHttp(res, err);
   }
 });
 
-app.get("/api/items/:id", requireHomestayId, async (req, res) => {
+app.get("/api/items/:id", requireBusinessId, async (req, res) => {
   try {
     const row = await db.getItem(req.params.id);
-    if (!row || row.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
+    if (!row || row.businessId !== req.businessId) return res.status(404).json({ error: "not found" });
     res.json(asItem(row));
   } catch (err) {
     dbErrorToHttp(res, err);
   }
 });
 
-app.post("/api/items", requireApiKey, requireHomestayId, async (req, res) => {
+app.post("/api/items", requireApiKey, requireBusinessId, async (req, res) => {
   const { categoryId, name, unit, price, kind } = req.body;
   if (!name || price == null) {
     return res.status(400).json({ error: "name and price are required" });
@@ -168,7 +190,7 @@ app.post("/api/items", requireApiKey, requireHomestayId, async (req, res) => {
   try {
     const row = await db.createItem({
       id: uuid(),
-      homestayId: req.homestayId,
+      businessId: req.businessId,
       categoryId: categoryId || null,
       name,
       unit: unit || "",
@@ -181,7 +203,7 @@ app.post("/api/items", requireApiKey, requireHomestayId, async (req, res) => {
   }
 });
 
-app.put("/api/items/:id", requireApiKey, requireHomestayId, async (req, res) => {
+app.put("/api/items/:id", requireApiKey, requireBusinessId, async (req, res) => {
   const patch = {};
   if (req.body.name != null) patch.name = req.body.name;
   if (req.body.unit != null) patch.unit = req.body.unit;
@@ -190,7 +212,7 @@ app.put("/api/items/:id", requireApiKey, requireHomestayId, async (req, res) => 
   if (req.body.kind != null) patch.kind = req.body.kind === "surcharge" ? "surcharge" : "service";
   try {
     const existing = await db.getItem(req.params.id);
-    if (!existing || existing.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
+    if (!existing || existing.businessId !== req.businessId) return res.status(404).json({ error: "not found" });
     const row = await db.updateItem(req.params.id, patch, req.actorId);
     res.json(asItem(row));
   } catch (err) {
@@ -198,11 +220,100 @@ app.put("/api/items/:id", requireApiKey, requireHomestayId, async (req, res) => 
   }
 });
 
-app.delete("/api/items/:id", requireApiKey, requireHomestayId, async (req, res) => {
+app.delete("/api/items/:id", requireApiKey, requireBusinessId, async (req, res) => {
   try {
     const existing = await db.getItem(req.params.id);
-    if (!existing || existing.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
+    if (!existing || existing.businessId !== req.businessId) return res.status(404).json({ error: "not found" });
     await db.deleteItem(req.params.id);
+    res.status(204).end();
+  } catch (err) {
+    dbErrorToHttp(res, err);
+  }
+});
+
+const ORDER_STATUSES = new Set(["pending", "in_progress", "done", "cancelled"]);
+
+app.get("/api/orders", requireBusinessId, async (req, res) => {
+  try {
+    const { roomId, month, status } = req.query;
+    const rows = await db.listOrders(req.businessId, { roomId, month, status });
+    res.json(rows.map(asOrder));
+  } catch (err) {
+    dbErrorToHttp(res, err);
+  }
+});
+
+app.post("/api/orders", requireApiKey, requireBusinessId, async (req, res) => {
+  const { itemId, itemName, unit, price, quantity, roomId, tenantId, customerName, month, note } = req.body;
+  if (!itemName || price == null) {
+    return res.status(400).json({ error: "itemName and price are required" });
+  }
+  const qty = quantity == null ? 1 : Number(quantity);
+  try {
+    const row = await db.createOrder({
+      id: uuid(),
+      businessId: req.businessId,
+      itemId: itemId || null,
+      itemName,
+      unit: unit || "",
+      price: Number(price),
+      quantity: qty,
+      amount: Math.round(Number(price) * qty),
+      roomId: roomId || null,
+      tenantId: tenantId || null,
+      customerName: customerName || null,
+      month: month || null,
+      status: "pending",
+      note: note || null,
+    }, req.actorId);
+    res.status(201).json(asOrder(row));
+  } catch (err) {
+    dbErrorToHttp(res, err);
+  }
+});
+
+app.put("/api/orders/:id", requireApiKey, requireBusinessId, async (req, res) => {
+  const patch = {};
+  if (req.body.itemName != null) patch.itemName = req.body.itemName;
+  if (req.body.unit != null) patch.unit = req.body.unit;
+  if (req.body.roomId !== undefined) patch.roomId = req.body.roomId;
+  if (req.body.tenantId !== undefined) patch.tenantId = req.body.tenantId;
+  if (req.body.customerName !== undefined) patch.customerName = req.body.customerName;
+  if (req.body.month !== undefined) patch.month = req.body.month;
+  if (req.body.note !== undefined) patch.note = req.body.note;
+  if (req.body.status != null) {
+    if (!ORDER_STATUSES.has(req.body.status)) return res.status(400).json({ error: "invalid status" });
+    patch.status = req.body.status;
+  }
+  // price/quantity đổi thì amount phải tính lại cùng lúc, không để lệch nhau.
+  if (req.body.price != null || req.body.quantity != null) {
+    try {
+      const existing = await db.getOrder(req.params.id);
+      if (!existing || existing.businessId !== req.businessId) return res.status(404).json({ error: "not found" });
+      const nextPrice = req.body.price != null ? Number(req.body.price) : Number(existing.price);
+      const nextQty = req.body.quantity != null ? Number(req.body.quantity) : Number(existing.quantity);
+      patch.price = nextPrice;
+      patch.quantity = nextQty;
+      patch.amount = Math.round(nextPrice * nextQty);
+    } catch (err) {
+      return dbErrorToHttp(res, err);
+    }
+  }
+  try {
+    const existing = await db.getOrder(req.params.id);
+    if (!existing || existing.businessId !== req.businessId) return res.status(404).json({ error: "not found" });
+    const row = await db.updateOrder(req.params.id, patch, req.actorId);
+    res.json(asOrder(row));
+  } catch (err) {
+    dbErrorToHttp(res, err);
+  }
+});
+
+app.delete("/api/orders/:id", requireApiKey, requireBusinessId, async (req, res) => {
+  try {
+    const existing = await db.getOrder(req.params.id);
+    if (!existing || existing.businessId !== req.businessId) return res.status(404).json({ error: "not found" });
+    await db.deleteOrder(req.params.id);
     res.status(204).end();
   } catch (err) {
     dbErrorToHttp(res, err);

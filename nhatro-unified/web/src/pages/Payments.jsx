@@ -1,7 +1,9 @@
 // src/pages/Payments.jsx
 import React, { useMemo, useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { loadState, saveState, currency, monthKey, calcTotalsWithAdvance, uid, hydrateState } from '../utils/state';
+import { loadState, currency, monthKey, calcTotalsWithAdvance, hydrateState } from '../utils/state';
+import { invoicesApi, paymentsApi, rentPeriodsApi, paymentAllocationsApi, depositsApi, depositTransactionsApi } from '../utils/api/tables';
+import * as paymentWorkflow from '../utils/api/paymentWorkflow';
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
 import TopStats from '../components/TopStats';
@@ -39,21 +41,52 @@ const addMonths = (ym, count) => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 };
 
+// Số tháng (bao gồm cả 2 đầu) giữa 2 mốc "YYYY-MM" — dùng để suy ra số tháng
+// đóng trước từ khoảng "từ tháng – đến tháng" người dùng chọn, thay vì chỉ
+// cho chọn 1 trong vài số tháng cố định (1, 2, 3, 6, 12).
+const monthsBetween = (fromYm, toYm) => {
+  const [fy, fm] = String(fromYm).split('-').map(Number);
+  const [ty, tm] = String(toYm).split('-').map(Number);
+  return (ty - fy) * 12 + (tm - fm) + 1;
+};
+
 export default function Payments() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [state, setState] = useState(loadState());
+  const [invoices, setInvoices] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [rentPeriods, setRentPeriods] = useState([]);
+  const [paymentAllocations, setPaymentAllocations] = useState([]);
+  const [deposits, setDeposits] = useState([]);
+  const [depositTransactions, setDepositTransactions] = useState([]);
+  const loadFinancials = async () => {
+    try {
+      const [inv, pay, rp, pa, dep, dt] = await Promise.all([
+        invoicesApi.list(), paymentsApi.list(), rentPeriodsApi.list(),
+        paymentAllocationsApi.list(), depositsApi.list(), depositTransactionsApi.list(),
+      ]);
+      setInvoices(inv); setPayments(pay); setRentPeriods(rp);
+      setPaymentAllocations(pa); setDeposits(dep); setDepositTransactions(dt);
+    } catch (error) {
+      console.error('load financials failed', error);
+    }
+  };
   // Keep in-sync with other parts of the app that call saveState()
   useEffect(() => {
     const handler = () => setState(loadState());
     window.addEventListener('boarding_state_updated', handler);
-    // Core data for Payments. Settings are only needed for PDF / occupancy config and can be loaded on demand.
-    hydrateState({ tables: ['rooms', 'tenants', 'readings', 'invoices', 'payments', 'rentPeriods', 'paymentAllocations', 'deposits', 'depositTransactions'] });
+    loadFinancials();
+    // rooms/tenants/readings only — invoices/payments/rentPeriods/
+    // paymentAllocations/deposits/depositTransactions are REST resources of
+    // their own (loadFinancials above), kept in sync locally from each
+    // mutation's own response.
+    hydrateState({ tables: ['rooms', 'tenants', 'readings'] });
     return () => window.removeEventListener('boarding_state_updated', handler);
   }, []);
-  const { invoices, rooms, tenants, settings, payments, readings, rentPeriods = [], paymentAllocations = [], deposits = [], depositTransactions = [] } = state;
+  const { rooms, tenants, settings, readings } = state;
   const [month, setMonth] = useState(() => searchParams.get('month') || monthKey());
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || 'all');
-  const [collectionModal, setCollectionModal] = useState({ open: false, type: 'advance', roomId: '', months: 3, amount: '', note: '' });
+  const [collectionModal, setCollectionModal] = useState({ open: false, type: 'advance', roomId: '', fromMonth: '', toMonth: '', amount: '', note: '' });
   const [view, setView] = useState('cards');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -220,8 +253,8 @@ console.log('filtered items', { query, filteredItems });
     }
     return month;
   };
-  const suggestedAdvanceAmount = (roomId, months) => {
-    const startMonth = advancePaymentStartMonth(roomId);
+  const suggestedAdvanceAmount = (roomId, fromMonthYm, months) => {
+    const startMonth = fromMonthYm || advancePaymentStartMonth(roomId);
     return Array.from({ length: Math.max(1, Number(months) || 1) }, (_, index) => advanceRemainingForMonth(roomId, addMonths(startMonth, index + 1)))
       .reduce((sum, remaining) => sum + remaining, 0);
   };
@@ -238,235 +271,124 @@ console.log('filtered items', { query, filteredItems });
     return rooms.filter((room) => advancePaymentStartMonth(room.id) <= nextMonth && (tenantsByRoom[room.id] || []).length > 0);
   };
 
-  const receiveAdvancePayment = () => {
+  const receiveAdvancePayment = async () => {
     const room = roomMap[collectionModal.roomId];
     if (!room) return alert('Hãy chọn phòng cần thu tiền.');
     const tenant = (tenantsByRoom[room.id] || []).find(isActiveTenant) || (tenantsByRoom[room.id] || [])[0];
     if (!tenant) return alert('Phòng chưa có khách thuê.');
-    const count = Math.min(60, Math.max(1, Number(collectionModal.months) || 1));
-    let amountToAllocate = Math.max(0, Number(collectionModal.amount) || suggestedAdvanceAmount(room.id, count));
-    if (!amountToAllocate) return alert('Nhập số tiền đóng trước.');
-    const now = new Date().toISOString();
-    const nextPeriods = [...rentPeriods];
-    const nextAllocations = [...paymentAllocations];
-    const allocations = [];
-    const startMonth = advancePaymentStartMonth(room.id);
-    for (let index = 0; index < count; index += 1) {
-      const periodMonth = addMonths(startMonth, index + 1);
-      let period = nextPeriods.find((item) => item.roomId === room.id && item.month === periodMonth);
-      if (!period) {
-        period = { id: uid(), roomId: room.id, tenantId: tenant.id, month: periodMonth, rent: room.baseRent ?? 0, created_at: now, updated_at: now };
-        nextPeriods.push(period);
-      }
-      const allocated = nextAllocations.filter((item) => String(item.rentPeriodId) === String(period.id)).reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-      const remaining = Math.max(0, (Number(period.rent) || 0) - allocated);
-      const allocationAmount = Math.min(remaining, amountToAllocate);
-      if (allocationAmount > 0) {
-        allocations.push({ id: uid(), rentPeriodId: period.id, amount: allocationAmount, created_at: now, updated_at: now });
-        amountToAllocate -= allocationAmount;
-      }
+    const startMonth = collectionModal.fromMonth || advancePaymentStartMonth(room.id);
+    const toMonth = collectionModal.toMonth || startMonth;
+    if (toMonth < startMonth) return alert('Tháng kết thúc phải từ tháng bắt đầu trở về sau.');
+    const count = Math.min(60, Math.max(1, monthsBetween(startMonth, toMonth)));
+    const amount = Math.max(0, Number(collectionModal.amount) || suggestedAdvanceAmount(room.id, startMonth, count));
+    if (!amount) return alert('Nhập số tiền đóng trước.');
+    try {
+      const result = await paymentWorkflow.receiveAdvancePayment({
+        roomId: room.id, tenantId: tenant.id, startMonth, count, amount, note: collectionModal.note,
+      });
+      setPayments((prev) => [result.payment, ...prev]);
+      setRentPeriods((prev) => {
+        const byId = new Map(prev.map((p) => [p.id, p]));
+        result.rentPeriods.forEach((p) => byId.set(p.id, p));
+        return Array.from(byId.values());
+      });
+      setPaymentAllocations((prev) => [...result.paymentAllocations, ...prev]);
+    } catch (error) {
+      alert(error?.message || 'Không thể thu tiền đóng trước.');
+      return;
     }
-    if (amountToAllocate > 0) return alert(`Số tiền vượt phần tiền phòng còn phải đóng của ${count} tháng. Hãy tăng số tháng hoặc giảm số tiền.`);
-    if (!allocations.length) return alert('Các tháng đã chọn đã được đóng đủ tiền phòng.');
-    const payment = { id: uid(), roomId: room.id, tenantId: tenant.id, amount: allocations.reduce((sum, item) => sum + item.amount, 0), method: 'Tiền mặt', note: collectionModal.note || `Đóng trước tiền phòng ${startMonth} đến ${addMonths(startMonth, count)}`, paidAt: now, created_at: now, updated_at: now };
-    allocations.forEach((allocation) => { allocation.paymentId = payment.id; });
-    const s2 = { ...state, payments: [payment, ...payments], rentPeriods: nextPeriods, paymentAllocations: [...allocations, ...nextAllocations] };
-    setState(s2);
-    saveState(s2);
-    setCollectionModal({ open: false, type: 'advance', roomId: '', months: 3, amount: '', note: '' });
+    setCollectionModal({ open: false, type: 'advance', roomId: '', fromMonth: '', toMonth: '', amount: '', note: '' });
   };
 
-  const receiveDeposit = () => {
+  const receiveDeposit = async () => {
     const room = roomMap[collectionModal.roomId];
     if (!room) return alert('Hãy chọn phòng cần thu cọc.');
     const tenant = (tenantsByRoom[room.id] || []).find(isActiveTenant) || (tenantsByRoom[room.id] || [])[0];
     const amount = Math.max(0, Number(collectionModal.amount) || 0);
     if (!tenant) return alert('Phòng chưa có khách thuê.');
     if (!amount) return alert('Nhập số tiền cọc.');
-    const now = new Date().toISOString();
-    const deposit = { id: uid(), roomId: room.id, tenantId: tenant.id, amount, remainingAmount: amount, status: 'held', created_at: now, updated_at: now };
-    const transaction = { id: uid(), depositId: deposit.id, amount, type: 'received', note: collectionModal.note || 'Thu tiền cọc', occurredAt: now, created_at: now };
-    const s2 = { ...state, deposits: [deposit, ...deposits], depositTransactions: [transaction, ...depositTransactions] };
-    setState(s2);
-    saveState(s2);
-    setCollectionModal({ open: false, type: 'advance', roomId: '', months: 3, amount: '', note: '' });
+    try {
+      const result = await paymentWorkflow.receiveDeposit({
+        roomId: room.id, tenantId: tenant.id, amount, note: collectionModal.note,
+      });
+      setDeposits((prev) => [result.deposit, ...prev]);
+      setDepositTransactions((prev) => [result.transaction, ...prev]);
+    } catch (error) {
+      alert(error?.message || 'Không thể thu tiền cọc.');
+      return;
+    }
+    setCollectionModal({ open: false, type: 'advance', roomId: '', fromMonth: '', toMonth: '', amount: '', note: '' });
   };
 
-  const refundDeposit = () => {
+  const refundDeposit = async () => {
     const room = roomMap[collectionModal.roomId];
     if (!room) return alert('Hãy chọn phòng hoàn cọc.');
     const refundedAmount = Math.max(0, Number(collectionModal.amount) || 0);
-    const heldDeposits = deposits.filter((deposit) => deposit.roomId === room.id && deposit.status === 'held');
     const balance = depositBalanceOfRoom(room.id);
     if (!balance) return alert('Phòng này không còn tiền cọc để hoàn.');
     if (!refundedAmount || refundedAmount > balance) return alert(`Số hoàn cọc phải từ 1 đến ${currency(balance)} đ.`);
-    const now = new Date().toISOString();
-    const difference = balance - refundedAmount;
-    const nextDeposits = deposits.map((deposit) => heldDeposits.some((held) => held.id === deposit.id)
-      ? { ...deposit, remainingAmount: 0, status: 'refunded', updated_at: now }
-      : deposit);
-    const transactions = [{ id: uid(), depositId: heldDeposits[0]?.id, amount: refundedAmount, type: 'refunded', note: collectionModal.note || 'Hoàn tiền cọc', occurredAt: now, created_at: now }];
-    if (difference > 0) {
-      transactions.push({ id: uid(), depositId: heldDeposits[0]?.id, amount: difference, type: 'deducted', note: 'Cấn trừ tự động do số tiền hoàn thấp hơn tiền cọc', occurredAt: now, created_at: now });
+    try {
+      const result = await paymentWorkflow.refundDeposit(room.id, { amount: refundedAmount, note: collectionModal.note });
+      setDeposits((prev) => {
+        const byId = new Map(result.deposits.map((d) => [d.id, d]));
+        return prev.map((d) => byId.get(d.id) || d);
+      });
+      setDepositTransactions((prev) => [...result.transactions, ...prev]);
+    } catch (error) {
+      alert(error?.message || 'Không thể hoàn tiền cọc.');
+      return;
     }
-    const s2 = { ...state, deposits: nextDeposits, depositTransactions: [...transactions, ...depositTransactions] };
-    setState(s2);
-    saveState(s2);
-    setCollectionModal({ open: false, type: 'advance', roomId: '', months: 3, amount: '', note: '' });
+    setCollectionModal({ open: false, type: 'advance', roomId: '', fromMonth: '', toMonth: '', amount: '', note: '' });
   };
-  // const togglePaid = (id) => {
-  //   const next = invoices.map(i =>
-  //     i.id === id
-  //       ? {
-  //           ...i,
-  //           status: i.status === STATUS_PAID ? STATUS_UNPAID : STATUS_PAID,
-  //           paidAt: i.status === STATUS_PAID ? undefined : new Date().toISOString()
-  //         }
-  //       : i
-  //   );
-  //   const s2 = { ...state, invoices: next };
-  //   setState(s2);
-  //   saveState(s2);
-  // };
-const togglePaid = (id) => {
-  const inv = state.invoices.find(i => i.id === id);
-  if (!inv) return;
-
-  const directPayments = (state.payments ?? []).filter((payment) => String(payment.invoiceId || '') === String(id));
-  if (directPayments.length) {
-    const s2 = {
-      ...state,
-      invoices: state.invoices.map((invoice) => invoice.id === id ? { ...invoice, status: STATUS_UNPAID, paidAt: undefined } : invoice),
-      payments: (state.payments ?? []).filter((payment) => String(payment.invoiceId || '') !== String(id)),
-    };
-    setState(s2);
-    saveState(s2);
-    return;
-  }
-  if (isPaidByPayments(inv)) return alert('Hóa đơn này đã được cấn từ tiền đóng trước. Hãy điều chỉnh giao dịch đóng trước nếu cần hoàn tác.');
-
-  let nextInvoices = [];
-  let nextPayments = [...(state.payments ?? [])];
-  const currentlyPaid = false;
-
-  if (currentlyPaid) {
-    // 👉 chuyển về chưa thanh toán → xóa payment
-    nextInvoices = state.invoices.map(i =>
-      i.id === id
-        ? { ...i, status: STATUS_UNPAID, paidAt: undefined }
-        : i
-    );
-
-    nextPayments = nextPayments.filter(
-      p => String(p.invoiceId) !== String(id)
-    );
-
-  } else {
-    const paidAt = new Date().toISOString();
-
-    nextInvoices = state.invoices.map(i =>
-      i.id === id
-        ? { ...i, status: STATUS_PAID, paidAt }
-        : i
-    );
-
-    // tránh duplicate
-    const existed = nextPayments.find(
-      p => String(p.invoiceId) === String(id)
-    );
-
-    if (!existed) {
-      const payment = {
-        id: uid(),
-        invoiceId: id,
-        roomId: inv.roomId,
-        tenantId: inv.tenantId,
-        amount: Math.max(0, (Number(inv.total) || 0) - paidAmountOf(inv)),
-        method: 'Tiền mặt',
-        note: `Thanh toán ${inv.month}`,
-        paidAt,
-        created_at: paidAt,
-      };
-
-      nextPayments.unshift(payment);
+  const togglePaid = async (id) => {
+    const inv = invoices.find(i => i.id === id);
+    if (!inv) return;
+    try {
+      const result = await paymentWorkflow.toggleInvoicePaid(id);
+      setInvoices((prev) => prev.map((invoice) => invoice.id === id ? result.invoice : invoice));
+      if (result.removedPaymentIds) {
+        const removed = new Set(result.removedPaymentIds.map(String));
+        setPayments((prev) => prev.filter((p) => !removed.has(String(p.id))));
+      } else if (result.payment) {
+        setPayments((prev) => [result.payment, ...prev]);
+      }
+    } catch (error) {
+      alert(error?.message || 'Không thể cập nhật trạng thái thanh toán.');
     }
-  }
-
-  // hard-enforce: invoice nào đang "chưa thanh toán" thì không giữ payment
-  const unpaidInvoiceIds = new Set(
-    nextInvoices
-      .filter((i) => i?.id && isUnpaidStatus(i.status))
-      .map((i) => String(i.id))
-  );
-  nextPayments = nextPayments.filter((p) => !unpaidInvoiceIds.has(String(p.invoiceId)));
-
-  const s2 = {
-    ...state,
-    invoices: nextInvoices,
-    payments: nextPayments
   };
 
-  setState(s2);
-  saveState(s2);
-};
-  const addInvoiceFromReading = (roomId) => {
+  const addInvoiceFromReading = async (roomId) => {
     const room = roomMap[roomId];
     const occ = tenantsByRoom[roomId] ?? [];
     const t = occ.find(x => x.id === room.primaryTenantId) ?? occ[0];
     if (!room || !t) return alert('Phòng chưa có khách');
     const reading = latestReadingOfMonth.get(`${roomId}__${month}`);
     if (!reading) return alert('Chưa có chỉ số điện nước cho tháng này');
-    const eUse = Math.max(0, (reading.electricEnd ?? 0) - (reading.electricStart ?? 0));
-    const wUse = Math.max(0, (reading.waterEnd ?? 0) - (reading.waterStart ?? 0));
-    const inv = {
-      id: uid(), roomId, tenantId: t.id, month,
-      rent: room.baseRent ?? 0,
-      electricUsage: eUse, electricEnd: reading.electricEnd, electricStart: reading.electricStart,
-      waterUsage: wUse, waterEnd: reading.waterEnd, waterStart: reading.waterStart,
-      electricAmount: eUse * (room.electricRate ?? 0),
-      waterAmount: wUse * (room.waterRate ?? 0),
-      other: 0,
-      total: (room.baseRent ?? 0) + eUse * (room.electricRate ?? 0) + wUse * (room.waterRate ?? 0),
-      status: STATUS_UNPAID, created_at: new Date().toISOString()
-    };
-    const existingPeriod = rentPeriods.find((period) => period.roomId === roomId && period.month === month);
-    const period = existingPeriod || { id: uid(), roomId, tenantId: t.id, month, rent: room.baseRent ?? 0, created_at: inv.created_at, updated_at: inv.created_at };
-    const nextPeriods = existingPeriod ? rentPeriods.map((item) => item.id === existingPeriod.id ? { ...item, invoiceId: inv.id, updated_at: inv.created_at } : item) : [{ ...period, invoiceId: inv.id }, ...rentPeriods];
-    const s2 = { ...state, invoices: [inv, ...invoices], rentPeriods: nextPeriods };
-    setState(s2); saveState(s2);
+    try {
+      const result = await paymentWorkflow.createInvoiceFromReading({
+        roomId, tenantId: t.id, month, readingId: reading.id,
+      });
+      setInvoices((prev) => [result.invoice, ...prev]);
+      setRentPeriods((prev) => {
+        const next = prev.filter((p) => p.id !== result.rentPeriod.id);
+        return [result.rentPeriod, ...next];
+      });
+    } catch (error) {
+      alert(error?.message || 'Không thể tạo hoá đơn.');
+    }
   };
 
-  const updateInvoiceFromReading = (invoiceId) => {
-    const inv = state.invoices.find(i => i.id === invoiceId);
+  const updateInvoiceFromReading = async (invoiceId) => {
+    const inv = invoices.find(i => i.id === invoiceId);
     if (!inv) return;
-    const room = roomMap[inv.roomId];
-    if (!room) return;
     const reading = latestReadingOfMonth.get(`${inv.roomId}__${inv.month}`);
     if (!reading) return alert('Chưa có chỉ số điện nước cho tháng này');
-
-    const eUse = Math.max(0, (reading.electricEnd ?? 0) - (reading.electricStart ?? 0));
-    const wUse = Math.max(0, (reading.waterEnd ?? 0) - (reading.waterStart ?? 0));
-    const nextInvoices = state.invoices.map((i) =>
-      i.id !== invoiceId
-        ? i
-        : ({
-            ...i,
-            rent: room.baseRent ?? 0,
-            electricUsage: eUse,
-            electricEnd: reading.electricEnd,
-            electricStart: reading.electricStart,
-            waterUsage: wUse,
-            waterEnd: reading.waterEnd,
-            waterStart: reading.waterStart,
-            electricAmount: eUse * (room.electricRate ?? 0),
-            waterAmount: wUse * (room.waterRate ?? 0),
-            total: (room.baseRent ?? 0) + eUse * (room.electricRate ?? 0) + wUse * (room.waterRate ?? 0),
-            updated_at: new Date().toISOString(),
-          })
-    );
-    const s2 = { ...state, invoices: nextInvoices };
-    setState(s2);
-    saveState(s2);
+    try {
+      const result = await paymentWorkflow.updateInvoiceFromReading(invoiceId, { readingId: reading.id });
+      setInvoices((prev) => prev.map((i) => i.id === invoiceId ? result.invoice : i));
+    } catch (error) {
+      alert(error?.message || 'Không thể cập nhật hoá đơn.');
+    }
   };
 
   const printPdf = async (inv) => {
@@ -716,7 +638,7 @@ const togglePaid = (id) => {
         </select>
       </div>
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={() => setCollectionModal({ open: true, type: 'advance', roomId: '', months: 3, amount: '', note: '' })} className="rounded-xl bg-emerald-600 px-4 py-2 font-medium text-white">Ghi nhận đóng trước / cọc</button>
+        <button type="button" onClick={() => setCollectionModal({ open: true, type: 'advance', roomId: '', fromMonth: '', toMonth: '', amount: '', note: '' })} className="rounded-xl bg-emerald-600 px-4 py-2 font-medium text-white">Ghi nhận đóng trước / cọc</button>
       </div>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between min-w-0">
         <h2 className="text-base sm:text-lg font-semibold min-w-0 break-words">Hóa đơn tháng {month}</h2>
@@ -757,7 +679,20 @@ const togglePaid = (id) => {
               </select>
             </label>
             <label className="mt-4 block text-sm font-medium text-slate-700">Phòng
-              <select value={collectionModal.roomId} onChange={(e) => setCollectionModal((modal) => ({ ...modal, roomId: e.target.value }))} className="mt-1 block w-full rounded-xl border px-3 py-2">
+              <select
+                value={collectionModal.roomId}
+                onChange={(e) => {
+                  const roomId = e.target.value;
+                  const start = roomId ? advancePaymentStartMonth(roomId) : '';
+                  setCollectionModal((modal) => ({
+                    ...modal,
+                    roomId,
+                    fromMonth: modal.type === 'advance' ? start : modal.fromMonth,
+                    toMonth: modal.type === 'advance' ? (start ? addMonths(start, 3) : '') : modal.toMonth,
+                  }));
+                }}
+                className="mt-1 block w-full rounded-xl border px-3 py-2"
+              >
                 <option value="">Chọn phòng</option>
                 {eligibleRoomsForCollection().map((room) => <option key={room.id} value={room.id}>{room.name}{collectionModal.type === 'advance' ? ` — đóng từ ${advancePaymentStartMonth(room.id)}` : collectionModal.type === 'refund' ? ` — còn cọc ${currency(depositBalanceOfRoom(room.id))} đ` : ''}</option>)}
               </select>
@@ -767,15 +702,38 @@ const togglePaid = (id) => {
             </label>
             {collectionModal.type === 'advance' ? (
               <>
-                <div className="mt-4 text-sm font-medium text-slate-700">Số tháng đóng trước</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {[1, 2, 3, 6, 12].map((count) => <button key={count} type="button" onClick={() => setCollectionModal((modal) => ({ ...modal, months: count }))} className={`rounded-lg border px-3 py-2 ${collectionModal.months === count ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : ''}`}>{count} tháng</button>)}
+                <div className="mt-4 text-sm font-medium text-slate-700">Đóng trước từ tháng – đến tháng</div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <input
+                    type="month"
+                    value={collectionModal.fromMonth || ''}
+                    onChange={(e) => setCollectionModal((modal) => ({ ...modal, fromMonth: e.target.value }))}
+                    className="rounded-lg border px-3 py-2"
+                  />
+                  <span className="text-slate-400">đến</span>
+                  <input
+                    type="month"
+                    value={collectionModal.toMonth || ''}
+                    min={collectionModal.fromMonth || undefined}
+                    onChange={(e) => setCollectionModal((modal) => ({ ...modal, toMonth: e.target.value }))}
+                    className="rounded-lg border px-3 py-2"
+                  />
                 </div>
-                <label className="mt-4 block text-sm font-medium text-slate-700">Số tiền đóng (VNĐ)
-                  <input type="number" min="0" value={collectionModal.amount} onChange={(e) => setCollectionModal((modal) => ({ ...modal, amount: e.target.value }))} className="mt-1 block w-full rounded-xl border px-3 py-2" placeholder={`Tự tính: ${currency(suggestedAdvanceAmount(collectionModal.roomId, collectionModal.months))}`} />
-                </label>
-                <button type="button" onClick={() => setCollectionModal((modal) => ({ ...modal, amount: suggestedAdvanceAmount(modal.roomId, modal.months) }))} className="mt-2 text-sm font-medium text-emerald-700">Dùng số tiền tự tính: {currency(suggestedAdvanceAmount(collectionModal.roomId, collectionModal.months))} đ</button>
-                <p className="mt-3 text-sm text-slate-500">{collectionModal.roomId ? `Phân bổ từ ${advancePaymentStartMonth(collectionModal.roomId)} đến ${addMonths(advancePaymentStartMonth(collectionModal.roomId), collectionModal.months)}.` : 'Chọn phòng để xem kỳ phân bổ.'} Khi lên từng hóa đơn tháng, khoản này tự được cấn trừ.</p>
+                {(() => {
+                  const from = collectionModal.fromMonth;
+                  const to = collectionModal.toMonth;
+                  const count = from && to && to >= from ? monthsBetween(from, to) : 0;
+                  const suggested = count ? suggestedAdvanceAmount(collectionModal.roomId, from, count) : 0;
+                  return (
+                    <>
+                      <label className="mt-4 block text-sm font-medium text-slate-700">Số tiền đóng (VNĐ)
+                        <input type="number" min="0" value={collectionModal.amount} onChange={(e) => setCollectionModal((modal) => ({ ...modal, amount: e.target.value }))} className="mt-1 block w-full rounded-xl border px-3 py-2" placeholder={`Tự tính: ${currency(suggested)}`} />
+                      </label>
+                      <button type="button" disabled={!count} onClick={() => setCollectionModal((modal) => ({ ...modal, amount: suggested }))} className="mt-2 text-sm font-medium text-emerald-700 disabled:opacity-50">Dùng số tiền tự tính: {currency(suggested)} đ</button>
+                      <p className="mt-3 text-sm text-slate-500">{count ? `Phân bổ ${count} tháng, từ ${from} đến ${to}.` : 'Chọn phòng và khoảng tháng để xem kỳ phân bổ.'} Khi lên từng hóa đơn tháng, khoản này tự được cấn trừ.</p>
+                    </>
+                  );
+                })()}
               </>
             ) : (
               <label className="mt-4 block text-sm font-medium text-slate-700">{collectionModal.type === 'refund' ? 'Số tiền hoàn cọc (VNĐ)' : 'Số tiền cọc (VNĐ)'}

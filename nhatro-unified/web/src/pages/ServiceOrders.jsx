@@ -1,0 +1,330 @@
+// src/pages/ServiceOrders.jsx
+// Tạo/theo dõi đơn dịch vụ. Quản lý danh mục & bảng giá đã tách sang
+// ServiceCatalog.jsx — màn này chỉ còn việc đặt đơn. Đơn có thể gắn với một
+// phòng/khách thuê, hoặc để trống (khách vãng lai, ghi tên tự do).
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { loadState, hydrateState, monthKey, currency } from '../utils/state';
+import * as catalog from '../utils/catalog';
+import Page from '../components/Page';
+import PaginationControls from '../components/PaginationControls';
+import { badgeBase, btn, btnDanger, btnPrimary, card, input, table, tableWrap, td, th } from '../ui';
+
+const STATUS_LABELS = {
+  pending: 'Chờ xử lý',
+  in_progress: 'Đang xử lý',
+  done: 'Hoàn thành',
+  cancelled: 'Đã hủy',
+};
+const STATUS_BADGE = {
+  pending: 'bg-amber-100 text-amber-700',
+  in_progress: 'bg-sky-100 text-sky-700',
+  done: 'bg-emerald-100 text-emerald-700',
+  cancelled: 'bg-slate-200 text-slate-600',
+};
+const STATUS_OPTIONS = Object.keys(STATUS_LABELS);
+
+export default function ServiceOrders() {
+  const [state, setState] = useState(() => loadState());
+  const { rooms = [], tenants = [] } = state || {};
+  const [month, setMonth] = useState(monthKey());
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [roomFilter, setRoomFilter] = useState('all');
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(10);
+
+  const [items, setItems] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const [orderForm, setOrderForm] = useState({
+    open: false,
+    customerType: 'walkin', // 'tenant' | 'walkin'
+    roomId: '',
+    tenantId: '',
+    customerName: '',
+    itemId: '',
+    quantity: 1,
+    note: '',
+  });
+
+  useEffect(() => {
+    setState(loadState());
+    hydrateState({ tables: ['rooms', 'tenants'] });
+  }, []);
+
+  const roomMap = useMemo(() => Object.fromEntries(rooms.map((r) => [r.id, r])), [rooms]);
+  const tenantsByRoom = useMemo(() => {
+    const map = {};
+    (tenants || []).forEach((t) => {
+      if (!t?.roomId) return;
+      (map[t.roomId] ||= []).push(t);
+    });
+    return map;
+  }, [tenants]);
+  const tenantMap = useMemo(() => Object.fromEntries((tenants || []).map((t) => [t.id, t])), [tenants]);
+
+  async function reloadCatalog() {
+    setLoading(true);
+    setError('');
+    try {
+      const its = await catalog.listItems();
+      setItems(its || []);
+    } catch (err) {
+      setError(err.message || 'Không tải được danh mục dịch vụ.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function reloadOrders() {
+    try {
+      const params = { month };
+      if (roomFilter !== 'all') params.roomId = roomFilter;
+      if (statusFilter !== 'all') params.status = statusFilter;
+      const rows = await catalog.listOrders(params);
+      setOrders(rows || []);
+    } catch (err) {
+      setError(err.message || 'Không tải được danh sách đơn.');
+    }
+  }
+
+  useEffect(() => { reloadCatalog(); }, []);
+  useEffect(() => { reloadOrders(); }, [month, roomFilter, statusFilter]);
+  useEffect(() => { setPage(1); }, [month, roomFilter, statusFilter, query, perPage]);
+
+  const itemMap = useMemo(() => Object.fromEntries(items.map((it) => [it.id, it])), [items]);
+
+  const visibleOrders = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return orders;
+    return orders.filter((o) => {
+      const roomName = roomMap[o.roomId]?.name || '';
+      const customerName = customerLabel(o);
+      return [roomName, customerName, o.itemName, o.note].some((v) => String(v || '').toLowerCase().includes(q));
+    });
+  }, [orders, query, roomMap, tenantMap]);
+
+  const totalPages = Math.max(1, Math.ceil(visibleOrders.length / perPage));
+  const currentPage = Math.min(page, totalPages);
+  const pagedOrders = useMemo(() => {
+    const start = (currentPage - 1) * perPage;
+    return visibleOrders.slice(start, start + perPage);
+  }, [visibleOrders, currentPage, perPage]);
+
+  function openOrderForm() {
+    setOrderForm({
+      open: true,
+      customerType: 'walkin',
+      roomId: rooms[0]?.id || '',
+      tenantId: '',
+      customerName: '',
+      itemId: items[0]?.id || '',
+      quantity: 1,
+      note: '',
+    });
+  }
+
+  async function submitOrder(e) {
+    e.preventDefault();
+    const item = itemMap[orderForm.itemId];
+    if (!item) return alert('Chọn dịch vụ trước.');
+    const walkIn = orderForm.customerType === 'walkin';
+    if (walkIn && !orderForm.customerName.trim()) return alert('Nhập tên khách vãng lai.');
+    if (!walkIn && !orderForm.roomId) return alert('Chọn phòng trước.');
+    try {
+      await catalog.createOrder({
+        itemId: item.id,
+        itemName: item.name,
+        unit: item.unit,
+        price: item.price,
+        quantity: Number(orderForm.quantity) || 1,
+        roomId: walkIn ? null : orderForm.roomId,
+        tenantId: walkIn ? null : (orderForm.tenantId || null),
+        customerName: walkIn ? orderForm.customerName.trim() : null,
+        month,
+        note: orderForm.note.trim() || null,
+      });
+      setOrderForm((f) => ({ ...f, open: false }));
+      await reloadOrders();
+    } catch (err) {
+      alert(err.message || 'Không tạo được đơn.');
+    }
+  }
+
+  async function changeStatus(order, status) {
+    try {
+      await catalog.updateOrder(order.id, { status });
+      await reloadOrders();
+    } catch (err) {
+      alert(err.message || 'Không đổi được trạng thái.');
+    }
+  }
+
+  async function removeOrder(id) {
+    if (!confirm('Xóa đơn này?')) return;
+    try {
+      await catalog.deleteOrder(id);
+      await reloadOrders();
+    } catch (err) {
+      alert(err.message || 'Không xóa được đơn.');
+    }
+  }
+
+  function customerLabel(order) {
+    if (order.customerName) return `${order.customerName} (vãng lai)`;
+    return tenantMap[order.tenantId]?.name || (order.roomId ? '—' : 'Khách vãng lai');
+  }
+
+  return (
+    <Page className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-bold text-slate-900 sm:text-xl">Đơn dịch vụ</h2>
+        <div className="flex flex-wrap gap-2">
+          <Link to="/reports?tab=services" className={`${btn} !px-3 !py-1.5 !text-xs`}>📊 Doanh thu dịch vụ</Link>
+          <Link to="/service-catalog" className={`${btn} !px-3 !py-1.5 !text-xs`}>⚙️ Quản lý dịch vụ</Link>
+        </div>
+      </div>
+      {error ? <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
+      {loading ? <div className="text-sm text-slate-500">Đang tải danh mục...</div> : null}
+      {!items.length && !loading ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Chưa có dịch vụ nào trong danh mục. Vào <Link to="/service-catalog" className="underline">Quản lý dịch vụ</Link> để thêm.
+        </div>
+      ) : null}
+
+      <div className={card}>
+        <div className="flex flex-wrap items-center gap-2">
+          <input type="month" className={`${input} w-auto`} value={month} onChange={(e) => setMonth(e.target.value)} />
+          <select className={`${input} w-auto`} value={roomFilter} onChange={(e) => setRoomFilter(e.target.value)}>
+            <option value="all">Tất cả phòng</option>
+            {rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+          <select className={`${input} w-auto`} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="all">Tất cả trạng thái</option>
+            {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+          </select>
+          <input
+            className={`${input} w-auto sm:w-64`}
+            placeholder="Tìm theo phòng, tên khách, dịch vụ..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <button type="button" className={`${btnPrimary} ml-auto`} onClick={openOrderForm} disabled={!items.length}>+ Tạo đơn</button>
+        </div>
+
+        {orderForm.open ? (
+          <form onSubmit={submitOrder} className="mt-3 grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-3 sm:grid-cols-5">
+            <div className="col-span-2 sm:col-span-5">
+              <label className="text-xs font-medium text-slate-600">Khách hàng</label>
+              <div className="mt-1 flex gap-2">
+                <button type="button" onClick={() => setOrderForm((f) => ({ ...f, customerType: 'tenant' }))} className={`rounded-xl border px-3 py-1 text-xs font-medium ${orderForm.customerType === 'tenant' ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>Khách thuê trọ</button>
+                <button type="button" onClick={() => setOrderForm((f) => ({ ...f, customerType: 'walkin' }))} className={`rounded-xl border px-3 py-1 text-xs font-medium ${orderForm.customerType === 'walkin' ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>Khách vãng lai</button>
+              </div>
+            </div>
+            {orderForm.customerType === 'tenant' ? (
+              <>
+                <div>
+                  <label className="text-xs font-medium text-slate-600">Phòng</label>
+                  <select className={input} value={orderForm.roomId} onChange={(e) => setOrderForm((f) => ({ ...f, roomId: e.target.value, tenantId: '' }))}>
+                    {rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-600">Khách</label>
+                  <select className={input} value={orderForm.tenantId} onChange={(e) => setOrderForm((f) => ({ ...f, tenantId: e.target.value }))}>
+                    <option value="">— Không chọn —</option>
+                    {(tenantsByRoom[orderForm.roomId] || []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+              </>
+            ) : (
+              <div className="col-span-2">
+                <label className="text-xs font-medium text-slate-600">Tên khách vãng lai</label>
+                <input className={input} value={orderForm.customerName} onChange={(e) => setOrderForm((f) => ({ ...f, customerName: e.target.value }))} placeholder="Tên khách / SĐT" />
+              </div>
+            )}
+            <div>
+              <label className="text-xs font-medium text-slate-600">Dịch vụ</label>
+              <select className={input} value={orderForm.itemId} onChange={(e) => setOrderForm((f) => ({ ...f, itemId: e.target.value }))}>
+                {items.map((it) => <option key={it.id} value={it.id}>{it.name} ({currency(it.price)} đ/{it.unit || 'lần'})</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600">Số lượng</label>
+              <input type="number" min="0" step="any" className={input} value={orderForm.quantity} onChange={(e) => setOrderForm((f) => ({ ...f, quantity: e.target.value }))} />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600">Ghi chú</label>
+              <input className={input} value={orderForm.note} onChange={(e) => setOrderForm((f) => ({ ...f, note: e.target.value }))} />
+            </div>
+            <div className="col-span-2 flex gap-2 sm:col-span-5">
+              <button type="submit" className={btnPrimary}>Tạo đơn</button>
+              <button type="button" className={btn} onClick={() => setOrderForm((f) => ({ ...f, open: false }))}>Hủy</button>
+            </div>
+          </form>
+        ) : null}
+      </div>
+
+      <div className={card}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h3 className="font-semibold text-slate-900">Danh sách đơn ({visibleOrders.length})</h3>
+        </div>
+        <div className="mt-3">
+          <PaginationControls
+            totalItems={visibleOrders.length}
+            page={currentPage}
+            perPage={perPage}
+            onPageChange={setPage}
+            onPerPageChange={setPerPage}
+          />
+        </div>
+        <div className={`mt-3 ${tableWrap}`}>
+          <table className={table}>
+            <thead>
+              <tr>
+                <th className={th}>Phòng</th>
+                <th className={th}>Khách</th>
+                <th className={th}>Dịch vụ</th>
+                <th className={th}>SL</th>
+                <th className={`${th} text-right`}>Thành tiền</th>
+                <th className={th}>Trạng thái</th>
+                <th className={th}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedOrders.map((o) => (
+                <tr key={o.id}>
+                  <td className={td}>{roomMap[o.roomId]?.name || (o.roomId || (o.customerName ? '—' : ''))}</td>
+                  <td className={td}>{customerLabel(o)}</td>
+                  <td className={td}>{o.itemName}</td>
+                  <td className={td}>{o.quantity} {o.unit}</td>
+                  <td className={`${td} text-right tabular-nums`}>{currency(o.amount)} đ</td>
+                  <td className={td}>
+                    <select
+                      className={`${badgeBase} border-0 ${STATUS_BADGE[o.status] || ''}`}
+                      value={o.status}
+                      onChange={(e) => changeStatus(o, e.target.value)}
+                    >
+                      {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+                    </select>
+                  </td>
+                  <td className={td}>
+                    <div className="flex justify-end">
+                      <button type="button" className={btnDanger} onClick={() => removeOrder(o.id)}>Xóa</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {!pagedOrders.length ? (
+                <tr><td colSpan={7} className={`${td} text-center text-slate-500`}>{query.trim() ? 'Không tìm thấy đơn phù hợp.' : 'Chưa có đơn dịch vụ nào trong tháng này.'}</td></tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </Page>
+  );
+}

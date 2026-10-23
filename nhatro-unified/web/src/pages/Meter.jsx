@@ -1,6 +1,7 @@
 // src/pages/Meter.jsx
 import React, { useMemo, useState, useEffect } from 'react';
-import { loadState, saveState, monthKey, uid, calcTotalsWithAdvance, hydrateState } from '../utils/state';
+import { loadState, monthKey, uid, calcTotalsWithAdvance, hydrateState } from '../utils/state';
+import { readingsApi } from '../utils/api/tables';
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
 import TopStats from '../components/TopStats';
@@ -10,23 +11,37 @@ import PaginationControls from '../components/PaginationControls';
 import { getStoredToken, getAuthSession } from '../utils/auth';
 import { uploadMeterPhoto } from '../utils/meterOcr';
 import { listMeterSubmissions, reviewMeterSubmission } from '../utils/meterSubmissions';
+import { btn, btnDanger, btnPrimary, card, table, tableWrap, td, th } from '../ui';
 
 const METER_TYPE_LABELS = { electric: 'Điện', water: 'Nước' };
 
 export default function Meter() {
   const [state, setState] = useState(loadState());
+  const [readings, setReadings] = useState([]);
+  const loadReadings = async () => {
+    try {
+      setReadings(await readingsApi.list());
+    } catch (error) {
+      console.error('load readings failed', error);
+    }
+  };
   useEffect(() => {
+    // Bulk-synced fields only (rooms/tenants/settings/invoices/...). readings
+    // is fetched once below and kept in sync locally from each mutation's
+    // own response, so it must not re-fetch here too.
     const handler = () => setState(loadState());
     window.addEventListener('boarding_state_updated', handler);
+    // readings is now a REST resource of its own (no longer part of /api/state).
+    loadReadings();
     // Phase 1 (core for the Meter page)
-    hydrateState({ tables: ['rooms', 'tenants', 'readings', 'settings'] });
+    hydrateState({ tables: ['rooms', 'tenants', 'settings'] });
     // Phase 2 (optional, only for monthly totals)
     setTimeout(() => {
       hydrateState({ tables: ['invoices', 'payments', 'rentPeriods', 'paymentAllocations'] });
     }, 0);
     return () => window.removeEventListener('boarding_state_updated', handler);
   }, []);
-  const { rooms, tenants, readings = [], invoices = [], payments = [], rentPeriods = [], paymentAllocations = [], settings } = state;
+  const { rooms, tenants, invoices = [], payments = [], rentPeriods = [], paymentAllocations = [], settings } = state;
   const [month, setMonth] = useState(monthKey());
   const isCurrentMonth = month === monthKey();
   const [query, setQuery] = useState('');
@@ -225,16 +240,16 @@ export default function Meter() {
       const existing = latestReadingMap.get(`${submission.roomId}__${submission.month}`);
       const previous = getPreviousReading(submission.roomId);
 
-      let nextReadings;
       if (existing) {
-        nextReadings = (state.readings || []).map((r) => r.id === existing.id ? ({
-          ...r,
-          electricEnd: isElectric ? finalValue : r.electricEnd,
-          waterEnd: !isElectric ? finalValue : r.waterEnd,
-          electricPhotoUrl: isElectric ? submission.photoUrl : r.electricPhotoUrl,
-          waterPhotoUrl: !isElectric ? submission.photoUrl : r.waterPhotoUrl,
+        const updated = await readingsApi.update(existing.id, {
+          ...existing,
+          electricEnd: isElectric ? finalValue : existing.electricEnd,
+          waterEnd: !isElectric ? finalValue : existing.waterEnd,
+          electricPhotoUrl: isElectric ? submission.photoUrl : existing.electricPhotoUrl,
+          waterPhotoUrl: !isElectric ? submission.photoUrl : existing.waterPhotoUrl,
           updated_at: nowIso,
-        }) : r);
+        });
+        setReadings((prev) => prev.map((r) => r.id === existing.id ? updated : r));
       } else {
         const newReading = {
           id: uid(),
@@ -248,12 +263,9 @@ export default function Meter() {
           waterPhotoUrl: !isElectric ? submission.photoUrl : '',
           created_at: nowIso,
         };
-        nextReadings = [newReading, ...(state.readings || [])];
+        const created = await readingsApi.create(newReading);
+        setReadings((prev) => [created, ...prev]);
       }
-
-      const nextState = { ...state, readings: nextReadings };
-      setState(nextState);
-      saveState(nextState);
 
       await reviewMeterSubmission(submission.id, 'confirm', finalValue);
       setPendingSubmissions((prev) => prev.filter((row) => row.id !== submission.id));
@@ -277,11 +289,14 @@ export default function Meter() {
     }
   };
 
-  const onDeleteReading = (id) => {
+  const onDeleteReading = async (id) => {
     if (!window.confirm('Xóa chỉ số này?')) return;
-    const nextReadings = (state.readings || []).filter(x => x.id !== id);
-    const s2 = { ...state, readings: nextReadings };
-    setState(s2); saveState(s2);
+    try {
+      await readingsApi.remove(id);
+      setReadings((prev) => prev.filter(x => x.id !== id));
+    } catch (error) {
+      alert(error?.message || 'Không thể xoá chỉ số.');
+    }
   };
 
   const closeTuyaMeters = async (targetRooms = null) => {
@@ -322,8 +337,7 @@ export default function Meter() {
       if (!response.ok) throw new Error(payload?.error || 'Không thể kết nối Tuya.');
 
       const nowIso = payload.capturedAt || new Date().toISOString();
-      let nextReadings = [...(state.readings || [])];
-      let successCount = 0;
+      const createdOrUpdated = [];
       const failures = [];
 
       for (const result of payload.results || []) {
@@ -339,14 +353,15 @@ export default function Meter() {
 
         const existing = latestReadingMap.get(`${result.roomId}__${month}`);
         if (existing) {
-          nextReadings = nextReadings.map((reading) => reading.id === existing.id ? ({
-            ...reading,
-            electricStart: electricStart ?? reading.electricStart,
+          const updated = await readingsApi.update(existing.id, {
+            ...existing,
+            electricStart: electricStart ?? existing.electricStart,
             electricEnd: result.electricEnd,
             updated_at: nowIso,
-          }) : reading);
+          });
+          createdOrUpdated.push(updated);
         } else {
-          nextReadings.unshift({
+          const created = await readingsApi.create({
             id: uid(),
             roomId: result.roomId,
             month,
@@ -357,14 +372,17 @@ export default function Meter() {
             created_at: nowIso,
             updated_at: nowIso,
           });
+          createdOrUpdated.push(created);
         }
-        successCount += 1;
       }
+      const successCount = createdOrUpdated.length;
 
       if (successCount > 0) {
-        const next = { ...state, readings: nextReadings };
-        setState(next);
-        saveState(next);
+        const updatedIds = new Set(createdOrUpdated.map((r) => r.id));
+        setReadings((prev) => [
+          ...createdOrUpdated,
+          ...prev.filter((r) => !updatedIds.has(r.id)),
+        ]);
       }
 
       const summary = [`Đã chốt ${successCount}/${mappedRooms.length} công tơ cho tháng ${month}.`];
@@ -430,7 +448,7 @@ export default function Meter() {
     return readingsVisible.slice(start, start + perPage);
   }, [readingsVisible, currentPage, perPage]);
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     const form = readingModal.form;
     if (!form.roomId) return alert('Chọn phòng');
@@ -473,40 +491,45 @@ export default function Meter() {
     if (errors.length) return alert(errors.join('\n'));
 
     const nowIso = new Date().toISOString();
-    if (form.id) {
-      // update existing reading
-      const nextReadings = (state.readings || []).map(r => r.id === form.id ? ({
-        ...r,
-        roomId: form.roomId,
-        month: month,
-        electricStart: +form.electricStart,
-        electricEnd: +form.electricEnd,
-        waterStart: +form.waterStart,
-        waterEnd: +form.waterEnd,
-        electricPhotoUrl: form.electricPhotoUrl || r.electricPhotoUrl || '',
-        waterPhotoUrl: form.waterPhotoUrl || r.waterPhotoUrl || '',
-        created_at: r.created_at || nowIso,
-        updated_at: nowIso
-      }) : r);
-      const next = { ...state, readings: nextReadings };
-      setState(next); saveState(next);
-      alert('Đã cập nhật chỉ số');
-    } else {
-      const reading = {
-        id: uid(),
-        roomId: form.roomId,
-        month: month,
-        electricStart: +form.electricStart,
-        electricEnd: +form.electricEnd,
-        waterStart: +form.waterStart,
-        waterEnd: +form.waterEnd,
-        electricPhotoUrl: form.electricPhotoUrl || '',
-        waterPhotoUrl: form.waterPhotoUrl || '',
-        created_at: nowIso
-      };
-      const next = { ...state, readings: [reading, ...(state.readings || [])] };
-      setState(next); saveState(next);
-      alert('Đã lưu chỉ số');
+    try {
+      if (form.id) {
+        // update existing reading
+        const existing = readings.find(r => r.id === form.id) || {};
+        const updated = await readingsApi.update(form.id, {
+          ...existing,
+          roomId: form.roomId,
+          month: month,
+          electricStart: +form.electricStart,
+          electricEnd: +form.electricEnd,
+          waterStart: +form.waterStart,
+          waterEnd: +form.waterEnd,
+          electricPhotoUrl: form.electricPhotoUrl || existing.electricPhotoUrl || '',
+          waterPhotoUrl: form.waterPhotoUrl || existing.waterPhotoUrl || '',
+          created_at: existing.created_at || nowIso,
+          updated_at: nowIso,
+        });
+        setReadings((prev) => prev.map(r => r.id === form.id ? updated : r));
+        alert('Đã cập nhật chỉ số');
+      } else {
+        const reading = {
+          id: uid(),
+          roomId: form.roomId,
+          month: month,
+          electricStart: +form.electricStart,
+          electricEnd: +form.electricEnd,
+          waterStart: +form.waterStart,
+          waterEnd: +form.waterEnd,
+          electricPhotoUrl: form.electricPhotoUrl || '',
+          waterPhotoUrl: form.waterPhotoUrl || '',
+          created_at: nowIso,
+        };
+        const created = await readingsApi.create(reading);
+        setReadings((prev) => [created, ...prev]);
+        alert('Đã lưu chỉ số');
+      }
+    } catch (error) {
+      alert(error?.message || 'Không thể lưu chỉ số.');
+      return;
     }
 
     closeReadingModal();
@@ -535,7 +558,7 @@ export default function Meter() {
       />
 
       <div className="grid gap-3">
-        <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className={`${card} flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between`}>
           <div className="text-sm text-slate-600">
             Nhập chỉ số điện/nước theo tháng để tính tiền phòng.
           </div>
@@ -545,12 +568,12 @@ export default function Meter() {
                 type="button"
                 onClick={closeAllTuyaMeters}
                 disabled={isClosingTuyaMeters}
-                className="h-11 rounded-xl bg-sky-600 px-4 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-sky-300"
+                className="inline-flex items-center justify-center rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-300"
               >
                 {isClosingTuyaMeters ? 'Đang lấy từ Tuya…' : 'Lấy chỉ số từ Tuya'}
               </button>
             )}
-            <button type="button" onClick={openCreateReading} className="h-11 rounded-xl bg-emerald-600 px-4 text-sm font-medium text-white">
+            <button type="button" onClick={openCreateReading} className={btnPrimary}>
               Thêm chỉ số
             </button>
           </div>
@@ -561,14 +584,14 @@ export default function Meter() {
           </div>
         )}
         {isCurrentMonth && unrecordedTuyaRooms.length > 0 && (
-          <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
-            <div className="mb-3 font-semibold">Chốt từng phòng — {month}</div>
+          <div className={card}>
+            <div className="mb-3 font-semibold text-slate-900">Chốt từng phòng — {month}</div>
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
               {unrecordedTuyaRooms.map((room) => {
                 const previousReading = getPreviousReading(room.id);
                 const isClosingThisRoom = closingTuyaRoomId === room.id;
                 return (
-                  <div key={room.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                  <div key={room.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                     <div className="font-medium text-slate-900">{room.name}</div>
                     <div className="mt-1 text-xs text-slate-500">Số đầu mặc định: {previousReading?.electricEnd ?? 'Chưa có kỳ trước'}</div>
                     <div className="mt-3 flex gap-2">
@@ -576,7 +599,7 @@ export default function Meter() {
                         type="button"
                         onClick={() => closeTuyaMeters([room])}
                         disabled={isClosingTuyaMeters}
-                        className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-medium text-white disabled:cursor-not-allowed disabled:bg-sky-300"
+                        className="inline-flex items-center justify-center rounded-xl bg-sky-600 px-3 py-2 text-xs font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-300"
                       >
                         {isClosingThisRoom ? 'Đang chốt…' : 'Chốt từ Tuya'}
                       </button>
@@ -588,8 +611,8 @@ export default function Meter() {
           </div>
         )}
         {readingsVisible.length > 0 && (
-          <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
-            <div className="mb-3 font-semibold">Danh sách chỉ số — {month}</div>
+          <div className={card}>
+            <div className="mb-3 font-semibold text-slate-900">Danh sách chỉ số — {month}</div>
             <div className="mb-3">
               <PaginationControls
                 totalItems={readingsVisible.length}
@@ -604,28 +627,28 @@ export default function Meter() {
                 const eUse = Math.max(0, (r.electricEnd || 0) - (r.electricStart || 0));
                 const wUse = Math.max(0, (r.waterEnd || 0) - (r.waterStart || 0));
                 return (
-                  <div key={r.id} className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                  <div key={r.id} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
                     <div className="font-semibold text-slate-900">{roomMap[r.roomId]?.name || r.roomId}</div>
                     <dl className="mt-2 space-y-1 text-sm text-slate-700">
                       <div><span className="text-slate-500">Điện: </span>{(r.electricStart ?? '')} — {r.electricEnd ?? ''} <span className="text-slate-400">({eUse} kWh)</span></div>
                       <div><span className="text-slate-500">Nước: </span>{(r.waterStart ?? '')} — {r.waterEnd ?? ''} <span className="text-slate-400">({wUse} m³)</span></div>
                     </dl>
                     <div className="mt-3 flex justify-end gap-1.5">
-                      <button type="button" onClick={() => onEditReading(r)} className="h-[29px] rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-medium">Sửa</button>
-                      <button type="button" onClick={() => onDeleteReading(r.id)} className="h-[29px] rounded-lg border border-rose-200 bg-rose-50 px-2 text-[11px] font-medium text-rose-800">Xóa</button>
+                      <button type="button" onClick={() => onEditReading(r)} className={`${btn} !px-2.5 !py-1 !text-xs`}>Sửa</button>
+                      <button type="button" onClick={() => onDeleteReading(r.id)} className={`${btnDanger} !px-2.5 !py-1`}>Xóa</button>
                     </div>
                   </div>
                 );
               })}
             </div>
-            <div className="hidden overflow-x-auto lg:block">
-              <table className="min-w-full text-sm">
+            <div className={`hidden lg:block ${tableWrap}`}>
+              <table className={table}>
                 <thead>
-                  <tr className="text-left text-slate-500">
-                    <th className="p-2">Phòng</th>
-                    <th className="p-2">Điện</th>
-                    <th className="p-2">Nước</th>
-                    <th className="p-2 text-right">Tác vụ</th>
+                  <tr>
+                    <th className={th}>Phòng</th>
+                    <th className={th}>Điện</th>
+                    <th className={th}>Nước</th>
+                    <th className={`${th} text-right`}>Tác vụ</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -633,14 +656,14 @@ export default function Meter() {
                     const eUse = Math.max(0, (r.electricEnd || 0) - (r.electricStart || 0));
                     const wUse = Math.max(0, (r.waterEnd || 0) - (r.waterStart || 0));
                     return (
-                      <tr key={r.id} className="border-t border-slate-100">
-                        <td className="p-2 font-medium">{roomMap[r.roomId]?.name || r.roomId}</td>
-                        <td className="p-2">{(r.electricStart ?? '') + ' — ' + (r.electricEnd ?? '')} <span className="text-slate-400">({eUse} kWh)</span></td>
-                        <td className="p-2">{(r.waterStart ?? '') + ' — ' + (r.waterEnd ?? '')} <span className="text-slate-400">({wUse} m³)</span></td>
-                        <td className="p-2">
+                      <tr key={r.id}>
+                        <td className={`${td} font-medium text-slate-900`}>{roomMap[r.roomId]?.name || r.roomId}</td>
+                        <td className={td}>{(r.electricStart ?? '') + ' — ' + (r.electricEnd ?? '')} <span className="text-slate-400">({eUse} kWh)</span></td>
+                        <td className={td}>{(r.waterStart ?? '') + ' — ' + (r.waterEnd ?? '')} <span className="text-slate-400">({wUse} m³)</span></td>
+                        <td className={td}>
                           <div className="flex flex-wrap justify-end gap-1.5">
-                            <button type="button" onClick={() => onEditReading(r)} className="rounded border px-2 py-1 text-xs sm:text-sm">Sửa</button>
-                            <button type="button" onClick={() => onDeleteReading(r.id)} className="rounded border px-2 py-1 text-xs sm:text-sm">Xóa</button>
+                            <button type="button" onClick={() => onEditReading(r)} className={`${btn} !py-1.5 !text-xs`}>Sửa</button>
+                            <button type="button" onClick={() => onDeleteReading(r.id)} className={btnDanger}>Xóa</button>
                           </div>
                         </td>
                       </tr>
@@ -688,7 +711,7 @@ export default function Meter() {
                         type="button"
                         disabled={isBusy}
                         onClick={() => applyPendingSubmission(submission)}
-                        className="h-9 flex-1 rounded-lg bg-emerald-600 px-3 text-xs font-medium text-white disabled:opacity-60"
+                        className={`${btnPrimary} flex-1`}
                       >
                         {isBusy ? 'Đang xử lý...' : 'Xác nhận'}
                       </button>
@@ -696,7 +719,7 @@ export default function Meter() {
                         type="button"
                         disabled={isBusy}
                         onClick={() => rejectPendingSubmission(submission)}
-                        className="h-9 rounded-lg border border-rose-200 bg-rose-50 px-3 text-xs font-medium text-rose-800 disabled:opacity-60"
+                        className={btnDanger}
                       >
                         Từ chối
                       </button>
@@ -718,7 +741,7 @@ export default function Meter() {
                 <div className="text-base sm:text-lg font-semibold leading-snug">{readingModal.form.id ? 'Cập nhật chỉ số' : 'Thêm chỉ số'}</div>
                 <div className="text-sm text-slate-600 mt-0.5">Tháng: <span className="font-medium text-slate-800">{month}</span></div>
               </div>
-              <button type="button" onClick={closeReadingModal} className="flex-shrink-0 rounded-xl border px-3 py-2 text-sm">Đóng</button>
+              <button type="button" onClick={closeReadingModal} className={`${btn} flex-shrink-0`}>Đóng</button>
             </div>
 
             <form onSubmit={submit} className="flex-1 min-h-0 overflow-y-auto px-4 py-4 sm:px-5 space-y-3">
@@ -780,10 +803,10 @@ export default function Meter() {
               ) : null}
 
               <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-2">
-                <button type="button" className="rounded-xl border px-4 py-2 text-sm" onClick={closeReadingModal}>
+                <button type="button" className={btn} onClick={closeReadingModal}>
                   Hủy
                 </button>
-                <button type="submit" className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white">
+                <button type="submit" className={btnPrimary}>
                   Lưu chỉ số
                 </button>
               </div>

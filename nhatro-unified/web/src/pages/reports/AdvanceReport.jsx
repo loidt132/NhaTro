@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { loadState, currency, monthKey } from '../../utils/state';
 import { exportReportPdf } from '../../utils/pdf/exportInvoiceJspdf';
+import { exportStyledExcel } from '../../utils/exportExcel';
 
 const addMonth = (ym) => {
   const [year, month] = String(ym).split('-').map(Number);
@@ -23,9 +24,35 @@ export default function AdvanceReport(){
   const totalAdvance = rows.reduce((sum, row) => sum + row.total, 0);
   const dueSoon = rows.filter((row) => row.dueSoon);
   const exportPdf = () => exportReportPdf({ title: 'BÁO CÁO ĐÓNG TRƯỚC', subtitle: `Kỳ hiện tại: ${currentMonth}`, columns: ['#', 'Phòng', 'Khách', 'Đóng từ', 'Đã đóng đến', 'Đóng lại từ', 'Tổng đóng trước', 'Trạng thái'], rows: rows.map((row, index) => [index + 1, row.room.name, row.tenantNames, row.from, row.paidTo, row.dueMonth, currency(row.total), row.dueSoon ? 'Sắp đến hạn' : 'Còn kỳ đóng trước']), summary: [`Tổng tiền đóng trước: ${currency(totalAdvance)} đ`, `Sắp đến hạn đóng lại: ${dueSoon.length} phòng`], fileName: `advance-report-${currentMonth}.pdf` });
+  const exportExcelFile = () => exportStyledExcel({
+    filename: `bao-cao-dong-truoc-${currentMonth}.xlsx`,
+    sheetName: 'Đóng trước',
+    title: 'Báo cáo đóng trước',
+    subtitle: `Kỳ hiện tại: ${currentMonth} · Sắp đến hạn đóng lại: ${dueSoon.length} phòng`,
+    columns: [
+      { header: '#', key: 'idx', width: 6 },
+      { header: 'Phòng', key: 'room', width: 12 },
+      { header: 'Khách', key: 'tenant', width: 24 },
+      { header: 'Đóng từ', key: 'from', width: 12 },
+      { header: 'Đã đóng đến', key: 'paidTo', width: 14 },
+      { header: 'Đóng lại từ', key: 'dueMonth', width: 14 },
+      { header: 'Tổng đóng trước', key: 'total', width: 18, money: true },
+      { header: 'Trạng thái', key: 'status', width: 16 },
+    ],
+    rows: rows.map((row, index) => ({
+      idx: index + 1, room: row.room.name, tenant: row.tenantNames, from: row.from, paidTo: row.paidTo, dueMonth: row.dueMonth, total: row.total, status: row.dueSoon ? 'Sắp đến hạn' : 'Còn kỳ đóng trước',
+    })),
+    totals: { room: 'Tổng cộng', total: totalAdvance },
+  });
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3"><h3 className="font-semibold">Báo cáo đóng trước</h3><button onClick={exportPdf} className="h-[29px] rounded bg-slate-900 px-2 text-[11px] text-white">Xuất PDF</button></div>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="font-semibold">Báo cáo đóng trước</h3>
+        <div className="flex gap-2">
+          <button onClick={exportExcelFile} className="h-[29px] rounded bg-emerald-600 px-2 text-[11px] text-white">Xuất Excel</button>
+          <button onClick={exportPdf} className="h-[29px] rounded bg-slate-900 px-2 text-[11px] text-white">Xuất PDF</button>
+        </div>
+      </div>
       <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">Đang có <b>{currency(totalAdvance)} đ</b> tiền đóng trước. <b>{dueSoon.length}</b> phòng sắp cần đóng lại trong tháng này hoặc tháng kế tiếp.</div>
       <div className="overflow-x-auto rounded-xl border bg-white"><table className="min-w-[760px] w-full text-sm"><thead><tr className="border-b bg-slate-50 text-left text-slate-500"><th className="p-2">Phòng</th><th className="p-2">Khách</th><th className="p-2">Đóng trước</th><th className="p-2">Đã đóng đến</th><th className="p-2">Đóng lại từ</th><th className="p-2 text-right">Tổng tiền</th><th className="p-2">Trạng thái</th></tr></thead><tbody>{rows.map((row) => <tr key={row.room.id} className="border-b last:border-0"><td className="p-2 font-medium">{row.room.name}</td><td className="p-2">{row.tenantNames}</td><td className="p-2">{row.from}</td><td className="p-2">{row.paidTo}</td><td className="p-2">{row.dueMonth}</td><td className="p-2 text-right tabular-nums">{currency(row.total)} đ</td><td className="p-2"><span className={row.dueSoon ? 'text-amber-700' : 'text-emerald-700'}>{row.dueSoon ? 'Sắp đến hạn' : 'Còn kỳ đóng trước'}</span></td></tr>)}</tbody></table></div>
     </div>

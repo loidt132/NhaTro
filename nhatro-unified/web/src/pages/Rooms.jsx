@@ -7,9 +7,11 @@ import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
 import ViewSwitch from '../components/ViewSwitch';
 import Page from '../components/Page';
-import { getAdminViewUserId, loadState, hydrateState, saveState, monthKey, currency, uid, calcTotalsWithAdvance } from '../utils/state';
+import { getAdminViewUserId, monthKey, currency, uid, calcTotalsWithAdvance } from '../utils/state';
+import { tenantsApi, roomsApi, readingsApi, invoicesApi, paymentsApi, rentPeriodsApi, paymentAllocationsApi, depositsApi, depositTransactionsApi } from '../utils/api/tables';
 import Footer from '../components/Footer';
 import PaginationControls from '../components/PaginationControls';
+import { btn, btnPrimary, btnDanger } from '../ui';
 function compareByName(a = '', b = '') {
   return String(a).localeCompare(String(b), 'vi');
 }
@@ -17,7 +19,41 @@ function compareByName(a = '', b = '') {
 export default function Rooms(){
   const [currentUser, setCurrentUser] = useState(null);
    
-  const [state, setState] = useState(() => loadState());
+  const [tenants, setTenants] = useState([]);
+  const [rooms, setRooms] = useState([]);
+  const [readings, setReadings] = useState([]);
+  const [invoices, setInvoices] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [rentPeriods, setRentPeriods] = useState([]);
+  const [paymentAllocations, setPaymentAllocations] = useState([]);
+  const [deposits, setDeposits] = useState([]);
+  const [depositTransactions, setDepositTransactions] = useState([]);
+  const loadTenants = async () => {
+    try {
+      setTenants(await tenantsApi.list());
+    } catch (error) {
+      console.error('load tenants failed', error);
+    }
+  };
+  const loadRooms = async () => {
+    try {
+      setRooms(await roomsApi.list());
+    } catch (error) {
+      console.error('load rooms failed', error);
+    }
+  };
+  const loadFinancials = async () => {
+    try {
+      const [rd, inv, pay, rp, pa, dep, dt] = await Promise.all([
+        readingsApi.list(), invoicesApi.list(), paymentsApi.list(),
+        rentPeriodsApi.list(), paymentAllocationsApi.list(), depositsApi.list(), depositTransactionsApi.list(),
+      ]);
+      setReadings(rd); setInvoices(inv); setPayments(pay);
+      setRentPeriods(rp); setPaymentAllocations(pa); setDeposits(dep); setDepositTransactions(dt);
+    } catch (error) {
+      console.error('load financials failed', error);
+    }
+  };
   const [isLoading, setIsLoading] = useState(true);
   const [month, setMonth] = useState(monthKey());
   const [query, setQuery] = useState('');
@@ -29,35 +65,12 @@ export default function Rooms(){
   const [perPage, setPerPage] = useState(10);
 
   useEffect(() => {
-    // load ngay từ memory/cache
-    setState(loadState());
-
-    // Chỉ load dữ liệu cần cho trang Rooms (không background load all).
-    hydrateState({ tables: ['rooms', 'tenants', 'readings', 'invoices', 'payments', 'rentPeriods', 'paymentAllocations', 'deposits'] });
-
-    const refresh = () => {
-      const newState = loadState();
-      setState(prev => {
-        // tránh re-render nếu không đổi
-        if (JSON.stringify(prev) === JSON.stringify(newState)) return prev;
-        return newState;
-      });
+    (async () => {
+      await Promise.all([loadTenants(), loadRooms(), loadFinancials()]);
       setIsLoading(false);
-    };
-
-    window.addEventListener('boarding_state_updated', refresh);
-    const readyHandler = () => {
-      setState(loadState());
-      setIsLoading(false);
-    };
-    window.addEventListener('boarding_state_ready', readyHandler);
-    return () => {
-      window.removeEventListener('boarding_state_updated', refresh);
-      window.removeEventListener('boarding_state_ready', readyHandler);
-    };
+    })();
   }, []);
 
-  const { rooms = [], tenants = [], readings = [], invoices = [], payments = [], rentPeriods = [], paymentAllocations = [], deposits = [], depositTransactions = [] } = state || {};
   const user = currentUser;
   const isAdminViewing = Boolean(getAdminViewUserId());
   const maxRoomLimit = user?.maxRoomLimit === 0 ? null : user?.maxRoomLimit ?? null;
@@ -113,7 +126,7 @@ export default function Rooms(){
     setRoomModal({ open:true, mode:'create', roomId:null, form:{ name:'', baseRent:2500000, electricRate:3500, waterRate:12000, tuyaDeviceId:'' }});
   };
   const openEditRoom = (r)=> setRoomModal({ open:true, mode:'edit', roomId:r.id, form:{ name:r.name, baseRent:r.baseRent, electricRate:r.electricRate, waterRate:r.waterRate, tuyaDeviceId:r.tuyaDeviceId || '' }});
-  const saveRoom = (e)=>{
+  const saveRoom = async (e)=>{
     e.preventDefault();
     const f = roomModal.form; const n = (f.name||'').trim();
     const nowIso = new Date().toISOString();
@@ -143,35 +156,57 @@ export default function Rooms(){
       created_at: existingRoom.created_at || nowIso,
       updated_at: nowIso,
     };
-    const nextRooms = roomModal.mode==='edit' ? rooms.map(r=> r.id===roomModal.roomId? payload : r) : [...rooms, payload];
-    // If editing an existing room, update unpaid invoices for this room so Payments view shows new rent
-    let nextInvoices = invoices;
-    if(roomModal.mode === 'edit'){
-      nextInvoices = (invoices||[]).map(inv => {
-        if(inv.roomId !== payload.id) return inv;
-        // update only unpaid invoices to preserve historical paid records
-        if(inv.status === 'Đã thanh toán') return inv;
-        const newRent = +payload.baseRent || 0;
-        const newTotal = newRent + (inv.electricAmount || 0) + (inv.waterAmount || 0) + (inv.other || 0);
-        return { ...inv, rent: newRent, total: newTotal };
-      });
+    try {
+      if (roomModal.mode === 'edit') {
+        const updated = await roomsApi.update(payload.id, payload);
+        setRooms((prev) => prev.map(r => r.id === payload.id ? updated : r));
+      } else {
+        const created = await roomsApi.create(payload);
+        setRooms((prev) => [...prev, created]);
+      }
+    } catch (error) {
+      alert(error?.message || 'Không thể lưu phòng.');
+      return;
     }
-    const s2 = { ...state, rooms: nextRooms, invoices: nextInvoices };
-    setState(s2); saveState(s2);
+    // If editing an existing room, update unpaid invoices for this room so Payments view shows new rent
+    if (roomModal.mode === 'edit') {
+      // update only unpaid invoices to preserve historical paid records
+      const affectedInvoices = (invoices || []).filter(inv => inv.roomId === payload.id && inv.status !== 'Đã thanh toán');
+      if (affectedInvoices.length) {
+        const newRent = +payload.baseRent || 0;
+        try {
+          const updated = await Promise.all(affectedInvoices.map(inv => {
+            const newTotal = newRent + (inv.electricAmount || 0) + (inv.waterAmount || 0) + (inv.other || 0);
+            return invoicesApi.update(inv.id, { ...inv, rent: newRent, total: newTotal });
+          }));
+          const updatedById = new Map(updated.map((inv) => [inv.id, inv]));
+          setInvoices((prev) => prev.map((inv) => updatedById.get(inv.id) || inv));
+        } catch (error) {
+          alert(error?.message || 'Không thể cập nhật hoá đơn theo tiền phòng mới.');
+        }
+      }
+    }
     setRoomModal({ open:false, mode:'create', roomId:null, form:{ name:'', baseRent:2500000, electricRate:3500, waterRate:12000, tuyaDeviceId:'' }});
   };
-  const removeRoom = (id)=>{
+  const removeRoom = async (id)=>{
     if(!confirm('Xóa phòng này? Khách thuê sẽ bị bỏ gán phòng.')) return;
-    const nextRooms = rooms.filter(r=> r.id!==id);
-    const nextTenants = (tenants||[]).map(t=> t.roomId===id? ({...t, roomId:undefined}) : t);
-    const s2 = { ...state, rooms: nextRooms, tenants: nextTenants };
-    setState(s2); saveState(s2);
+    try {
+      await roomsApi.remove(id);
+      setRooms((prev) => prev.filter(r=> r.id!==id));
+      const affectedTenants = (tenants||[]).filter(t => t.roomId === id);
+      for (const t of affectedTenants) {
+        const updated = await tenantsApi.update(t.id, { ...t, roomId: '' });
+        setTenants((prev) => prev.map((x) => x.id === t.id ? updated : x));
+      }
+    } catch (error) {
+      alert(error?.message || 'Không thể xoá phòng.');
+    }
   };
 
   // ===== Tenant CRUD (multi-tenant per room) =====
   const openTenantManager = (roomId)=> setTenantModal({ open:true, roomId, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' } });
 
-  const submitTenant = (e)=>{
+  const submitTenant = async (e)=>{
     e.preventDefault();
     const f = tenantModal.form; const name=(f.name||'').trim(); const cccd=(f.cccd||'').trim();
     if(!name || !cccd) return alert('Nhập đủ Họ tên và CCCD');
@@ -182,28 +217,50 @@ export default function Rooms(){
     if (ed && isNaN(ed.getTime())) return alert('Ngày kết thúc không hợp lệ');
     if (sd && ed && sd > ed) return alert('Ngày bắt đầu phải nhỏ hơn hoặc bằng Ngày kết thúc');
     const payload = { id: f.id || uid(), name, cccd, phone:(f.phone||'').trim(), roomId: tenantModal.roomId, startDate: f.startDate, endDate: f.endDate };
-    const nextTenants = f.id ? tenants.map(t=> t.id===f.id? payload : t) : [...tenants, payload];
-    const s2 = { ...state, tenants: nextTenants };
-    setState(s2); saveState(s2);
+    try {
+      if (f.id) {
+        const updated = await tenantsApi.update(f.id, payload);
+        setTenants((prev) => prev.map((t) => t.id === f.id ? updated : t));
+      } else {
+        const created = await tenantsApi.create(payload);
+        setTenants((prev) => [...prev, created]);
+      }
+    } catch (error) {
+      alert(error?.message || 'Không thể lưu khách thuê.');
+      return;
+    }
     setTenantModal(tm=> ({ ...tm, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' } }));
   };
 
   const editTenant = (t)=> setTenantModal(tm=> ({ ...tm, form:{ id:t.id, name:t.name, cccd:t.cccd, phone:t.phone||'', startDate:t.startDate, endDate:t.endDate } }));
-  const removeTenant = (id)=>{
+  const removeTenant = async (id)=>{
     if(!confirm('Xóa khách thuê này?')) return;
-    const nextTenants = tenants.filter(t=> t.id!==id);
-    const s2 = { ...state, tenants: nextTenants };
-    setState(s2); saveState(s2);
+    try {
+      await tenantsApi.remove(id);
+      setTenants((prev) => prev.filter(t=> t.id!==id));
+    } catch (error) {
+      alert(error?.message || 'Không thể xoá khách thuê.');
+    }
   };
-  const moveTenant = (tenantId, newRoomId)=>{
-    const nextTenants = tenants.map(t=> t.id===tenantId? ({...t, roomId:newRoomId}) : t);
-    const s2 = { ...state, tenants: nextTenants };
-    setState(s2); saveState(s2);
+  const moveTenant = async (tenantId, newRoomId)=>{
+    const t = tenants.find(x => x.id === tenantId);
+    if (!t) return;
+    try {
+      const updated = await tenantsApi.update(tenantId, { ...t, roomId: newRoomId });
+      setTenants((prev) => prev.map(x=> x.id===tenantId? updated : x));
+    } catch (error) {
+      alert(error?.message || 'Không thể chuyển phòng cho khách thuê.');
+    }
   };
-  const setPrimaryTenant = (roomId, tenantId)=>{
-    const nextRooms = rooms.map(r=> r.id===roomId? ({...r, primaryTenantId: tenantId}) : r);
-    const s2 = { ...state, rooms: nextRooms };
-    setState(s2); saveState(s2);
+  const setPrimaryTenant = async (roomId, tenantId)=>{
+    const room = roomMap[roomId];
+    if (!room) return;
+    try {
+      const updated = await roomsApi.update(roomId, { ...room, primaryTenantId: tenantId });
+      setRooms((prev) => prev.map(r=> r.id===roomId? updated : r));
+    } catch (error) {
+      alert(error?.message || 'Không thể đặt khách đại diện.');
+    }
   };
 
   // ===== Render helpers =====
@@ -312,6 +369,8 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
   // readings are managed on the Meter page; Rooms shows room/payment info only
 
   const Card = ({ room })=>{
+    const [expanded, setExpanded] = useState(false);
+    const [menuOpen, setMenuOpen] = useState(false);
     const occupants = activeTenantByRoom[room.id] || [];
     const inv = invoices.find(i=> i.roomId===room.id && i.month===month);
     const status = inv ? (isInvoicePaid(inv) ? 'Đã thanh toán' : 'Chưa thanh toán') : 'Chưa tạo HĐ';
@@ -322,6 +381,7 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
     const depositBalance = depositBalanceOfRoom(room.id);
     const refundedDeposit = refundedDepositOfRoom(room.id);
     const advanceRange = advanceRangeOfRoom(room.id);
+    const hasExtra = advanceBalance > 0 || depositBalance > 0 || refundedDeposit > 0;
 
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm flex flex-col gap-3 min-w-0">
@@ -329,35 +389,60 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
           <div className="font-semibold text-[15px] sm:text-base min-w-0 break-words pr-1">PHÒNG {room.name}</div>
           <span className={`shrink-0 rounded-full px-2 py-1 text-xs ${badge}`}>{status}</span>
         </div>
-        <div className="grid grid-cols-2 gap-x-2 gap-y-2 text-sm min-w-0">
-          <div><div className="text-slate-500">Tiền phòng</div><div className="font-medium">{currency(room.baseRent)} đ</div></div>
-          <div><div className="text-slate-500">Đơn giá điện</div><div className="font-medium">{currency(room.electricRate)} đ/kWh</div></div>
-          <div><div className="text-slate-500">Đơn giá nước</div><div className="font-medium">{currency(room.waterRate)} đ/m³</div></div>
-          <div><div className="text-slate-500">Đóng trước</div><div className="font-medium text-emerald-700">{currency(advanceBalance)} đ</div></div>
-          <div><div className="text-slate-500">Kỳ đóng trước</div><div className="font-medium text-emerald-700">{advanceRange}</div></div>
-          <div><div className="text-slate-500">Tiền cọc đang giữ</div><div className="font-medium text-amber-700">{currency(depositBalance)} đ</div></div>
-          <div><div className="text-slate-500">Đã hoàn cọc</div><div className="font-medium text-slate-700">{currency(refundedDeposit)} đ</div></div>
-          <div>
-            <div className="text-slate-500">Khách</div>
-            {occupants.length? (
-              <div className="flex flex-wrap gap-1">
-                {occupants.map(t=> (
-                  <span key={t.id} title={t.cccd}
-                        className={`rounded-full px-2 py-0.5 text-xs border ${t.id===room.primaryTenantId? 'border-emerald-400 bg-emerald-50':'border-slate-200 bg-slate-50'}`}>
-                    {t.name}{t.id===room.primaryTenantId? ' ★':''}
-                  </span>
-                ))}
-              </div>
-            ) : <i className="text-slate-400">(trống)</i>}
-          </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm min-w-0">
+          <div><span className="text-slate-500">Tiền phòng </span><span className="font-medium">{currency(room.baseRent)} đ</span></div>
+          {depositBalance > 0 && <div><span className="text-slate-500">Cọc đang giữ </span><span className="font-medium text-amber-700">{currency(depositBalance)} đ</span></div>}
+          {advanceBalance > 0 && <div><span className="text-slate-500">Đóng trước </span><span className="font-medium text-emerald-700">{currency(advanceBalance)} đ</span></div>}
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-          <div className="text-right"><div className="text-xs text-slate-500">{inv ? 'Còn thu' : 'Dự kiến'}</div><div className="text-lg font-semibold">{currency(total)} đ</div></div>
-          {!isAdminViewing && <div className="flex flex-wrap justify-end gap-1.5">
-            <button onClick={()=>openEditRoom(room)} className="h-[29px] rounded-lg border px-2 text-[11px]">Sửa phòng</button>
-            <button onClick={()=>openTenantManager(room.id)} className="h-[29px] rounded-lg border px-2 text-[11px]">Quản lý khách</button>
-            <button onClick={()=>removeRoom(room.id)} className="h-[29px] rounded-lg border border-rose-200 bg-rose-50 px-2 text-[11px] text-rose-800">Xóa</button>
-          </div>}
+        <div className="min-w-0">
+          <div className="text-slate-500 text-sm">Khách</div>
+          {occupants.length? (
+            <div className="flex flex-wrap gap-1 mt-0.5">
+              {occupants.map(t=> (
+                <span key={t.id} title={t.cccd}
+                      className={`rounded-full px-2 py-0.5 text-xs border ${t.id===room.primaryTenantId? 'border-emerald-400 bg-emerald-50':'border-slate-200 bg-slate-50'}`}>
+                  {t.name}{t.id===room.primaryTenantId? ' ★':''}
+                </span>
+              ))}
+            </div>
+          ) : <i className="text-slate-400 text-sm">(trống)</i>}
+        </div>
+        <button type="button" onClick={()=>setExpanded(v=>!v)} className="self-start text-xs text-sky-600 hover:underline">
+          {expanded ? 'Thu gọn ▲' : 'Xem chi tiết ▼'}
+        </button>
+        {expanded && (
+          <div className="grid grid-cols-2 gap-x-2 gap-y-2 text-sm min-w-0 rounded-lg bg-slate-50 p-2">
+            <div><div className="text-slate-500">Đơn giá điện</div><div className="font-medium">{currency(room.electricRate)} đ/kWh</div></div>
+            <div><div className="text-slate-500">Đơn giá nước</div><div className="font-medium">{currency(room.waterRate)} đ/m³</div></div>
+            <div><div className="text-slate-500">Đóng trước</div><div className="font-medium text-emerald-700">{currency(advanceBalance)} đ</div></div>
+            <div><div className="text-slate-500">Kỳ đóng trước</div><div className="font-medium text-emerald-700">{advanceRange}</div></div>
+            <div><div className="text-slate-500">Tiền cọc đang giữ</div><div className="font-medium text-amber-700">{currency(depositBalance)} đ</div></div>
+            <div><div className="text-slate-500">Đã hoàn cọc</div><div className="font-medium text-slate-700">{currency(refundedDeposit)} đ</div></div>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="shrink-0 text-left"><div className="text-xs text-slate-500">{inv ? 'Còn thu' : 'Dự kiến'}</div><div className="text-lg font-semibold whitespace-nowrap">{currency(total)} đ</div></div>
+          {!isAdminViewing && (
+            <div className="relative flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+              <button type="button" onClick={()=>openEditRoom(room)} className={`${btn} !px-2.5 !py-1 !text-xs`}>Sửa phòng</button>
+              <button type="button" onClick={()=>openTenantManager(room.id)} className={`${btn} !px-2.5 !py-1 !text-xs`}>Quản lý khách</button>
+              <button type="button" onClick={()=>setMenuOpen(v=>!v)} className={`${btn} !px-2.5 !py-1 !text-xs`} title="Thêm">⋯</button>
+              {menuOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={()=>setMenuOpen(false)} />
+                  <div className="absolute right-0 top-[33px] z-20 min-w-[7rem] rounded-xl border border-slate-200 bg-white p-1 shadow-md">
+                    <button
+                      type="button"
+                      onClick={()=>{ setMenuOpen(false); removeRoom(room.id); }}
+                      className="w-full rounded-lg px-3 py-2 text-left text-xs font-medium text-rose-800 hover:bg-rose-50"
+                    >
+                      Xóa phòng
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -397,7 +482,7 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
             type="button"
             onClick={openCreateRoom}
             disabled={roomLimitReached}
-            className={`rounded-xl px-4 py-2 text-sm sm:text-base ${roomLimitReached ? 'bg-slate-300 text-slate-600 cursor-not-allowed' : 'bg-emerald-600 text-white'}`}
+            className={`${btnPrimary} !text-sm sm:!text-base ${roomLimitReached ? '!bg-slate-300 !text-slate-600 !cursor-not-allowed hover:!bg-slate-300' : ''}`}
           >
             Thêm phòng
           </button>}
@@ -455,9 +540,9 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
                   <td className="p-2">{invoice ? <span className={'rounded-full px-2 py-1 text-xs whitespace-nowrap ' + (isInvoicePaid(invoice) ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700')}>{isInvoicePaid(invoice) ? 'Đã thanh toán' : 'Chưa thanh toán'}</span> : <span className="rounded-full px-2 py-1 text-xs bg-amber-100 text-amber-700 whitespace-nowrap">Chưa tạo HĐ</span>}</td>
                   <td className="p-2">
                     {!isAdminViewing && <div className="flex flex-wrap justify-end gap-1.5">
-                      <button type="button" onClick={()=>openEditRoom(room)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Sửa phòng</button>
-                      <button type="button" onClick={()=>openTenantManager(room.id)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Quản lý khách</button>
-                      <button type="button" onClick={()=>removeRoom(room.id)} className="rounded-lg border px-2 py-1 text-xs sm:text-sm whitespace-nowrap">Xóa</button>
+                      <button type="button" onClick={()=>openEditRoom(room)} className={`${btn} !px-2.5 !py-1 !text-xs`}>Sửa phòng</button>
+                      <button type="button" onClick={()=>openTenantManager(room.id)} className={`${btn} !px-2.5 !py-1 !text-xs`}>Quản lý khách</button>
+                      <button type="button" onClick={()=>removeRoom(room.id)} className={`${btnDanger} !px-2.5 !py-1`}>Xóa</button>
                     </div>}
                   </td>
                 </tr>
@@ -512,8 +597,8 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
                 <p className="mt-1 text-xs text-slate-500">Để trống nếu chưa gán công tơ. Mỗi Device ID chỉ nên gán cho một phòng.</p>
               </div>
               <div className="col-span-2 flex flex-wrap justify-end gap-2">
-                <button type="button" onClick={()=>setRoomModal(m=>({...m, open:false}))} className="rounded-xl border px-4 py-2 text-sm">Hủy</button>
-                <button className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white">Lưu</button>
+                <button type="button" onClick={()=>setRoomModal(m=>({...m, open:false}))} className={btn}>Hủy</button>
+                <button className={btnPrimary}>Lưu</button>
               </div>
             </form>
           </div>
@@ -529,7 +614,7 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
                 <div className="text-base sm:text-lg font-semibold leading-snug">Quản lý khách thuê</div>
                 <div className="text-sm text-slate-600 mt-0.5">Phòng <span className="font-medium text-slate-800">{roomMap[tenantModal.roomId]?.name}</span></div>
               </div>
-              <button type="button" onClick={()=>setTenantModal(m=>({...m, open:false}))} className="flex-shrink-0 rounded-xl border px-3 py-2 text-sm">Đóng</button>
+              <button type="button" onClick={()=>setTenantModal(m=>({...m, open:false}))} className={`${btn} !shrink-0`}>Đóng</button>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 sm:px-5 sm:py-4 space-y-4">
@@ -567,9 +652,9 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
                         </div>
                       </dl>
                       <div className="flex flex-wrap justify-end gap-1.5">
-                        <button type="button" onClick={()=>editTenant(t)} className="h-[29px] rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-medium">Sửa</button>
-                        <button type="button" onClick={()=>setPrimaryTenant(tenantModal.roomId, t.id)} className="h-[29px] rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-medium text-emerald-800">Đặt đại diện</button>
-                        <button type="button" onClick={()=>removeTenant(t.id)} className="h-[29px] rounded-lg border border-rose-200 bg-rose-50 px-2 text-[11px] font-medium text-rose-800">Xóa</button>
+                        <button type="button" onClick={()=>editTenant(t)} className={`${btn} !px-2.5 !py-1 !text-xs`}>Sửa</button>
+                        <button type="button" onClick={()=>setPrimaryTenant(tenantModal.roomId, t.id)} className="rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100">Đặt đại diện</button>
+                        <button type="button" onClick={()=>removeTenant(t.id)} className={`${btnDanger} !px-2.5 !py-1`}>Xóa</button>
                       </div>
                     </div>
                   ))
@@ -601,9 +686,9 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
                         <td className="p-2 align-top">{roomMap[tenantModal.roomId]?.primaryTenantId===t.id? '★' : ''}</td>
                         <td className="p-2 align-top">
                           <div className="flex flex-wrap justify-end gap-1.5">
-                            <button type="button" onClick={()=>editTenant(t)} className="rounded border px-2 py-1 text-xs sm:text-sm">Sửa</button>
-                            <button type="button" onClick={()=>removeTenant(t.id)} className="rounded border px-2 py-1 text-xs sm:text-sm">Xóa</button>
-                            <button type="button" onClick={()=>setPrimaryTenant(tenantModal.roomId, t.id)} className="rounded border px-2 py-1 text-xs sm:text-sm">Đặt đại diện</button>
+                            <button type="button" onClick={()=>editTenant(t)} className={`${btn} !px-2.5 !py-1 !text-xs`}>Sửa</button>
+                            <button type="button" onClick={()=>removeTenant(t.id)} className={`${btnDanger} !px-2.5 !py-1`}>Xóa</button>
+                            <button type="button" onClick={()=>setPrimaryTenant(tenantModal.roomId, t.id)} className="rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100">Đặt đại diện</button>
                           </div>
                         </td>
                       </tr>
@@ -630,8 +715,8 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
                 </div>
 
                 <div className="sm:col-span-2 flex flex-wrap justify-end gap-2 pt-1">
-                  {tenantModal.form.id && (<button type="button" className="rounded-xl border px-4 py-2 text-sm" onClick={()=>setTenantModal(m=>({...m, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' }}))}>Hủy sửa</button>)}
-                  <button type="submit" className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white">{tenantModal.form.id? 'Cập nhật khách':'Thêm khách'}</button>
+                  {tenantModal.form.id && (<button type="button" className={btn} onClick={()=>setTenantModal(m=>({...m, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' }}))}>Hủy sửa</button>)}
+                  <button type="submit" className={btnPrimary}>{tenantModal.form.id? 'Cập nhật khách':'Thêm khách'}</button>
                 </div>
               </form>
 

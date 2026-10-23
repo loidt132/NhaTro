@@ -167,4 +167,8 @@ module.exports = {
   isConfigured,
   loadStateForUser,
   saveStateForUser,
+  DATA_TABLE_KEYS,
+  stripSystemColumns,
+  withOwnership,
+  fetchOwnedRows,
 };
