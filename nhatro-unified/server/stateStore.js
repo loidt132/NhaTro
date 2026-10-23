@@ -1,130 +1,17 @@
-// Server-side mirror of web/src/utils/nocodb.js's collection-sync pipeline.
-// Lets the backend read/write the same NocoDB tables the browser writes to
-// directly, so /api/state works as a real (not local-file) fallback and the
-// server never needs to persist app data to disk — required on Vercel,
-// whose function filesystem is read-only outside /tmp.
+// Per-user app state (rooms, tenants, invoices, ...) stored in PostgreSQL
+// (Neon). Backs /api/state: the browser sends/receives the whole collection
+// for each table and this module diffs it against the database.
+const db = require('./db');
 const { encryptRow, decryptRow } = require('./cryptoFields');
-
-const fetchApi =
-  typeof global.fetch === 'function'
-    ? global.fetch.bind(global)
-    : (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
-
-function firstEnv(...names) {
-  for (const name of names) {
-    if (!name) continue;
-    const value = process.env[name];
-    if (value != null && String(value).trim() !== '') return String(value).trim();
-  }
-  return '';
-}
-
-// Read lazily (not as module-level consts): index.js loads .env files as a
-// side effect *after* requiring this module, so capturing process.env at
-// require-time would always see an empty config.
-function nocodbUrl() {
-  return firstEnv('NOCODB_URL', 'VITE_NOCODB_URL').replace(/\/+$/, '');
-}
-
-function nocodbApiKey() {
-  return firstEnv('NOCODB_API_KEY', 'VITE_NOCODB_API_KEY');
-}
-
-function tables() {
-  return {
-    rooms: firstEnv('NOCODB_TABLE_ROOMS', 'TABLE_ROOMS', 'VITE_TABLE_ROOMS'),
-    tenants: firstEnv('NOCODB_TABLE_TENANTS', 'TABLE_TENANTS', 'VITE_TABLE_TENANTS'),
-    readings: firstEnv('NOCODB_TABLE_READINGS', 'TABLE_READINGS', 'VITE_TABLE_READINGS'),
-    invoices: firstEnv('NOCODB_TABLE_INVOICES', 'TABLE_INVOICES', 'VITE_TABLE_INVOICES'),
-    payments: firstEnv('NOCODB_TABLE_PAYMENTS', 'TABLE_PAYMENTS', 'VITE_TABLE_PAYMENTS'),
-    rentPeriods: firstEnv('NOCODB_TABLE_RENT_PERIODS', 'TABLE_RENT_PERIODS', 'VITE_TABLE_RENT_PERIODS'),
-    paymentAllocations: firstEnv('NOCODB_TABLE_PAYMENT_ALLOCATIONS', 'TABLE_PAYMENT_ALLOCATIONS', 'VITE_TABLE_PAYMENT_ALLOCATIONS'),
-    deposits: firstEnv('NOCODB_TABLE_DEPOSITS', 'TABLE_DEPOSITS', 'VITE_TABLE_DEPOSITS'),
-    depositTransactions: firstEnv('NOCODB_TABLE_DEPOSIT_TRANSACTIONS', 'TABLE_DEPOSIT_TRANSACTIONS', 'VITE_TABLE_DEPOSIT_TRANSACTIONS'),
-    settings: firstEnv('NOCODB_TABLE_SETTINGS', 'TABLE_SETTINGS', 'VITE_TABLE_SETTINGS'),
-  };
-}
 
 const DATA_TABLE_KEYS = ['rooms', 'tenants', 'readings', 'invoices', 'payments', 'rentPeriods', 'paymentAllocations', 'deposits', 'depositTransactions'];
 const CREATED_BY_FIELD = 'created_by';
 const MODIFIED_BY_FIELD = 'modified_by';
-const SYSTEM_COLUMNS = new Set([
-  'Id', 'ID', 'created_at', 'updated_at', 'CreatedAt', 'UpdatedAt',
-  'createdBy', 'updatedBy', 'ncRecordId', CREATED_BY_FIELD, MODIFIED_BY_FIELD,
-]);
-const MAX_RETRIES = 4;
-const BASE_RETRY_MS = 800;
-const WARNED_MISSING_TABLES = new Set();
+// Bookkeeping columns that are never part of the app's own record.
+const SYSTEM_COLUMNS = new Set(['created_at', 'updated_at', CREATED_BY_FIELD, MODIFIED_BY_FIELD]);
 
 function isConfigured() {
-  return Boolean(nocodbUrl() && nocodbApiKey());
-}
-
-function hasTableConfig(key) {
-  return Boolean(tables()[key]);
-}
-
-function warnMissingTable(key) {
-  if (WARNED_MISSING_TABLES.has(key)) return;
-  WARNED_MISSING_TABLES.add(key);
-  console.warn(`[stateStore] NocoDB table is not configured: ${key}`);
-}
-
-function nocoHeaders() {
-  return { 'Content-Type': 'application/json', 'xc-token': nocodbApiKey() };
-}
-
-function tableUrl(key, suffix = '') {
-  const tableId = tables()[key];
-  if (!tableId) throw new Error(`Missing NocoDB table id for ${key}`);
-  return `${nocodbUrl()}/api/v2/tables/${encodeURIComponent(tableId)}/records${suffix}`;
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function getRetryDelay(res, attempt) {
-  const retryAfter = res.headers.get('Retry-After');
-  const retrySeconds = Number(retryAfter);
-  if (Number.isFinite(retrySeconds) && retrySeconds > 0) return retrySeconds * 1000;
-  return BASE_RETRY_MS * (attempt + 1);
-}
-
-async function fetchJson(url, options = {}) {
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
-    const res = await fetchApi(url, { ...options, headers: { ...nocoHeaders(), ...(options.headers || {}) } });
-    if (res.status === 429 && attempt < MAX_RETRIES) {
-      await sleep(getRetryDelay(res, attempt));
-      continue;
-    }
-    const contentType = res.headers.get('content-type') || '';
-    const payload = res.status === 204
-      ? null
-      : contentType.includes('application/json')
-        ? await res.json()
-        : await res.text();
-    if (!res.ok) {
-      // NocoDB's own rate-limit error (ThrottlerException etc.) is not
-      // something a user can act on — surface a friendly, actionable
-      // message instead of its raw body, even after retries are exhausted.
-      if (res.status === 429) {
-        console.error(`NocoDB rate-limited (429): ${typeof payload === 'string' ? payload : JSON.stringify(payload)}`);
-        const err = new Error('Hệ thống dữ liệu đang bận, vui lòng thử lại sau vài giây.');
-        err.code = 'NOCODB_RATE_LIMIT';
-        throw err;
-      }
-      throw new Error(typeof payload === 'string' ? payload : `NocoDB request failed: ${res.status}`);
-    }
-    return payload;
-  }
-  throw new Error('NocoDB request retry exhausted');
-}
-
-function getRowId(row) {
-  const candidate = row?.Id ?? null;
-  if (candidate === null || candidate === undefined || candidate === '') return null;
-  return candidate;
+  return db.isConfigured();
 }
 
 function stripSystemColumns(row = {}) {
@@ -149,28 +36,13 @@ function sanitizeWritablePayload(payload = {}) {
   return clean;
 }
 
-function withOwnership(record, userId, isUpdate) {
+function withOwnership(record, userId) {
   return {
     ...sanitizeWritablePayload(record),
     isDeleted: false,
-    ...(isUpdate ? {} : { [CREATED_BY_FIELD]: userId }),
+    [CREATED_BY_FIELD]: userId,
     [MODIFIED_BY_FIELD]: userId,
   };
-}
-
-function buildOwnedWhere(userId, extraWhere = '') {
-  const base = `(${CREATED_BY_FIELD},eq,${userId})~and(isDeleted,neq,true)`;
-  const combined = extraWhere ? `${base}~and${extraWhere}` : base;
-  return encodeURIComponent(combined);
-}
-
-async function fetchOwnedRows(key, userId) {
-  if (!hasTableConfig(key)) {
-    warnMissingTable(key);
-    return [];
-  }
-  const data = await fetchJson(tableUrl(key, `?where=${buildOwnedWhere(userId)}&limit=1000`));
-  return (data?.list || []).map((row) => decryptRow(key, row));
 }
 
 function stableStringify(value) {
@@ -181,98 +53,83 @@ function stableStringify(value) {
   return JSON.stringify(value);
 }
 
-function isSamePayload(a, b) {
-  return stableStringify(a) === stableStringify(b);
+// True when every field the app sent already has that value in the database
+// (extra DB-only columns such as isDeleted or null columns don't count).
+function isSamePayload(existing, record) {
+  const columnsToCompare = Object.keys(record).filter((key) => !SYSTEM_COLUMNS.has(key));
+  return columnsToCompare.every((key) => {
+    const a = existing[key];
+    const b = record[key];
+    if ((a === null || a === undefined || a === '') && (b === null || b === undefined || b === '')) return true;
+    if (typeof a === 'number' && b !== '' && b !== null && Number(b) === a) return true;
+    if (key === 'status' && b === 'Còn nợ') return a === 'Chưa thanh toán';
+    return stableStringify(a) === stableStringify(b);
+  });
 }
 
-async function createRow(key, payload) {
-  await fetchJson(tableUrl(key), { method: 'POST', body: JSON.stringify(encryptRow(key, payload)) });
-}
-
-async function updateRow(key, rowId, payload) {
-  const encrypted = encryptRow(key, payload);
-  const canUseSystemId = !(rowId === null || rowId === undefined || rowId === '');
-  const body = canUseSystemId ? [{ ...encrypted, Id: rowId }] : [{ ...encrypted }];
-  await fetchJson(tableUrl(key), { method: 'PATCH', body: JSON.stringify(body) });
-}
-
-async function softDeleteRow(key, rowId) {
-  if (rowId === null || rowId === undefined || rowId === '') return;
-  await fetchJson(tableUrl(key), { method: 'PATCH', body: JSON.stringify([{ Id: rowId, isDeleted: true }]) });
+async function fetchOwnedRows(key, userId) {
+  const rows = await db.listOwnedRows(db.TABLES[key], userId);
+  return rows.map((row) => decryptRow(key, row));
 }
 
 async function syncCollection(key, userId, records = []) {
-  if (!hasTableConfig(key)) {
-    warnMissingTable(key);
-    return;
-  }
-
+  const table = db.TABLES[key];
   const existingRows = await fetchOwnedRows(key, userId);
   const existingByAppId = new Map();
   existingRows.forEach((row) => {
-    const clean = stripSystemColumns(row);
-    if (clean?.id) existingByAppId.set(String(clean.id), { rowId: getRowId(row), data: clean });
+    if (row?.id) existingByAppId.set(String(row.id), row);
   });
 
+  const toWrite = [];
   const nextIds = new Set();
   for (const record of records) {
     if (!record?.id) continue;
     const idKey = String(record.id);
     nextIds.add(idKey);
-
     const existing = existingByAppId.get(idKey);
-    const ownedRecord = withOwnership(record, userId, Boolean(existing));
-    if (!existing) {
-      await createRow(key, ownedRecord);
-      continue;
-    }
-    if (!isSamePayload(existing.data, record)) {
-      await updateRow(key, existing.rowId, ownedRecord);
-    }
+    if (existing && isSamePayload(existing, record)) continue;
+    toWrite.push(withOwnership(record, userId));
   }
+  const toDelete = [...existingByAppId.keys()].filter((idKey) => !nextIds.has(idKey));
+  if (toWrite.length === 0 && toDelete.length === 0) return;
 
-  for (const [idKey, existing] of existingByAppId.entries()) {
-    if (!nextIds.has(idKey)) {
-      await softDeleteRow(key, existing.rowId);
+  await db.withTransaction(async (client) => {
+    for (const row of toWrite) {
+      await db.upsertRow(table, encryptRow(key, row), { client });
     }
-  }
+    for (const idKey of toDelete) {
+      await db.softDeleteRow(table, idKey, userId, { client });
+    }
+  });
 }
 
-function normalizeSettingsRow(row) {
+function settingsRow(row) {
   if (!row) return {};
-  return stripSystemColumns(row);
+  const clean = stripSystemColumns(row);
+  delete clean.isDeleted;
+  return clean;
 }
 
 async function loadSettings(userId) {
-  if (!hasTableConfig('settings')) {
-    warnMissingTable('settings');
-    return {};
-  }
-  const data = await fetchJson(tableUrl('settings', `?where=${buildOwnedWhere(userId)}&limit=1000`));
-  const row = (data?.list || [])[0];
-  return normalizeSettingsRow(row);
+  const rows = await db.listOwnedRows(db.TABLES.settings, userId);
+  return settingsRow(rows[0]);
 }
 
 async function saveSettings(userId, settings = {}) {
-  if (!hasTableConfig('settings')) {
-    warnMissingTable('settings');
-    return;
-  }
-  const data = await fetchJson(tableUrl('settings', `?where=${buildOwnedWhere(userId)}&limit=1000`));
-  const rows = data?.list || [];
+  const table = db.TABLES.settings;
+  const rows = await db.listOwnedRows(table, userId);
   const row = rows[0];
   const baseId = row?.id || `settings:${userId}`;
-  const payload = withOwnership({ id: baseId, ...settings }, userId, Boolean(row));
+  const payload = withOwnership({ id: baseId, ...settings }, userId);
 
-  if (!row) {
-    await createRow('settings', payload);
-  } else if (!isSamePayload(normalizeSettingsRow(row), settings)) {
-    await updateRow('settings', getRowId(row), payload);
-  }
-
-  for (const extraRow of rows.slice(1)) {
-    await softDeleteRow('settings', getRowId(extraRow));
-  }
+  await db.withTransaction(async (client) => {
+    if (!row || !isSamePayload(settingsRow(row), { id: baseId, ...settings })) {
+      await db.upsertRow(table, payload, { client });
+    }
+    for (const extraRow of rows.slice(1)) {
+      await db.softDeleteRow(table, extraRow.id, userId, { client });
+    }
+  });
 }
 
 async function loadStateForUser(userId, tables = null) {

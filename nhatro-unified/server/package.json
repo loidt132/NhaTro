@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "migrate-to-neon": "node migrate-to-neon.js"
   },
   "dependencies": {
     "cloudinary": "^2.5.1",
@@ -12,6 +13,7 @@
     "firebase-admin": "^12.7.0",
     "multer": "^2.0.1",
     "node-fetch": "^3.3.2",
+    "pg": "^8.23.1",
     "tesseract.js": "^5.1.1"
   }
 }

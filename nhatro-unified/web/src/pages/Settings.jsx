@@ -9,7 +9,7 @@ import UserManagement from '../components/UserManagement';
 export default function Settings({ user = null }) {
   const [state, setState] = useState(loadState());
   const [s, setS] = useState(() => state.settings || {});
-  const [nocoStatus, setNocoStatus] = useState({ baseConfigured: false, tokenConfigured: false, missingTables: [] });
+  const [nocoStatus, setNocoStatus] = useState({ databaseConfigured: false, databaseReachable: false, missingTables: [] });
   const [activeTab, setActiveTab] = useState('general');
   const [currentUser, setCurrentUser] = useState(user);
 
@@ -136,10 +136,10 @@ export default function Settings({ user = null }) {
       {activeTab === 'general' && (
         <>
       <div className="rounded-2xl border bg-white p-4 shadow-sm">
-        <h3 className="text-lg font-semibold">Trạng thái NocoDB</h3>
+        <h3 className="text-lg font-semibold">Trạng thái cơ sở dữ liệu</h3>
         <div className="mt-3 space-y-1 text-sm text-slate-700">
-          <div>URL: {nocoStatus.baseConfigured ? 'OK' : 'Thiếu NOCODB_URL trên server'}</div>
-          <div>API key: {nocoStatus.tokenConfigured ? 'OK' : 'Thiếu NOCODB_API_KEY trên server'}</div>
+          <div>Cấu hình: {nocoStatus.databaseConfigured ? 'OK' : 'Thiếu DATABASE_URL trên server'}</div>
+          <div>Kết nối: {nocoStatus.databaseReachable ? 'OK' : 'Không kết nối được'}</div>
           <div>Bảng thiếu: {nocoStatus.missingTables.length ? nocoStatus.missingTables.join(', ') : 'Không thiếu'}</div>
         </div>
       </div>
