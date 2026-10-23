@@ -57,7 +57,7 @@ function decryptField(value) {
   return plaintext.toString('utf8');
 }
 
-// Which columns get encrypted at rest, per collection key (stateStore.js's keys).
+// Which columns get encrypted at rest, per collection key (resources.js's keys).
 const ENCRYPTED_FIELDS = {
   tenants: ['cccd', 'phone'],
   users: ['phone'],

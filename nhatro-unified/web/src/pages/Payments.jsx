@@ -1,7 +1,7 @@
 // src/pages/Payments.jsx
 import React, { useMemo, useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { loadState, saveState, currency, monthKey, calcTotalsWithAdvance, uid, hydrateState } from '../utils/state';
+import { loadState, commit, ops, currency, monthKey, calcTotalsWithAdvance, uid, hydrateState } from '../utils/state';
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
 import TopStats from '../components/TopStats';
@@ -21,10 +21,6 @@ const STATUS_UNPAID = 'Chưa thanh toán';
 const STATUS_PAID = 'Đã thanh toán';
 const LEGACY_STATUS_UNPAID = 'Chưa thanh toán';
 
-const isUnpaidStatus = (status = '') => {
-  const s = String(status || '').trim();
-  return s === STATUS_UNPAID || s === LEGACY_STATUS_UNPAID;
-};
 
 const hasMeterValue = (value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
 const meterSpec = (start, end, unit) => (
@@ -42,7 +38,7 @@ const addMonths = (ym, count) => {
 export default function Payments() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [state, setState] = useState(loadState());
-  // Keep in-sync with other parts of the app that call saveState()
+  // Keep in-sync with other parts of the app that write through commit()/saveSettings()
   useEffect(() => {
     const handler = () => setState(loadState());
     window.addEventListener('boarding_state_updated', handler);
@@ -249,30 +245,35 @@ console.log('filtered items', { query, filteredItems });
     const now = new Date().toISOString();
     const nextPeriods = [...rentPeriods];
     const nextAllocations = [...paymentAllocations];
+    const newPeriods = [];
     const allocations = [];
     const startMonth = advancePaymentStartMonth(room.id);
     for (let index = 0; index < count; index += 1) {
       const periodMonth = addMonths(startMonth, index + 1);
       let period = nextPeriods.find((item) => item.roomId === room.id && item.month === periodMonth);
       if (!period) {
-        period = { id: uid(), roomId: room.id, tenantId: tenant.id, month: periodMonth, rent: room.baseRent ?? 0, created_at: now, updated_at: now };
+        period = { id: uid(), roomId: room.id, tenantId: tenant.id, month: periodMonth, rent: room.baseRent ?? 0 };
         nextPeriods.push(period);
+        newPeriods.push(period);
       }
       const allocated = nextAllocations.filter((item) => String(item.rentPeriodId) === String(period.id)).reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
       const remaining = Math.max(0, (Number(period.rent) || 0) - allocated);
       const allocationAmount = Math.min(remaining, amountToAllocate);
       if (allocationAmount > 0) {
-        allocations.push({ id: uid(), rentPeriodId: period.id, amount: allocationAmount, created_at: now, updated_at: now });
+        allocations.push({ id: uid(), rentPeriodId: period.id, amount: allocationAmount });
         amountToAllocate -= allocationAmount;
       }
     }
     if (amountToAllocate > 0) return alert(`Số tiền vượt phần tiền phòng còn phải đóng của ${count} tháng. Hãy tăng số tháng hoặc giảm số tiền.`);
     if (!allocations.length) return alert('Các tháng đã chọn đã được đóng đủ tiền phòng.');
-    const payment = { id: uid(), roomId: room.id, tenantId: tenant.id, amount: allocations.reduce((sum, item) => sum + item.amount, 0), method: 'Tiền mặt', note: collectionModal.note || `Đóng trước tiền phòng ${startMonth} đến ${addMonths(startMonth, count)}`, paidAt: now, created_at: now, updated_at: now };
+    const payment = { id: uid(), roomId: room.id, tenantId: tenant.id, amount: allocations.reduce((sum, item) => sum + item.amount, 0), method: 'Tiền mặt', note: collectionModal.note || `Đóng trước tiền phòng ${startMonth} đến ${addMonths(startMonth, count)}`, paidAt: now };
     allocations.forEach((allocation) => { allocation.paymentId = payment.id; });
-    const s2 = { ...state, payments: [payment, ...payments], rentPeriods: nextPeriods, paymentAllocations: [...allocations, ...nextAllocations] };
-    setState(s2);
-    saveState(s2);
+    // Payment, new rent periods and allocations are saved together: all or nothing.
+    commit([
+      ops.create('payments', payment),
+      ...newPeriods.map((period) => ops.create('rentPeriods', period)),
+      ...allocations.map((allocation) => ops.create('paymentAllocations', allocation)),
+    ]).catch(() => {});
     setCollectionModal({ open: false, type: 'advance', roomId: '', months: 3, amount: '', note: '' });
   };
 
@@ -284,11 +285,9 @@ console.log('filtered items', { query, filteredItems });
     if (!tenant) return alert('Phòng chưa có khách thuê.');
     if (!amount) return alert('Nhập số tiền cọc.');
     const now = new Date().toISOString();
-    const deposit = { id: uid(), roomId: room.id, tenantId: tenant.id, amount, remainingAmount: amount, status: 'held', created_at: now, updated_at: now };
-    const transaction = { id: uid(), depositId: deposit.id, amount, type: 'received', note: collectionModal.note || 'Thu tiền cọc', occurredAt: now, created_at: now };
-    const s2 = { ...state, deposits: [deposit, ...deposits], depositTransactions: [transaction, ...depositTransactions] };
-    setState(s2);
-    saveState(s2);
+    const deposit = { id: uid(), roomId: room.id, tenantId: tenant.id, amount, remainingAmount: amount, status: 'held' };
+    const transaction = { id: uid(), depositId: deposit.id, amount, type: 'received', note: collectionModal.note || 'Thu tiền cọc', occurredAt: now };
+    commit([ops.create('deposits', deposit), ops.create('depositTransactions', transaction)]).catch(() => {});
     setCollectionModal({ open: false, type: 'advance', roomId: '', months: 3, amount: '', note: '' });
   };
 
@@ -302,112 +301,46 @@ console.log('filtered items', { query, filteredItems });
     if (!refundedAmount || refundedAmount > balance) return alert(`Số hoàn cọc phải từ 1 đến ${currency(balance)} đ.`);
     const now = new Date().toISOString();
     const difference = balance - refundedAmount;
-    const nextDeposits = deposits.map((deposit) => heldDeposits.some((held) => held.id === deposit.id)
-      ? { ...deposit, remainingAmount: 0, status: 'refunded', updated_at: now }
-      : deposit);
-    const transactions = [{ id: uid(), depositId: heldDeposits[0]?.id, amount: refundedAmount, type: 'refunded', note: collectionModal.note || 'Hoàn tiền cọc', occurredAt: now, created_at: now }];
+    const transactions = [{ id: uid(), depositId: heldDeposits[0]?.id, amount: refundedAmount, type: 'refunded', note: collectionModal.note || 'Hoàn tiền cọc', occurredAt: now }];
     if (difference > 0) {
-      transactions.push({ id: uid(), depositId: heldDeposits[0]?.id, amount: difference, type: 'deducted', note: 'Cấn trừ tự động do số tiền hoàn thấp hơn tiền cọc', occurredAt: now, created_at: now });
+      transactions.push({ id: uid(), depositId: heldDeposits[0]?.id, amount: difference, type: 'deducted', note: 'Cấn trừ tự động do số tiền hoàn thấp hơn tiền cọc', occurredAt: now });
     }
-    const s2 = { ...state, deposits: nextDeposits, depositTransactions: [...transactions, ...depositTransactions] };
-    setState(s2);
-    saveState(s2);
+    commit([
+      ...heldDeposits.map((deposit) => ops.update('deposits', deposit.id, { remainingAmount: 0, status: 'refunded' })),
+      ...transactions.map((transaction) => ops.create('depositTransactions', transaction)),
+    ]).catch(() => {});
     setCollectionModal({ open: false, type: 'advance', roomId: '', months: 3, amount: '', note: '' });
   };
-  // const togglePaid = (id) => {
-  //   const next = invoices.map(i =>
-  //     i.id === id
-  //       ? {
-  //           ...i,
-  //           status: i.status === STATUS_PAID ? STATUS_UNPAID : STATUS_PAID,
-  //           paidAt: i.status === STATUS_PAID ? undefined : new Date().toISOString()
-  //         }
-  //       : i
-  //   );
-  //   const s2 = { ...state, invoices: next };
-  //   setState(s2);
-  //   saveState(s2);
-  // };
 const togglePaid = (id) => {
   const inv = state.invoices.find(i => i.id === id);
   if (!inv) return;
 
   const directPayments = (state.payments ?? []).filter((payment) => String(payment.invoiceId || '') === String(id));
   if (directPayments.length) {
-    const s2 = {
-      ...state,
-      invoices: state.invoices.map((invoice) => invoice.id === id ? { ...invoice, status: STATUS_UNPAID, paidAt: undefined } : invoice),
-      payments: (state.payments ?? []).filter((payment) => String(payment.invoiceId || '') !== String(id)),
-    };
-    setState(s2);
-    saveState(s2);
+    // paid -> unpaid: the invoice is reopened and its payments are removed (one transaction)
+    commit([
+      ops.update('invoices', id, { status: STATUS_UNPAID, paidAt: null }),
+      ...directPayments.map((payment) => ops.remove('payments', payment.id)),
+    ]).catch(() => {});
     return;
   }
   if (isPaidByPayments(inv)) return alert('Hóa đơn này đã được cấn từ tiền đóng trước. Hãy điều chỉnh giao dịch đóng trước nếu cần hoàn tác.');
 
-  let nextInvoices = [];
-  let nextPayments = [...(state.payments ?? [])];
-  const currentlyPaid = false;
-
-  if (currentlyPaid) {
-    // 👉 chuyển về chưa thanh toán → xóa payment
-    nextInvoices = state.invoices.map(i =>
-      i.id === id
-        ? { ...i, status: STATUS_UNPAID, paidAt: undefined }
-        : i
-    );
-
-    nextPayments = nextPayments.filter(
-      p => String(p.invoiceId) !== String(id)
-    );
-
-  } else {
-    const paidAt = new Date().toISOString();
-
-    nextInvoices = state.invoices.map(i =>
-      i.id === id
-        ? { ...i, status: STATUS_PAID, paidAt }
-        : i
-    );
-
-    // tránh duplicate
-    const existed = nextPayments.find(
-      p => String(p.invoiceId) === String(id)
-    );
-
-    if (!existed) {
-      const payment = {
-        id: uid(),
-        invoiceId: id,
-        roomId: inv.roomId,
-        tenantId: inv.tenantId,
-        amount: Math.max(0, (Number(inv.total) || 0) - paidAmountOf(inv)),
-        method: 'Tiền mặt',
-        note: `Thanh toán ${inv.month}`,
-        paidAt,
-        created_at: paidAt,
-      };
-
-      nextPayments.unshift(payment);
-    }
-  }
-
-  // hard-enforce: invoice nào đang "chưa thanh toán" thì không giữ payment
-  const unpaidInvoiceIds = new Set(
-    nextInvoices
-      .filter((i) => i?.id && isUnpaidStatus(i.status))
-      .map((i) => String(i.id))
-  );
-  nextPayments = nextPayments.filter((p) => !unpaidInvoiceIds.has(String(p.invoiceId)));
-
-  const s2 = {
-    ...state,
-    invoices: nextInvoices,
-    payments: nextPayments
-  };
-
-  setState(s2);
-  saveState(s2);
+  // unpaid -> paid: the invoice is marked paid and the payment recorded (one transaction)
+  const paidAt = new Date().toISOString();
+  commit([
+    ops.update('invoices', id, { status: STATUS_PAID, paidAt }),
+    ops.create('payments', {
+      id: uid(),
+      invoiceId: id,
+      roomId: inv.roomId,
+      tenantId: inv.tenantId,
+      amount: Math.max(0, (Number(inv.total) || 0) - paidAmountOf(inv)),
+      method: 'Tiền mặt',
+      note: `Thanh toán ${inv.month}`,
+      paidAt,
+    }),
+  ]).catch(() => {});
 };
   const addInvoiceFromReading = (roomId) => {
     const room = roomMap[roomId];
@@ -427,13 +360,16 @@ const togglePaid = (id) => {
       waterAmount: wUse * (room.waterRate ?? 0),
       other: 0,
       total: (room.baseRent ?? 0) + eUse * (room.electricRate ?? 0) + wUse * (room.waterRate ?? 0),
-      status: STATUS_UNPAID, created_at: new Date().toISOString()
+      status: STATUS_UNPAID,
     };
     const existingPeriod = rentPeriods.find((period) => period.roomId === roomId && period.month === month);
-    const period = existingPeriod || { id: uid(), roomId, tenantId: t.id, month, rent: room.baseRent ?? 0, created_at: inv.created_at, updated_at: inv.created_at };
-    const nextPeriods = existingPeriod ? rentPeriods.map((item) => item.id === existingPeriod.id ? { ...item, invoiceId: inv.id, updated_at: inv.created_at } : item) : [{ ...period, invoiceId: inv.id }, ...rentPeriods];
-    const s2 = { ...state, invoices: [inv, ...invoices], rentPeriods: nextPeriods };
-    setState(s2); saveState(s2);
+    // The invoice and the rent period it settles are saved together.
+    commit([
+      ops.create('invoices', inv),
+      existingPeriod
+        ? ops.update('rentPeriods', existingPeriod.id, { invoiceId: inv.id })
+        : ops.create('rentPeriods', { id: uid(), roomId, tenantId: t.id, month, rent: room.baseRent ?? 0, invoiceId: inv.id }),
+    ]).catch(() => {});
   };
 
   const updateInvoiceFromReading = (invoiceId) => {
@@ -446,27 +382,18 @@ const togglePaid = (id) => {
 
     const eUse = Math.max(0, (reading.electricEnd ?? 0) - (reading.electricStart ?? 0));
     const wUse = Math.max(0, (reading.waterEnd ?? 0) - (reading.waterStart ?? 0));
-    const nextInvoices = state.invoices.map((i) =>
-      i.id !== invoiceId
-        ? i
-        : ({
-            ...i,
-            rent: room.baseRent ?? 0,
-            electricUsage: eUse,
-            electricEnd: reading.electricEnd,
-            electricStart: reading.electricStart,
-            waterUsage: wUse,
-            waterEnd: reading.waterEnd,
-            waterStart: reading.waterStart,
-            electricAmount: eUse * (room.electricRate ?? 0),
-            waterAmount: wUse * (room.waterRate ?? 0),
-            total: (room.baseRent ?? 0) + eUse * (room.electricRate ?? 0) + wUse * (room.waterRate ?? 0),
-            updated_at: new Date().toISOString(),
-          })
-    );
-    const s2 = { ...state, invoices: nextInvoices };
-    setState(s2);
-    saveState(s2);
+    commit([ops.update('invoices', invoiceId, {
+      rent: room.baseRent ?? 0,
+      electricUsage: eUse,
+      electricEnd: reading.electricEnd,
+      electricStart: reading.electricStart,
+      waterUsage: wUse,
+      waterEnd: reading.waterEnd,
+      waterStart: reading.waterStart,
+      electricAmount: eUse * (room.electricRate ?? 0),
+      waterAmount: wUse * (room.waterRate ?? 0),
+      total: (room.baseRent ?? 0) + eUse * (room.electricRate ?? 0) + wUse * (room.waterRate ?? 0),
+    })]).catch(() => {});
   };
 
   const printPdf = async (inv) => {

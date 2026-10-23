@@ -7,7 +7,7 @@ import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
 import ViewSwitch from '../components/ViewSwitch';
 import Page from '../components/Page';
-import { getAdminViewUserId, loadState, hydrateState, saveState, monthKey, currency, uid, calcTotalsWithAdvance } from '../utils/state';
+import { getAdminViewUserId, loadState, hydrateState, commit, ops, monthKey, currency, uid, calcTotalsWithAdvance } from '../utils/state';
 import Footer from '../components/Footer';
 import PaginationControls from '../components/PaginationControls';
 function compareByName(a = '', b = '') {
@@ -116,7 +116,6 @@ export default function Rooms(){
   const saveRoom = (e)=>{
     e.preventDefault();
     const f = roomModal.form; const n = (f.name||'').trim();
-    const nowIso = new Date().toISOString();
     const existingRoom = roomMap[roomModal.roomId] || {};
     const tuyaDeviceId = (f.tuyaDeviceId || '').trim();
     if(!n) return alert('Nhập tên phòng');
@@ -131,41 +130,39 @@ export default function Rooms(){
     if (roomModal.mode === 'create' && roomLimitReached) {
       return alert(`Không thể thêm phòng mới. Giới hạn ${maxRoomLimit} phòng đã đạt.`);
     }
-    const payload = {
-      ...existingRoom,
-      id: roomModal.roomId || uid(),
+    const fields = {
       name: n,
       baseRent: +f.baseRent || 0,
       electricRate: +f.electricRate || 0,
       waterRate: +f.waterRate || 0,
       tuyaDeviceId,
       primaryTenantId: existingRoom.primaryTenantId,
-      created_at: existingRoom.created_at || nowIso,
-      updated_at: nowIso,
     };
-    const nextRooms = roomModal.mode==='edit' ? rooms.map(r=> r.id===roomModal.roomId? payload : r) : [...rooms, payload];
-    // If editing an existing room, update unpaid invoices for this room so Payments view shows new rent
-    let nextInvoices = invoices;
-    if(roomModal.mode === 'edit'){
-      nextInvoices = (invoices||[]).map(inv => {
-        if(inv.roomId !== payload.id) return inv;
-        // update only unpaid invoices to preserve historical paid records
-        if(inv.status === 'Đã thanh toán') return inv;
-        const newRent = +payload.baseRent || 0;
-        const newTotal = newRent + (inv.electricAmount || 0) + (inv.waterAmount || 0) + (inv.other || 0);
-        return { ...inv, rent: newRent, total: newTotal };
-      });
+    // Each action goes to the server right away: one request for a new room, or the room
+    // plus its unpaid invoices (their rent follows the room) in one transaction.
+    const changes = [];
+    if (roomModal.mode === 'edit') {
+      changes.push(ops.update('rooms', roomModal.roomId, fields));
+      // update only unpaid invoices to preserve historical paid records
+      (invoices || [])
+        .filter((inv) => inv.roomId === roomModal.roomId && inv.status !== 'Đã thanh toán')
+        .forEach((inv) => {
+          const newRent = +fields.baseRent || 0;
+          const newTotal = newRent + (inv.electricAmount || 0) + (inv.waterAmount || 0) + (inv.other || 0);
+          changes.push(ops.update('invoices', inv.id, { rent: newRent, total: newTotal }));
+        });
+    } else {
+      changes.push(ops.create('rooms', { id: uid(), ...fields }));
     }
-    const s2 = { ...state, rooms: nextRooms, invoices: nextInvoices };
-    setState(s2); saveState(s2);
+    commit(changes).catch(() => {});
     setRoomModal({ open:false, mode:'create', roomId:null, form:{ name:'', baseRent:2500000, electricRate:3500, waterRate:12000, tuyaDeviceId:'' }});
   };
   const removeRoom = (id)=>{
     if(!confirm('Xóa phòng này? Khách thuê sẽ bị bỏ gán phòng.')) return;
-    const nextRooms = rooms.filter(r=> r.id!==id);
-    const nextTenants = (tenants||[]).map(t=> t.roomId===id? ({...t, roomId:undefined}) : t);
-    const s2 = { ...state, rooms: nextRooms, tenants: nextTenants };
-    setState(s2); saveState(s2);
+    commit([
+      ops.remove('rooms', id),
+      ...(tenants || []).filter((t) => t.roomId === id).map((t) => ops.update('tenants', t.id, { roomId: '' })),
+    ]).catch(() => {});
   };
 
   // ===== Tenant CRUD (multi-tenant per room) =====
@@ -181,29 +178,21 @@ export default function Rooms(){
     if (sd && isNaN(sd.getTime())) return alert('Ngày bắt đầu không hợp lệ');
     if (ed && isNaN(ed.getTime())) return alert('Ngày kết thúc không hợp lệ');
     if (sd && ed && sd > ed) return alert('Ngày bắt đầu phải nhỏ hơn hoặc bằng Ngày kết thúc');
-    const payload = { id: f.id || uid(), name, cccd, phone:(f.phone||'').trim(), roomId: tenantModal.roomId, startDate: f.startDate, endDate: f.endDate };
-    const nextTenants = f.id ? tenants.map(t=> t.id===f.id? payload : t) : [...tenants, payload];
-    const s2 = { ...state, tenants: nextTenants };
-    setState(s2); saveState(s2);
+    const fields = { name, cccd, phone:(f.phone||'').trim(), roomId: tenantModal.roomId, startDate: f.startDate || '', endDate: f.endDate || '' };
+    commit([f.id ? ops.update('tenants', f.id, fields) : ops.create('tenants', { id: uid(), ...fields })]).catch(() => {});
     setTenantModal(tm=> ({ ...tm, form:{ id:null, name:'', cccd:'', phone:'', startDate:'', endDate:'' } }));
   };
 
   const editTenant = (t)=> setTenantModal(tm=> ({ ...tm, form:{ id:t.id, name:t.name, cccd:t.cccd, phone:t.phone||'', startDate:t.startDate, endDate:t.endDate } }));
   const removeTenant = (id)=>{
     if(!confirm('Xóa khách thuê này?')) return;
-    const nextTenants = tenants.filter(t=> t.id!==id);
-    const s2 = { ...state, tenants: nextTenants };
-    setState(s2); saveState(s2);
+    commit([ops.remove('tenants', id)]).catch(() => {});
   };
   const moveTenant = (tenantId, newRoomId)=>{
-    const nextTenants = tenants.map(t=> t.id===tenantId? ({...t, roomId:newRoomId}) : t);
-    const s2 = { ...state, tenants: nextTenants };
-    setState(s2); saveState(s2);
+    commit([ops.update('tenants', tenantId, { roomId: newRoomId })]).catch(() => {});
   };
   const setPrimaryTenant = (roomId, tenantId)=>{
-    const nextRooms = rooms.map(r=> r.id===roomId? ({...r, primaryTenantId: tenantId}) : r);
-    const s2 = { ...state, rooms: nextRooms };
-    setState(s2); saveState(s2);
+    commit([ops.update('rooms', roomId, { primaryTenantId: tenantId })]).catch(() => {});
   };
 
   // ===== Render helpers =====

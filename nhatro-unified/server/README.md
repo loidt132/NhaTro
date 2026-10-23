@@ -1,6 +1,6 @@
 # Nhatro-unified Server
 
-Express API (auth, `/api/state`, meter submissions, admin) backed by **PostgreSQL (Neon)**.
+Express API (auth, one REST API per kind of data, meter submissions, admin) backed by **PostgreSQL (Neon)**.
 It runs locally with `npm start` and on Vercel as `api/[...all].js`.
 
 ## Setup
@@ -64,9 +64,11 @@ Columns outside the schema are left alone and listed. Take a Neon branch/snapsho
 ## How the server code is laid out
 
 - `db.js` — the Postgres (Neon) connection and small helpers (upsert, list owned rows, soft delete).
-- `stateStore.js` — backs `/api/state`: the web app sends/receives a user's whole rooms / tenants / readings /
-  invoices / payments / ... collections; this module diffs them against the database and upserts or
-  soft-deletes rows. It talks to Neon through `db.js` only.
+- `resources.js` — one REST API per kind of data (rooms, tenants, readings, invoices, payments,
+  rent-periods, payment-allocations, deposits, deposit-transactions, settings) plus `/api/batch`.
+  Every add / edit / delete is its own request and is written to the database straight away; the
+  browser no longer syncs a whole state. The server sets `created_by` / `updated_by` (the signed-in
+  user) and `created_at` / `updated_at` itself; "delete" is a soft delete (`isDeleted`).
 - `index.js` — routes (auth, users, admin, meter submissions) using `db.js` directly.
 - `promote-to-admin.js` — CLI to promote/demote users and set room limits (`node promote-to-admin.js list`).
 - `encrypt-existing-data.js` — one-off: encrypts CCCD/phone on rows that are still plaintext.
@@ -83,8 +85,14 @@ JSON the web app sends. Fields the app sends that are not columns are dropped wi
 
 ## Endpoints
 
-- `GET/POST /api/state` — the signed-in user's rooms, tenants, readings, invoices, payments, ...
+- `GET /api/<resource>`, `GET /api/<resource>/:id`, `POST /api/<resource>`, `PUT /api/<resource>/:id`,
+  `DELETE /api/<resource>/:id` for `rooms`, `tenants`, `readings`, `invoices`, `payments`, `rent-periods`,
+  `payment-allocations`, `deposits`, `deposit-transactions`; `GET/PUT /api/settings`
+- `POST /api/batch` — `{ ops: [{ action: create|update|delete|upsert, resource, id, data }] }` in ONE
+  transaction (a rent payment writes payment + allocations + periods together; also used to import a backup)
+- Reads: your own rows; an admin may add `?ownerUserId=` for a read-only preview of another account; a
+  tenant account may read only its landlord's rooms. Tenant accounts cannot write these resources.
 - `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/tenant/verify-phone`
 - `GET/POST/PATCH /api/meter-submissions`
-- `GET /api/rooms/records`, `GET /api/config/status`, `GET /health`
+- `GET /api/config/status`, `GET /health`
 - `/api/admin/users...` (admin only)

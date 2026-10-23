@@ -1,5 +1,5 @@
 /* One-off: encrypts cccd/phone for rows that are still plaintext in Postgres
- * (tenants.cccd, tenants.phone, users.phone). stateStore.js / index.js already
+ * (tenants.cccd, tenants.phone, users.phone). resources.js / index.js already
  * encrypt on write and decrypt on read (see cryptoFields.js) — this just
  * re-saves old plaintext rows once instead of waiting for their next update.
  * Already-encrypted values are left alone, so it is safe to re-run.

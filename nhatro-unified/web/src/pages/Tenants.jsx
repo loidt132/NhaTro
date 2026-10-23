@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { hydrateState, loadState, saveState, uid } from '../utils/state';
+import { hydrateState, loadState, commit, ops, uid } from '../utils/state';
 import Footer from '../components/Footer';
 import Page from '../components/Page';
 import PaginationControls from '../components/PaginationControls';
@@ -74,8 +74,7 @@ export default function Tenants() {
     if (ed && Number.isNaN(ed.getTime())) return alert('Ngày kết thúc không hợp lệ');
     if (sd && ed && sd > ed) return alert('Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc');
 
-    const payload = {
-      id: tenantModal.form.id || uid(),
+    const fields = {
       name,
       cccd,
       phone: String(tenantModal.form.phone || '').trim(),
@@ -84,13 +83,12 @@ export default function Tenants() {
       endDate: tenantModal.form.endDate || '',
     };
 
-    const nextTenants = tenantModal.form.id
-      ? tenants.map((t) => (t.id === tenantModal.form.id ? payload : t))
-      : [...tenants, payload];
-
-    const next = { ...state, tenants: nextTenants };
-    setState(next);
-    saveState(next);
+    // Saved on the server straight away.
+    commit([
+      tenantModal.form.id
+        ? ops.update('tenants', tenantModal.form.id, fields)
+        : ops.create('tenants', { id: uid(), ...fields }),
+    ]).catch(() => {});
     closeTenantModal();
   };
 
@@ -111,20 +109,16 @@ export default function Tenants() {
 
   const removeTenant = (tenantId) => {
     if (!window.confirm('Xóa khách thuê này?')) return;
-    const nextTenants = tenants.filter((t) => t.id !== tenantId);
-    const nextRooms = rooms.map((r) => (r.primaryTenantId === tenantId ? { ...r, primaryTenantId: '' } : r));
-    const next = { ...state, tenants: nextTenants, rooms: nextRooms };
-    setState(next);
-    saveState(next);
+    commit([
+      ops.remove('tenants', tenantId),
+      ...rooms.filter((r) => r.primaryTenantId === tenantId).map((r) => ops.update('rooms', r.id, { primaryTenantId: '' })),
+    ]).catch(() => {});
     if (tenantModal.form.id === tenantId) closeTenantModal();
   };
 
   const setPrimaryTenant = (tenant) => {
     if (!tenant?.roomId) return;
-    const nextRooms = rooms.map((r) => (r.id === tenant.roomId ? { ...r, primaryTenantId: tenant.id } : r));
-    const next = { ...state, rooms: nextRooms };
-    setState(next);
-    saveState(next);
+    commit([ops.update('rooms', tenant.roomId, { primaryTenantId: tenant.id })]).catch(() => {});
   };
 
   const isPrimary = (tenant) => Boolean(tenant?.roomId && roomMap[tenant.roomId]?.primaryTenantId === tenant.id);

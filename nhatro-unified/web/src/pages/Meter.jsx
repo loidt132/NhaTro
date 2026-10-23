@@ -1,6 +1,6 @@
 // src/pages/Meter.jsx
 import React, { useMemo, useState, useEffect } from 'react';
-import { loadState, saveState, monthKey, uid, calcTotalsWithAdvance, hydrateState } from '../utils/state';
+import { loadState, commit, ops, monthKey, uid, calcTotalsWithAdvance, hydrateState } from '../utils/state';
 import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
 import TopStats from '../components/TopStats';
@@ -220,23 +220,20 @@ export default function Meter() {
 
     setPendingBusyId(submission.id);
     try {
-      const nowIso = new Date().toISOString();
       const isElectric = submission.meterType === 'electric';
       const existing = latestReadingMap.get(`${submission.roomId}__${submission.month}`);
       const previous = getPreviousReading(submission.roomId);
 
-      let nextReadings;
+      // The reading is saved on the server first; only then is the submission marked confirmed.
       if (existing) {
-        nextReadings = (state.readings || []).map((r) => r.id === existing.id ? ({
-          ...r,
-          electricEnd: isElectric ? finalValue : r.electricEnd,
-          waterEnd: !isElectric ? finalValue : r.waterEnd,
-          electricPhotoUrl: isElectric ? submission.photoUrl : r.electricPhotoUrl,
-          waterPhotoUrl: !isElectric ? submission.photoUrl : r.waterPhotoUrl,
-          updated_at: nowIso,
-        }) : r);
+        await commit([ops.update('readings', existing.id, {
+          electricEnd: isElectric ? finalValue : existing.electricEnd,
+          waterEnd: !isElectric ? finalValue : existing.waterEnd,
+          electricPhotoUrl: isElectric ? submission.photoUrl : existing.electricPhotoUrl,
+          waterPhotoUrl: !isElectric ? submission.photoUrl : existing.waterPhotoUrl,
+        })]);
       } else {
-        const newReading = {
+        await commit([ops.create('readings', {
           id: uid(),
           roomId: submission.roomId,
           month: submission.month,
@@ -246,14 +243,8 @@ export default function Meter() {
           waterEnd: !isElectric ? finalValue : 0,
           electricPhotoUrl: isElectric ? submission.photoUrl : '',
           waterPhotoUrl: !isElectric ? submission.photoUrl : '',
-          created_at: nowIso,
-        };
-        nextReadings = [newReading, ...(state.readings || [])];
+        })]);
       }
-
-      const nextState = { ...state, readings: nextReadings };
-      setState(nextState);
-      saveState(nextState);
 
       await reviewMeterSubmission(submission.id, 'confirm', finalValue);
       setPendingSubmissions((prev) => prev.filter((row) => row.id !== submission.id));
@@ -279,9 +270,7 @@ export default function Meter() {
 
   const onDeleteReading = (id) => {
     if (!window.confirm('Xóa chỉ số này?')) return;
-    const nextReadings = (state.readings || []).filter(x => x.id !== id);
-    const s2 = { ...state, readings: nextReadings };
-    setState(s2); saveState(s2);
+    commit([ops.remove('readings', id)]).catch(() => {});
   };
 
   const closeTuyaMeters = async (targetRooms = null) => {
@@ -321,8 +310,7 @@ export default function Meter() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || 'Không thể kết nối Tuya.');
 
-      const nowIso = payload.capturedAt || new Date().toISOString();
-      let nextReadings = [...(state.readings || [])];
+      const readingOps = [];
       let successCount = 0;
       const failures = [];
 
@@ -339,14 +327,12 @@ export default function Meter() {
 
         const existing = latestReadingMap.get(`${result.roomId}__${month}`);
         if (existing) {
-          nextReadings = nextReadings.map((reading) => reading.id === existing.id ? ({
-            ...reading,
-            electricStart: electricStart ?? reading.electricStart,
+          readingOps.push(ops.update('readings', existing.id, {
+            electricStart: electricStart ?? existing.electricStart,
             electricEnd: result.electricEnd,
-            updated_at: nowIso,
-          }) : reading);
+          }));
         } else {
-          nextReadings.unshift({
+          readingOps.push(ops.create('readings', {
             id: uid(),
             roomId: result.roomId,
             month,
@@ -354,18 +340,13 @@ export default function Meter() {
             electricEnd: result.electricEnd,
             waterStart: null,
             waterEnd: null,
-            created_at: nowIso,
-            updated_at: nowIso,
-          });
+          }));
         }
         successCount += 1;
       }
 
-      if (successCount > 0) {
-        const next = { ...state, readings: nextReadings };
-        setState(next);
-        saveState(next);
-      }
+      // All rooms closed in one transaction: every reading is saved, or none.
+      if (readingOps.length > 0) await commit(readingOps);
 
       const summary = [`Đã chốt ${successCount}/${mappedRooms.length} công tơ cho tháng ${month}.`];
       if (failures.length) summary.push(`Không lấy được:\n${failures.join('\n')}`);
@@ -472,40 +453,29 @@ export default function Meter() {
     }
     if (errors.length) return alert(errors.join('\n'));
 
-    const nowIso = new Date().toISOString();
+    const fields = {
+      roomId: form.roomId,
+      month: month,
+      electricStart: +form.electricStart,
+      electricEnd: +form.electricEnd,
+      waterStart: +form.waterStart,
+      waterEnd: +form.waterEnd,
+    };
     if (form.id) {
-      // update existing reading
-      const nextReadings = (state.readings || []).map(r => r.id === form.id ? ({
-        ...r,
-        roomId: form.roomId,
-        month: month,
-        electricStart: +form.electricStart,
-        electricEnd: +form.electricEnd,
-        waterStart: +form.waterStart,
-        waterEnd: +form.waterEnd,
-        electricPhotoUrl: form.electricPhotoUrl || r.electricPhotoUrl || '',
-        waterPhotoUrl: form.waterPhotoUrl || r.waterPhotoUrl || '',
-        created_at: r.created_at || nowIso,
-        updated_at: nowIso
-      }) : r);
-      const next = { ...state, readings: nextReadings };
-      setState(next); saveState(next);
+      const current = (state.readings || []).find((r) => r.id === form.id) || {};
+      commit([ops.update('readings', form.id, {
+        ...fields,
+        electricPhotoUrl: form.electricPhotoUrl || current.electricPhotoUrl || '',
+        waterPhotoUrl: form.waterPhotoUrl || current.waterPhotoUrl || '',
+      })]).catch(() => {});
       alert('Đã cập nhật chỉ số');
     } else {
-      const reading = {
+      commit([ops.create('readings', {
         id: uid(),
-        roomId: form.roomId,
-        month: month,
-        electricStart: +form.electricStart,
-        electricEnd: +form.electricEnd,
-        waterStart: +form.waterStart,
-        waterEnd: +form.waterEnd,
+        ...fields,
         electricPhotoUrl: form.electricPhotoUrl || '',
         waterPhotoUrl: form.waterPhotoUrl || '',
-        created_at: nowIso
-      };
-      const next = { ...state, readings: [reading, ...(state.readings || [])] };
-      setState(next); saveState(next);
+      })]).catch(() => {});
       alert('Đã lưu chỉ số');
     }
 

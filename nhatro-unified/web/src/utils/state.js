@@ -1,5 +1,17 @@
 import { getAuthSession, getStoredToken } from './auth';
 
+// Data layer of the web app. Every kind of data has its own server API
+// (/api/rooms, /api/tenants, ... see server/resources.js) and every add / edit / delete is
+// sent to the server the moment the user does it — there is no "save the whole state"
+// step. This module keeps an in-memory copy so screens can read it synchronously
+// (loadState); a write updates that copy at once (optimistic) and is undone, with a
+// 'boarding_state_save_error' event, if the server rejects it.
+//
+//   hydrateState({ tables })      GET the requested collections from the server
+//   commit([ops.create(...), ...]) write one or several records (several = one transaction)
+//   saveSettings(patch)           PUT /api/settings
+//   importData(data)              upsert a backup file's records
+
 /** Trống = fetch `/api` cùng origin; dev: `VITE_API_ORIGIN` trong `.env.development`. */
 function resolveApiBase() {
   return (import.meta.env.VITE_API_ORIGIN || '').replace(/\/+$/, '');
@@ -16,15 +28,66 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+async function request(method, path, body) {
+  const res = await fetch(apiUrl(path), {
+    method,
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (res.status === 204) return null;
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error || 'Không thể kết nối tới server.');
+  return data;
+}
+
+// Collections of the state -> their API path.
+const COLLECTIONS = {
+  rooms: 'rooms',
+  tenants: 'tenants',
+  readings: 'readings',
+  invoices: 'invoices',
+  payments: 'payments',
+  rentPeriods: 'rent-periods',
+  paymentAllocations: 'payment-allocations',
+  deposits: 'deposits',
+  depositTransactions: 'deposit-transactions',
+};
+const COLLECTION_KEYS = Object.keys(COLLECTIONS);
+
+const DEFAULT_SETTINGS = {
+  bankCode: 'VCB',
+  accountNo: '',
+  accountName: '',
+  qrNoteTemplate: 'Tien phong {room} {month}',
+  landlordName: '',
+  landlordPhone: '',
+  landlordAddress: '',
+  occupancyMode: 'month',
+  meterRoomScope: 'occupied',
+  // Tuya monthly usage requires an additional permission. Keep it opt-in so
+  // the starting electric meter can be entered manually by default.
+  useTuyaMonthlyUsage: false,
+};
+
 function currentStateKey() {
   const { userId } = getAuthSession();
   return `boarding_state_v1:${userId || 'guest'}`;
 }
 
-// In-memory state snapshot (synchronous access for existing code paths)
+// In-memory copy (synchronous access for screens)
 let memoryState = null;
 let activeStateKey = '';
 let adminViewUserId = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('nhatro_admin_view_user_id') || '' : '';
+let isReady = false;
+
+const notifyUpdated = () => {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('boarding_state_updated'));
+};
+const notifyError = (message) => {
+  if (typeof window !== 'undefined' && message) {
+    window.dispatchEvent(new CustomEvent('boarding_state_save_error', { detail: { message } }));
+  }
+};
 
 export function getAdminViewUserId() {
   return adminViewUserId;
@@ -38,99 +101,14 @@ export function setAdminViewUserId(userId = '') {
   } catch (e) { /* storage is optional */ }
   memoryState = null;
   isReady = false;
-  if (typeof window !== 'undefined') window.dispatchEvent(new Event('boarding_state_updated'));
+  notifyUpdated();
 }
 
-
-function tablesQuery(tables) {
-  return tables && tables.length ? `?tables=${encodeURIComponent(tables.join(','))}` : '';
-}
-
-async function loadStateFromServer(options = {}) {
-  const { tables = null } = options;
-  if (adminViewUserId) {
-    try {
-      const resp = await fetch(
-        apiUrl(`/api/admin/users/${encodeURIComponent(adminViewUserId)}/state${tablesQuery(tables)}`),
-        { headers: authHeaders() }
-      );
-      if (!resp.ok) throw new Error('Không thể tải dữ liệu tài khoản đã chọn');
-      const json = await resp.json();
-      return json?.state || null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  try {
-    const resp = await fetch(apiUrl(`/api/state${tablesQuery(tables)}`), { headers: authHeaders() });
-    if (!resp.ok) return null;
-    const json = await resp.json();
-    if (json && json.state) return json.state;
-  } catch (e) {
-    // server unavailable, ignore
-  }
-  return null;
-}
-
-async function saveStateToServer(state, options = {}) {
-  const { tables = null } = options;
-  const res = await fetch(apiUrl('/api/state'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ state, tables }),
-  });
-  const data = res.ok ? null : await res.json().catch(() => null);
-  if (!res.ok) {
-    throw new Error(data?.error || 'Không thể lưu dữ liệu');
-  }
-  return true;
-}
-
-function applyDefaults(s) {
-  const defaultSettings = {
-    bankCode: 'VCB',
-    accountNo: '',
-    accountName: '',
-    qrNoteTemplate: 'Tien phong {room} {month}',
-    landlordName: '',
-    landlordPhone: '',
-    landlordAddress: '',
-    occupancyMode: 'month',
-    meterRoomScope: 'occupied',
-    // Tuya monthly usage requires an additional permission. Keep it opt-in so
-    // the starting electric meter can be entered manually by default.
-    useTuyaMonthlyUsage: false,
-  };
-  return {
-    rooms: s.rooms || [],
-    tenants: s.tenants || [],
-    readings: s.readings || [],
-    invoices: s.invoices || [],
-    payments: s.payments || [],
-    rentPeriods: s.rentPeriods || [],
-    paymentAllocations: s.paymentAllocations || [],
-    deposits: s.deposits || [],
-    depositTransactions: s.depositTransactions || [],
-    settings: { ...defaultSettings, ...(s.settings || {}) }
-  };
-}
-
-function mergeStateSlices(base, incoming, tables = null) {
-  if (!incoming) return applyDefaults(base || {});
-  if (!tables || tables.length === 0) {
-    return applyDefaults(incoming);
-  }
-
-  const next = applyDefaults(base || {});
-  tables.forEach((table) => {
-    if (table === 'settings') next.settings = incoming.settings || next.settings;
-    else if (table in next) {
-      if (Array.isArray(incoming[table])) next[table] = incoming[table];
-    }
-  });
-  if (incoming.__meta) next.__meta = incoming.__meta;
-  return next;
+function applyDefaults(s = {}) {
+  const out = {};
+  COLLECTION_KEYS.forEach((key) => { out[key] = s[key] || []; });
+  out.settings = { ...DEFAULT_SETTINGS, ...(s.settings || {}) };
+  return out;
 }
 
 function ensureSessionBoundary() {
@@ -138,222 +116,209 @@ function ensureSessionBoundary() {
   if (activeStateKey && activeStateKey !== key) {
     memoryState = null;
     isReady = false;
-    isHydrating = false;
   }
   activeStateKey = key;
   return key;
 }
 
-// loadState remains synchronous for compatibility; it returns the in-
-// export function loadState(){
-//   if (!memoryState) {
-//   // initialize with seed so UI has something to show immediately
-//       memoryState = seed();
-//   // persist seed to DB asynchronously
-//       (async ()=>{ try{ await dbSet(KEY, memoryState); }catch(e){} })();
-//   // also notify listeners that state is available
-//       if(typeof window !== 'undefined' && window.dispatchEvent){ try{ window.dispatchEvent(new Event('boarding_state_updated')); }catch(e){} }
-//   }
-//  return applyDefaults(memoryState);
-// } 
-let isReady = false;
-
 export function isStateReady() {
   return isReady;
 }
-let isHydrating = false;
 
-// Compare state to avoid unnecessary re-render
-function isSameState(a, b) {
-  const aLastModified = a?.__meta?.lastModified;
-  const bLastModified = b?.__meta?.lastModified;
-  if (!aLastModified || !bLastModified) return false;
-  return aLastModified === bLastModified;
-}
-
-function hasStateChanged(nextState, prevState, tables = null) {
-  if (!prevState) return true;
-  if (!tables || tables.length === 0) return !isSameState(nextState, prevState);
-  return JSON.stringify(nextState) !== JSON.stringify(prevState);
-}
+// Synchronous read of the in-memory copy.
 export function loadState() {
   ensureSessionBoundary();
-  return applyDefaults(memoryState || {
-    rooms: [],
-    tenants: [],
-    readings: [],
-    invoices: [],
-    payments: [],
-    rentPeriods: [],
-    paymentAllocations: [],
-    deposits: [],
-    depositTransactions: [],
-    settings: {
-      bankCode: 'VCB',
-      accountNo: '',
-      accountName: '',
-      qrNoteTemplate: 'Tien phong {room} {month}',
-      landlordName: '',
-      landlordPhone: '',
-      landlordAddress: '',
-      occupancyMode: 'month',
-      meterRoomScope: 'occupied',
-      useTuyaMonthlyUsage: false,
-    }
-  });
+  return applyDefaults(memoryState || {});
 }
+
 export function resetStateSession() {
   adminViewUserId = '';
-  try { sessionStorage.removeItem('nhatro_admin_view_user_id'); } catch (e) {}
+  try { sessionStorage.removeItem('nhatro_admin_view_user_id'); } catch (e) { /* storage is optional */ }
   activeStateKey = currentStateKey();
   memoryState = null;
   isReady = false;
-  isHydrating = false;
-  if (typeof window !== 'undefined' && window.dispatchEvent) {
-    try { window.dispatchEvent(new Event('boarding_state_updated')); } catch (e) {}
-  }
+  notifyUpdated();
 }
 
+// ---- reading: one GET per requested collection ------------------------------------
 export async function hydrateState(options = {}) {
-  const { tables = null, force = false } = options;
-  if (isHydrating && !force) return;
+  const { tables = null } = options;
   ensureSessionBoundary();
-  isHydrating = true;
+  const wanted = tables && tables.length ? tables : [...COLLECTION_KEYS, 'settings'];
   const requestedAdminViewUserId = adminViewUserId;
+  const owner = requestedAdminViewUserId ? `?ownerUserId=${encodeURIComponent(requestedAdminViewUserId)}` : '';
   try {
-    // Load from the server only, scoped by requested tables.
-    const serverState = await loadStateFromServer({ tables });
-    // A user may have switched the admin preview while this request was in
+    const slices = await Promise.all(wanted.map(async (key) => {
+      if (key === 'settings') return [key, (await request('GET', `/api/settings${owner}`))?.settings || {}];
+      if (!COLLECTIONS[key]) return null;
+      return [key, (await request('GET', `/api/${COLLECTIONS[key]}${owner}`))?.[key] || []];
+    }));
+    // The admin may have switched the previewed account while the requests were in
     // flight. Never overwrite the newly selected account with stale data.
     if (requestedAdminViewUserId !== adminViewUserId) return;
-    const nextState = mergeStateSlices(memoryState, serverState, tables);
-    if (serverState && hasStateChanged(nextState, memoryState, tables)) {
-      memoryState = nextState;
-      window.dispatchEvent(new Event('boarding_state_updated'));
+    const next = applyDefaults(memoryState || {});
+    let changed = !memoryState;
+    for (const slice of slices) {
+      if (!slice) continue;
+      const [key, value] = slice;
+      if (JSON.stringify(next[key]) !== JSON.stringify(value)) changed = true;
+      next[key] = value;
     }
-
+    if (changed) {
+      memoryState = next;
+      notifyUpdated();
+    }
     isReady = true;
     window.dispatchEvent(new Event('boarding_state_ready'));
-
   } catch (e) {
     console.error('hydrateState error', e);
-  } finally {
-    isHydrating = false;
   }
 }
 
 export async function reloadStateForAdminView() {
   return hydrateState({ force: true });
 }
-function seed(){
-  const uid = () => Math.random().toString(36).slice(2);
-  const monthKey = (d=new Date())=>{ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); return `${y}-${m}`; };
-  const r1={ id:uid(), name:'P101', baseRent:2500000, electricRate:3500, waterRate:12000 };
-  const r2={ id:uid(), name:'P102', baseRent:2700000, electricRate:3500, waterRate:12000 };
-  const t1={ id:uid(), name:'Nguyen Van A', cccd:'012345678901', phone:'0901234567', roomId:r1.id };
-  const readings=[{ id:uid(), roomId:r1.id, month:monthKey(), electricStart:100, electricEnd:120, waterStart:30, waterEnd:32, created_at:new Date().toISOString() }];
-  const s={ rooms:[r1,r2], tenants:[t1], readings, invoices:[], payments:[], rentPeriods:[], paymentAllocations:[], deposits:[], depositTransactions:[], settings:{ bankCode:'VCB', accountNo:'', accountName:'', qrNoteTemplate:'Tien phong {room} {month}', landlordName:'', landlordPhone:'', landlordAddress:'', occupancyMode:'month', meterRoomScope:'occupied' }, __meta: { lastModified: new Date().toISOString() } };
-  return s;
+
+// ---- writing: every add / edit / delete goes to the server right away -------------
+export const ops = {
+  create: (table, record) => ({ action: 'create', table, record }),
+  update: (table, id, patch) => ({ action: 'update', table, id, patch }),
+  remove: (table, id) => ({ action: 'delete', table, id }),
+  upsert: (table, record) => ({ action: 'upsert', table, record }),
+};
+
+const nowIso = () => new Date().toISOString();
+
+// The current in-memory copy, created on first use.
+function currentState() {
+  ensureSessionBoundary();
+  if (!memoryState) memoryState = applyDefaults({});
+  return memoryState;
 }
 
-function normalizeStateBeforePersist(state = {}) {
-  // A payment can be allocated to multiple rental months. Keep every payment
-  // and allocation; invoiceId-only payments from older data remain valid.
-  if (Array.isArray(state.paymentAllocations) || Array.isArray(state.rentPeriods)) {
-    return {
-      ...state,
-      invoices: Array.isArray(state.invoices) ? state.invoices : [],
-      payments: Array.isArray(state.payments) ? state.payments : [],
-      rentPeriods: Array.isArray(state.rentPeriods) ? state.rentPeriods : [],
-      paymentAllocations: Array.isArray(state.paymentAllocations) ? state.paymentAllocations : [],
-      deposits: Array.isArray(state.deposits) ? state.deposits : [],
-      depositTransactions: Array.isArray(state.depositTransactions) ? state.depositTransactions : [],
-    };
+// Applies one op to the in-memory copy; returns a function that undoes it. Both always
+// work on whatever the current copy is, so overlapping writes and a refresh in between
+// cannot undo each other's changes.
+function applyLocally(op) {
+  const table = op.table;
+  const id = op.id ?? op.record?.id;
+  const list = () => currentState()[table] || [];
+  const setList = (next) => { currentState()[table] = next; };
+
+  if (op.action === 'upsert') {
+    return applyLocally(list().some((r) => r.id === id)
+      ? { action: 'update', table, id, patch: op.record }
+      : { action: 'create', table, record: op.record });
   }
-  const invoices = Array.isArray(state.invoices) ? state.invoices : [];
-  const sourcePayments = Array.isArray(state.payments) ? state.payments : [];
-  const invoiceById = new Map(
-    invoices
-      .filter((inv) => inv?.id !== null && inv?.id !== undefined && inv?.id !== '')
-      .map((inv) => [String(inv.id), inv])
-  );
-  const paymentsByInvoiceId = new Map();
-  const STATUS_PAID = 'Đã thanh toán';
-  const STATUS_UNPAID = 'Chưa thanh toán';
-  const LEGACY_STATUS_UNPAID = 'Chưa thanh toán';
-  const isUnpaid = (status = '') => {
-    const s = String(status || '').trim();
-    return s === STATUS_UNPAID || s === LEGACY_STATUS_UNPAID;
-  };
-
-  for (const payment of sourcePayments) {
-    const invoiceId = payment?.invoiceId;
-    if (invoiceId === null || invoiceId === undefined || invoiceId === '') continue;
-    const invoiceIdKey = String(invoiceId);
-    const invoice = invoiceById.get(invoiceIdKey);
-    if (!invoice) continue;
-    if (isUnpaid(invoice.status)) continue;
-    if (!paymentsByInvoiceId.has(invoiceIdKey)) {
-      paymentsByInvoiceId.set(invoiceIdKey, payment);
-    }
+  if (op.action === 'create') {
+    setList([{ created_at: nowIso(), updated_at: nowIso(), ...op.record }, ...list()]);
+    return () => setList(list().filter((r) => r.id !== id));
   }
-
-  const normalizedInvoices = invoices.map((invoice) => {
-    if (!invoice?.id) return invoice;
-    const hasPayment = paymentsByInvoiceId.has(String(invoice.id));
-    if (hasPayment) {
-      const payment = paymentsByInvoiceId.get(String(invoice.id));
-      return { ...invoice, status: STATUS_PAID, paidAt: payment?.paidAt || invoice.paidAt };
-    }
-    return { ...invoice, status: STATUS_UNPAID, paidAt: undefined };
-  });
-
-  return {
-    ...state,
-    invoices: normalizedInvoices,
-    payments: Array.from(paymentsByInvoiceId.values()),
+  const index = list().findIndex((r) => r.id === id);
+  if (index === -1) return () => {};
+  const previous = list()[index];
+  if (op.action === 'update') {
+    setList(list().map((r) => (r.id === id ? { ...r, ...op.patch, updated_at: nowIso() } : r)));
+    return () => setList(list().map((r) => (r.id === id ? previous : r)));
+  }
+  // delete
+  setList(list().filter((r) => r.id !== id));
+  return () => {
+    const restored = [...list()];
+    restored.splice(Math.min(index, restored.length), 0, previous);
+    setList(restored);
   };
 }
 
-export function saveState(next){ 
-  try{
-    if (adminViewUserId) return;
-    ensureSessionBoundary();
-    const prevState = memoryState;
-    const normalized = normalizeStateBeforePersist(next);
-    const withMeta = { ...normalized, __meta: { lastModified: new Date().toISOString() } };
-    // update in-memory snapshot
-    memoryState = withMeta;
-    (async ()=>{
-      // Persist only changed tables (no whole-state sync).
-      const tableKeys = ['rooms', 'tenants', 'readings', 'invoices', 'payments', 'rentPeriods', 'paymentAllocations', 'deposits', 'depositTransactions', 'settings'];
-      const changed = [];
-      for (const key of tableKeys) {
-        const a = prevState?.[key];
-        const b = withMeta?.[key];
-        if (key === 'settings') {
-          if (JSON.stringify(a || {}) !== JSON.stringify(b || {})) changed.push(key);
-        } else {
-          if (JSON.stringify(a || []) !== JSON.stringify(b || [])) changed.push(key);
-        }
-      }
-      try {
-        await saveStateToServer(withMeta, { tables: changed.length ? changed : null });
-      } catch (e) {
-        memoryState = prevState;
-        if (typeof window !== 'undefined' && e?.message) {
-          window.dispatchEvent(new CustomEvent('boarding_state_save_error', { detail: { message: e.message } }));
-          window.dispatchEvent(new Event('boarding_state_updated'));
-        }
-        return;
-      }
-      // notify same-tab listeners that state changed (after DB write)
-      if(typeof window !== 'undefined' && window.dispatchEvent){
-        try{ window.dispatchEvent(new Event('boarding_state_updated')); }catch(e){}
-      }
-    })();
-  }catch(e){ /* ignore write errors */ }
+function normalizeOps(opList) {
+  return opList.filter(Boolean).map((op) => (
+    op.action === 'create' || op.action === 'upsert'
+      ? { ...op, record: { ...op.record, id: op.record?.id || uid() } }
+      : op
+  ));
 }
+
+const READ_ONLY_MESSAGE = 'Đang xem dữ liệu của tài khoản khác (chỉ đọc), không thể chỉnh sửa.';
+
+// commit([ops...]) — one op is one REST call; several ops are one /api/batch transaction
+// (all saved or none). The local copy changes at once; if the server refuses, the change
+// is undone and 'boarding_state_save_error' is raised. Resolves with the rows the server
+// saved (it stamps created_at / updated_at / created_by / updated_by itself).
+export async function commit(opList) {
+  const list = normalizeOps(Array.isArray(opList) ? opList : [opList]);
+  if (list.length === 0) return [];
+  if (adminViewUserId) {
+    notifyError(READ_ONLY_MESSAGE);
+    throw new Error(READ_ONLY_MESSAGE);
+  }
+  const undo = list.map((op) => applyLocally(op)).reverse();
+  notifyUpdated();
+
+  try {
+    let rows;
+    if (list.length === 1 && list[0].action !== 'upsert') {
+      const op = list[0];
+      const path = `/api/${COLLECTIONS[op.table]}`;
+      if (op.action === 'create') rows = [await request('POST', path, op.record)];
+      else if (op.action === 'update') rows = [await request('PUT', `${path}/${encodeURIComponent(op.id)}`, op.patch)];
+      else { await request('DELETE', `${path}/${encodeURIComponent(op.id)}`); rows = [null]; }
+    } else {
+      rows = (await request('POST', '/api/batch', {
+        ops: list.map((op) => ({ action: op.action, resource: op.table, id: op.id ?? op.record?.id, data: op.record ?? op.patch })),
+      })).results;
+    }
+    list.forEach((op, i) => {
+      const row = rows[i];
+      if (!row || !Array.isArray(currentState()[op.table])) return;
+      currentState()[op.table] = currentState()[op.table].map((r) => (r.id === row.id ? row : r));
+    });
+    notifyUpdated();
+    return rows;
+  } catch (error) {
+    undo.forEach((fn) => fn());
+    notifyError(error?.message || 'Không thể lưu dữ liệu');
+    notifyUpdated();
+    throw error;
+  }
+}
+
+// Settings are one row per user: PUT only what changed.
+export async function saveSettings(patch) {
+  if (adminViewUserId) {
+    notifyError(READ_ONLY_MESSAGE);
+    throw new Error(READ_ONLY_MESSAGE);
+  }
+  const previous = currentState().settings;
+  currentState().settings = { ...previous, ...patch };
+  notifyUpdated();
+  try {
+    const data = await request('PUT', '/api/settings', patch);
+    currentState().settings = { ...DEFAULT_SETTINGS, ...(data?.settings || {}) };
+    notifyUpdated();
+    return currentState().settings;
+  } catch (error) {
+    currentState().settings = previous;
+    notifyError(error?.message || 'Không thể lưu cấu hình');
+    notifyUpdated();
+    throw error;
+  }
+}
+
+// Import a backup file: every record is upserted by id (existing ones updated, new ones
+// created, nothing deleted), 200 records per transaction.
+export async function importData(data) {
+  const list = [];
+  COLLECTION_KEYS.forEach((key) => (data?.[key] || []).forEach((record) => record?.id && list.push(ops.upsert(key, record))));
+  for (let i = 0; i < list.length; i += 200) {
+    await request('POST', '/api/batch', {
+      ops: list.slice(i, i + 200).map((op) => ({ action: 'upsert', resource: op.table, id: op.record.id, data: op.record })),
+    });
+  }
+  if (data?.settings && Object.keys(data.settings).length) await request('PUT', '/api/settings', data.settings);
+  await hydrateState();
+  return list.length;
+}
+
 export const monthKey = (d=new Date())=>{ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); return `${y}-${m}`; };
 export const currency = v => new Intl.NumberFormat('vi-VN').format(v||0);
 export const uid = ()=> Math.random().toString(36).slice(2);

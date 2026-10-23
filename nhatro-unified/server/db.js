@@ -1,4 +1,4 @@
-// PostgreSQL (Neon) data layer used by index.js and stateStore.js. Table and column names come from neon-schema.sql; only columns that
+// PostgreSQL (Neon) data layer used by index.js and resources.js. Table and column names come from neon-schema.sql; only columns that
 // really exist are ever interpolated into SQL (request-body keys that are not
 // columns are dropped with a warning) and every value is a bound parameter.
 const { Pool, types } = require('pg');
@@ -10,7 +10,7 @@ types.setTypeParser(1700, (v) => Number(v));
 types.setTypeParser(1082, (v) => v);
 types.setTypeParser(1184, (v) => new Date(v).toISOString());
 
-// stateStore collection key -> real table name.
+// collection key -> real table name.
 const TABLES = {
   users: 'users',
   rooms: 'rooms',
@@ -181,12 +181,83 @@ async function listOwnedRows(table, userId) {
   return query(`SELECT * FROM ${q(table)} WHERE created_by = $1 ${notDeleted}`, [String(userId)]);
 }
 
-async function softDeleteRow(table, id, userId, { client = null } = {}) {
+// Soft delete: flags the row and stamps who/when. Returns true when a live row was deleted.
+async function softDeleteRow(table, id, userId, { client = null, actorId = userId } = {}) {
   const runner = client || getPool();
-  await runner.query(
-    `UPDATE ${q(table)} SET ${q('isDeleted')} = true, updated_by = $3, updated_at = $4 WHERE id = $1 AND created_by = $2`,
-    [String(id), String(userId), String(userId), new Date().toISOString()]
+  const result = await runner.query(
+    `UPDATE ${q(table)} SET ${q('isDeleted')} = true, updated_by = $3, updated_at = $4 WHERE id = $1 AND created_by = $2 AND COALESCE(${q('isDeleted')}, false) = false`,
+    [String(id), String(userId), String(actorId), new Date().toISOString()]
   );
+  return result.rowCount > 0;
+}
+
+// Columns the API never lets a request body set: ids, ownership, audit stamps and the
+// soft-delete flag are always decided by the server.
+const PROTECTED_COLUMNS = new Set(['id', 'created_by', 'created_at', 'updated_by', 'updated_at', 'isDeleted']);
+
+class DbConflictError extends Error {}
+
+// Writable fields of `data` that really are columns of `table` (others dropped with a
+// one-time warning), coerced to the column types.
+async function writableFields(table, data) {
+  const columns = await columnsOf(table);
+  const out = {};
+  for (const [key, raw] of Object.entries(data || {})) {
+    if (PROTECTED_COLUMNS.has(key)) continue;
+    if (!columns.has(key)) {
+      const marker = `${table}.${key}`;
+      if (!WARNED_COLUMNS.has(marker)) {
+        WARNED_COLUMNS.add(marker);
+        console.warn(`[db] bỏ qua trường "${key}" — bảng ${table} chưa có cột này`);
+      }
+      continue;
+    }
+    const value = coerce(columns.get(key), raw);
+    if (value !== undefined) out[key] = value;
+  }
+  return out;
+}
+
+// INSERT one row. created_by/updated_by = the acting user, created_at/updated_at = now,
+// passed explicitly. A duplicate id raises DbConflictError.
+async function insertRow(table, { id, ownerId, actorId, data }, { client = null } = {}) {
+  const fields = await writableFields(table, data);
+  const nowIso = new Date().toISOString();
+  const row = { id: String(id), ...fields, created_by: String(ownerId), updated_by: String(actorId), created_at: nowIso, updated_at: nowIso, isDeleted: false };
+  const cols = Object.keys(row);
+  try {
+    const result = await (client || getPool()).query(
+      `INSERT INTO ${q(table)} (${cols.map(q).join(', ')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`,
+      cols.map((c) => row[c])
+    );
+    return result.rows[0];
+  } catch (error) {
+    if (error.code === '23505') throw new DbConflictError(`${table}: id đã tồn tại`);
+    throw error;
+  }
+}
+
+// UPDATE the fields in `patch` of one live row owned by ownerId; stamps updated_by/updated_at.
+// Returns the row, or null when there is no such row.
+async function updateRow(table, id, { ownerId, actorId, patch }, { client = null } = {}) {
+  const fields = await writableFields(table, patch);
+  const row = { ...fields, updated_by: String(actorId), updated_at: new Date().toISOString() };
+  const cols = Object.keys(row);
+  const params = [String(id), String(ownerId), ...cols.map((c) => row[c])];
+  const result = await (client || getPool()).query(
+    `UPDATE ${q(table)} SET ${cols.map((c, i) => `${q(c)} = $${i + 3}`).join(', ')}
+      WHERE id = $1 AND created_by = $2 AND COALESCE(${q('isDeleted')}, false) = false RETURNING *`,
+    params
+  );
+  return result.rows[0] || null;
+}
+
+async function getOwnedRow(table, id, ownerId, { client = null } = {}) {
+  const result = await (client || getPool()).query(
+    `SELECT * FROM ${q(table)} WHERE id = $1 AND created_by = $2 AND COALESCE(${q('isDeleted')}, false) = false`,
+    [String(id), String(ownerId)]
+  );
+  return result.rows[0] || null;
 }
 
 async function getRowById(table, id) {
@@ -205,6 +276,12 @@ module.exports = {
   forgetColumns,
   coerce,
   upsertRow,
+  insertRow,
+  updateRow,
+  getOwnedRow,
+  writableFields,
+  DbConflictError,
+  PROTECTED_COLUMNS,
   listOwnedRows,
   softDeleteRow,
   getRowById,

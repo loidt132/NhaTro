@@ -5,7 +5,7 @@ const express = require('express');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const { createWorker } = require('tesseract.js');
-const stateStore = require('./stateStore');
+const { createResourcesRouter } = require('./resources');
 const db = require('./db');
 const { decryptRow, decryptField, encryptField } = require('./cryptoFields');
 const getDbPool = () => db.getPool();
@@ -150,54 +150,6 @@ app.get('/health', async (req, res) => {
     },
   });
 });
-
-function sanitizeStateForPersistence(nextState = {}) {
-  // Advance payments are independent transactions and can be allocated across
-  // multiple rental months. Do not apply the legacy one-payment-per-invoice rule.
-  if (Array.isArray(nextState.paymentAllocations) || Array.isArray(nextState.rentPeriods) || Array.isArray(nextState.deposits)) {
-    return {
-      ...nextState,
-      invoices: Array.isArray(nextState.invoices) ? nextState.invoices : [],
-      payments: Array.isArray(nextState.payments) ? nextState.payments : [],
-      rentPeriods: Array.isArray(nextState.rentPeriods) ? nextState.rentPeriods : [],
-      paymentAllocations: Array.isArray(nextState.paymentAllocations) ? nextState.paymentAllocations : [],
-      deposits: Array.isArray(nextState.deposits) ? nextState.deposits : [],
-      depositTransactions: Array.isArray(nextState.depositTransactions) ? nextState.depositTransactions : [],
-    };
-  }
-  const invoices = Array.isArray(nextState.invoices) ? nextState.invoices : [];
-  const payments = Array.isArray(nextState.payments) ? nextState.payments : [];
-  const invoiceById = new Map(
-    invoices
-      .filter((invoice) => invoice?.id !== null && invoice?.id !== undefined && invoice?.id !== '')
-      .map((invoice) => [String(invoice.id), invoice])
-  );
-  const STATUS_UNPAID = 'Chưa thanh toán';
-  const LEGACY_STATUS_UNPAID = 'Chưa thanh toán';
-  const isUnpaid = (status = '') => {
-    const s = String(status || '').trim();
-    return s === STATUS_UNPAID || s === LEGACY_STATUS_UNPAID;
-  };
-  const paymentsByInvoiceId = new Map();
-
-  payments.forEach((payment) => {
-    const invoiceId = payment?.invoiceId;
-    if (invoiceId === null || invoiceId === undefined || invoiceId === '') return;
-    const invoiceIdKey = String(invoiceId);
-    const invoice = invoiceById.get(invoiceIdKey);
-    if (!invoice) return;
-    if (isUnpaid(invoice.status)) return;
-    if (!paymentsByInvoiceId.has(invoiceIdKey)) {
-      paymentsByInvoiceId.set(invoiceIdKey, payment);
-    }
-  });
-
-  return {
-    ...nextState,
-    invoices,
-    payments: Array.from(paymentsByInvoiceId.values()),
-  };
-}
 
 function ensureTuyaReady() {
   if (!TUYA_API_ENDPOINT || !TUYA_ACCESS_ID || !TUYA_ACCESS_SECRET) {
@@ -1353,90 +1305,10 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
   }
 });
 
-function parseTablesParam(raw) {
-  if (!raw) return null;
-  const list = String(raw).split(',').map((t) => t.trim()).filter(Boolean);
-  return list.length ? list : null;
-}
-
-app.get('/api/state', authMiddleware, async (req, res) => {
-  if (!stateStore.isConfigured()) {
-    return res.json({ state: {} });
-  }
-  try {
-    const tables = parseTablesParam(req.query?.tables);
-    const state = await stateStore.loadStateForUser(req.userId, tables);
-    return res.json({ state: sanitizeStateForPersistence(state) });
-  } catch (error) {
-    console.error('state get error', error);
-    return res.json({ state: {} });
-  }
-});
-
-app.post('/api/state', authMiddleware, async (req, res) => {
-  const nextState = req.body?.state;
-  if (!nextState || typeof nextState !== 'object') {
-    return res.status(400).json({ error: 'Thiếu dữ liệu state' });
-  }
-  if (!stateStore.isConfigured()) {
-    return res.status(501).json({ error: 'Database chưa được cấu hình trên server.' });
-  }
-
-  const tables = Array.isArray(req.body?.tables) && req.body.tables.length ? req.body.tables : null;
-  const sanitizedState = sanitizeStateForPersistence(nextState);
-  let currentUser;
-
-  try {
-    const users = await listUsers();
-    currentUser = users.find((u) => sameUserId(u.id, req.userId));
-  } catch (error) {
-    console.error('state validation user lookup error', error);
-  }
-
-  const currentLimit = currentUser?.maxRoomLimit;
-  if (currentLimit !== null && currentLimit !== undefined && currentLimit > 0 && (!tables || tables.includes('rooms'))) {
-    const roomCount = Array.isArray(sanitizedState.rooms)
-      ? sanitizedState.rooms.filter((room) => room?.isDeleted !== true).length
-      : 0;
-    if (roomCount > currentLimit) {
-      return res.status(400).json({ error: `Không thể lưu trạng thái. Giới hạn ${currentLimit} phòng đã bị vượt quá.` });
-    }
-  }
-
-  try {
-    await stateStore.saveStateForUser(req.userId, sanitizedState, tables);
-  } catch (error) {
-    console.error('state save error', error);
-    return res.status(500).json({ error: error?.message || 'Không thể lưu dữ liệu vào database' });
-  }
-
-  return res.json({ state: sanitizedState });
-});
-
-// Tenant's own landlord's room list — needed to show the tenant which room
-// they're linked to (TenantMeterUpload.jsx). Scoped like /api/tenants/records:
-// self, your own landlord (tenant role), or an admin impersonating someone else.
-function resolveRoomsOwnerId(req) {
-  const requested = String(req.query?.ownerUserId || '').trim();
-  if (!requested || requested === req.userId) return req.userId;
-  if (requested === String(req.authPayload?.landlordId || '')) return requested;
-  return isAdminRole(req.authPayload?.role) ? requested : req.userId;
-}
-
-app.get('/api/rooms/records', authMiddleware, async (req, res) => {
-  if (!hasRoomsConfig()) {
-    return res.status(503).json({ error: 'Database chưa được cấu hình trên server.' });
-  }
-  const ownerId = resolveRoomsOwnerId(req);
-
-  try {
-    const rows = await db.listOwnedRows('rooms', ownerId);
-    return res.json({ list: rows });
-  } catch (error) {
-    console.error('rooms proxy GET error', error);
-    return res.status(500).json({ error: 'Không tải được danh sách phòng.' });
-  }
-});
+// One REST API per kind of data (rooms, tenants, readings, invoices, payments, rent-periods,
+// payment-allocations, deposits, deposit-transactions, settings) plus /api/batch — see
+// resources.js. Every add / edit / delete is written to the database as its own request.
+app.use('/api', createResourcesRouter({ authMiddleware }));
 
 // Lets Settings.jsx show whether the database is reachable and migrated,
 // without exposing the connection string to the browser.
@@ -1572,18 +1444,6 @@ app.get('/api/admin/users/:userId/rooms', adminMiddleware, async (req, res) => {
   } catch (error) {
     console.error('admin/users rooms error', error);
     return res.json({ roomCount: 0 });
-  }
-});
-
-// Read-only state preview for an account selected by an administrator.
-app.get('/api/admin/users/:userId/state', adminMiddleware, async (req, res) => {
-  try {
-    const tables = parseTablesParam(req.query?.tables);
-    const state = await stateStore.loadStateForUser(req.params.userId, tables);
-    return res.json({ state: sanitizeStateForPersistence(state) });
-  } catch (error) {
-    console.error('admin/users state get error', error);
-    return res.status(500).json({ error: 'Không thể tải dữ liệu tài khoản' });
   }
 });
 

@@ -1,6 +1,6 @@
 // src/pages/Settings.jsx
 import React, { useState, useEffect } from 'react';
-import { loadState, saveState, hydrateState } from '../utils/state';
+import { loadState, saveSettings, importData, hydrateState } from '../utils/state';
 import { getStoredToken } from '../utils/auth';
 import Footer from '../components/Footer';
 import Page from '../components/Page';
@@ -56,19 +56,16 @@ export default function Settings({ user = null }) {
 
   const onSave = () => {
     const normalizedQrNoteTemplate = (s.qrNoteTemplate || 'Tien phong {room} {month}').trim();
-    const next = {
-      ...state,
-      settings: {
-        ...s,
-        qrNoteTemplate: normalizedQrNoteTemplate,
-        occupancyMode: s.occupancyMode || 'month',
-        meterRoomScope: s.meterRoomScope || 'occupied',
-        useTuyaMonthlyUsage: s.useTuyaMonthlyUsage === true,
-      },
-    };
-    setState(next);
-    saveState(next);
-    alert('Đã lưu cấu hình');
+    // Saved on the server straight away.
+    saveSettings({
+      ...s,
+      qrNoteTemplate: normalizedQrNoteTemplate,
+      occupancyMode: s.occupancyMode || 'month',
+      meterRoomScope: s.meterRoomScope || 'occupied',
+      useTuyaMonthlyUsage: s.useTuyaMonthlyUsage === true,
+    })
+      .then(() => alert('Đã lưu cấu hình'))
+      .catch(() => {}); // the error is shown by the save-error toast
   };
 
   const handleExport = () => {
@@ -94,9 +91,14 @@ export default function Settings({ user = null }) {
         if (!data.rooms || !data.tenants || !data.readings || !data.invoices || !data.payments) {
           throw new Error('Dữ liệu không hợp lệ: thiếu các trường cần thiết');
         }
-        saveState(data);
-        setState(data);
-        alert('Đã nhập dữ liệu thành công');
+        // Every record in the file is upserted on the server (existing ones updated, new ones
+        // created); nothing already in the app is deleted.
+        importData(data)
+          .then((count) => {
+            setState(loadState());
+            alert(`Đã nhập ${count} bản ghi`);
+          })
+          .catch((err) => alert('Lỗi nhập dữ liệu: ' + err.message));
       } catch (err) {
         alert('Lỗi nhập dữ liệu: ' + err.message);
       }
