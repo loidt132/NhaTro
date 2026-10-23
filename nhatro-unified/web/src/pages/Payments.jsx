@@ -104,8 +104,8 @@ export default function Payments() {
       if (!r?.roomId || !r?.month) continue;
       const key = `${r.roomId}__${r.month}`;
       const prev = byKey.get(key);
-      const prevTime = prev?.updatedAt || prev?.createdAt || '';
-      const nextTime = r?.updatedAt || r?.createdAt || '';
+      const prevTime = prev?.updated_at || prev?.created_at || '';
+      const nextTime = r?.updated_at || r?.created_at || '';
       if (!prev || String(nextTime) > String(prevTime)) byKey.set(key, r);
     }
     return byKey;
@@ -255,20 +255,20 @@ console.log('filtered items', { query, filteredItems });
       const periodMonth = addMonths(startMonth, index + 1);
       let period = nextPeriods.find((item) => item.roomId === room.id && item.month === periodMonth);
       if (!period) {
-        period = { id: uid(), roomId: room.id, tenantId: tenant.id, month: periodMonth, rent: room.baseRent ?? 0, createdAt: now, updatedAt: now };
+        period = { id: uid(), roomId: room.id, tenantId: tenant.id, month: periodMonth, rent: room.baseRent ?? 0, created_at: now, updated_at: now };
         nextPeriods.push(period);
       }
       const allocated = nextAllocations.filter((item) => String(item.rentPeriodId) === String(period.id)).reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
       const remaining = Math.max(0, (Number(period.rent) || 0) - allocated);
       const allocationAmount = Math.min(remaining, amountToAllocate);
       if (allocationAmount > 0) {
-        allocations.push({ id: uid(), rentPeriodId: period.id, amount: allocationAmount, createdAt: now, updatedAt: now });
+        allocations.push({ id: uid(), rentPeriodId: period.id, amount: allocationAmount, created_at: now, updated_at: now });
         amountToAllocate -= allocationAmount;
       }
     }
     if (amountToAllocate > 0) return alert(`Số tiền vượt phần tiền phòng còn phải đóng của ${count} tháng. Hãy tăng số tháng hoặc giảm số tiền.`);
     if (!allocations.length) return alert('Các tháng đã chọn đã được đóng đủ tiền phòng.');
-    const payment = { id: uid(), roomId: room.id, tenantId: tenant.id, amount: allocations.reduce((sum, item) => sum + item.amount, 0), method: 'Tiền mặt', note: collectionModal.note || `Đóng trước tiền phòng ${startMonth} đến ${addMonths(startMonth, count)}`, paidAt: now, createdAt: now, updatedAt: now };
+    const payment = { id: uid(), roomId: room.id, tenantId: tenant.id, amount: allocations.reduce((sum, item) => sum + item.amount, 0), method: 'Tiền mặt', note: collectionModal.note || `Đóng trước tiền phòng ${startMonth} đến ${addMonths(startMonth, count)}`, paidAt: now, created_at: now, updated_at: now };
     allocations.forEach((allocation) => { allocation.paymentId = payment.id; });
     const s2 = { ...state, payments: [payment, ...payments], rentPeriods: nextPeriods, paymentAllocations: [...allocations, ...nextAllocations] };
     setState(s2);
@@ -284,8 +284,8 @@ console.log('filtered items', { query, filteredItems });
     if (!tenant) return alert('Phòng chưa có khách thuê.');
     if (!amount) return alert('Nhập số tiền cọc.');
     const now = new Date().toISOString();
-    const deposit = { id: uid(), roomId: room.id, tenantId: tenant.id, amount, remainingAmount: amount, status: 'held', createdAt: now, updatedAt: now };
-    const transaction = { id: uid(), depositId: deposit.id, amount, type: 'received', note: collectionModal.note || 'Thu tiền cọc', occurredAt: now, createdAt: now };
+    const deposit = { id: uid(), roomId: room.id, tenantId: tenant.id, amount, remainingAmount: amount, status: 'held', created_at: now, updated_at: now };
+    const transaction = { id: uid(), depositId: deposit.id, amount, type: 'received', note: collectionModal.note || 'Thu tiền cọc', occurredAt: now, created_at: now };
     const s2 = { ...state, deposits: [deposit, ...deposits], depositTransactions: [transaction, ...depositTransactions] };
     setState(s2);
     saveState(s2);
@@ -303,11 +303,11 @@ console.log('filtered items', { query, filteredItems });
     const now = new Date().toISOString();
     const difference = balance - refundedAmount;
     const nextDeposits = deposits.map((deposit) => heldDeposits.some((held) => held.id === deposit.id)
-      ? { ...deposit, remainingAmount: 0, status: 'refunded', updatedAt: now }
+      ? { ...deposit, remainingAmount: 0, status: 'refunded', updated_at: now }
       : deposit);
-    const transactions = [{ id: uid(), depositId: heldDeposits[0]?.id, amount: refundedAmount, type: 'refunded', note: collectionModal.note || 'Hoàn tiền cọc', occurredAt: now, createdAt: now }];
+    const transactions = [{ id: uid(), depositId: heldDeposits[0]?.id, amount: refundedAmount, type: 'refunded', note: collectionModal.note || 'Hoàn tiền cọc', occurredAt: now, created_at: now }];
     if (difference > 0) {
-      transactions.push({ id: uid(), depositId: heldDeposits[0]?.id, amount: difference, type: 'deducted', note: 'Cấn trừ tự động do số tiền hoàn thấp hơn tiền cọc', occurredAt: now, createdAt: now });
+      transactions.push({ id: uid(), depositId: heldDeposits[0]?.id, amount: difference, type: 'deducted', note: 'Cấn trừ tự động do số tiền hoàn thấp hơn tiền cọc', occurredAt: now, created_at: now });
     }
     const s2 = { ...state, deposits: nextDeposits, depositTransactions: [...transactions, ...depositTransactions] };
     setState(s2);
@@ -385,7 +385,7 @@ const togglePaid = (id) => {
         method: 'Tiền mặt',
         note: `Thanh toán ${inv.month}`,
         paidAt,
-        createdAt: paidAt,
+        created_at: paidAt,
       };
 
       nextPayments.unshift(payment);
@@ -427,11 +427,11 @@ const togglePaid = (id) => {
       waterAmount: wUse * (room.waterRate ?? 0),
       other: 0,
       total: (room.baseRent ?? 0) + eUse * (room.electricRate ?? 0) + wUse * (room.waterRate ?? 0),
-      status: STATUS_UNPAID, createdAt: new Date().toISOString()
+      status: STATUS_UNPAID, created_at: new Date().toISOString()
     };
     const existingPeriod = rentPeriods.find((period) => period.roomId === roomId && period.month === month);
-    const period = existingPeriod || { id: uid(), roomId, tenantId: t.id, month, rent: room.baseRent ?? 0, createdAt: inv.createdAt, updatedAt: inv.createdAt };
-    const nextPeriods = existingPeriod ? rentPeriods.map((item) => item.id === existingPeriod.id ? { ...item, invoiceId: inv.id, updatedAt: inv.createdAt } : item) : [{ ...period, invoiceId: inv.id }, ...rentPeriods];
+    const period = existingPeriod || { id: uid(), roomId, tenantId: t.id, month, rent: room.baseRent ?? 0, created_at: inv.created_at, updated_at: inv.created_at };
+    const nextPeriods = existingPeriod ? rentPeriods.map((item) => item.id === existingPeriod.id ? { ...item, invoiceId: inv.id, updated_at: inv.created_at } : item) : [{ ...period, invoiceId: inv.id }, ...rentPeriods];
     const s2 = { ...state, invoices: [inv, ...invoices], rentPeriods: nextPeriods };
     setState(s2); saveState(s2);
   };
@@ -461,7 +461,7 @@ const togglePaid = (id) => {
             electricAmount: eUse * (room.electricRate ?? 0),
             waterAmount: wUse * (room.waterRate ?? 0),
             total: (room.baseRent ?? 0) + eUse * (room.electricRate ?? 0) + wUse * (room.waterRate ?? 0),
-            updatedAt: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
           })
     );
     const s2 = { ...state, invoices: nextInvoices };

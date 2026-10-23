@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
+import { actorStore } from "./actor.js";
 
 // Prototype-grade secret — a real deployment must set JWT_SECRET via env.
 const JWT_SECRET = process.env.JWT_SECRET || "homestay-dev-secret-change-me";
@@ -35,7 +36,8 @@ export function requireAuth(req, res, next) {
   if (!token) return res.status(401).json({ error: "Chưa đăng nhập." });
   try {
     req.user = jwt.verify(token, JWT_SECRET);
-    next();
+    // Everything after this middleware (routes, db writes) knows who is acting.
+    actorStore.run(String(req.user.sub || "system"), next);
   } catch {
     res.status(401).json({ error: "Phiên đăng nhập hết hạn hoặc không hợp lệ." });
   }

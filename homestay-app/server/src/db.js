@@ -1,5 +1,6 @@
 import pg from "pg";
 import { encryptRow, decryptRow } from "./cryptoFields.js";
+import { currentActor } from "./actor.js";
 
 // PostgreSQL data layer (Neon / Supabase / any). Exposes the same small API
 // the routes in index.js always used (listRows / findOneByBusinessId / ...),
@@ -50,7 +51,7 @@ const q = (ident) => `"${ident.replace(/"/g, '""')}"`;
 const toSnake = (name) => name.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 const toCamel = (name) => name.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
 // Bookkeeping columns keep their snake_case names in every schema.
-const KEEP_AS_IS = new Set(["created_at", "updated_at"]);
+const KEEP_AS_IS = new Set(["created_at", "updated_at", "created_by", "updated_by"]);
 
 const tableCache = new Map();
 export async function tableName(tableKey) {
@@ -173,13 +174,23 @@ export async function findOneWhere(tableKey, where) {
   return rows[0] || null;
 }
 
-async function insert(tableKey, data) {
+// Audit columns are always passed explicitly: created_by/created_at and
+// updated_by/updated_at on insert, updated_by/updated_at on update (created_* never
+// change). `raw` (NocoDB import) keeps values the row already has and only fills gaps.
+async function insert(tableKey, data, { raw = false } = {}) {
   const meta = await metaOf(tableKey);
   const clean = cleanData(meta, tableKey, data);
-  // Don't rely on the column DEFAULT: tables that pre-date schema.sql may have none.
-  for (const col of KEEP_AS_IS) {
-    if (meta.types.has(col) && clean[col] == null) clean[col] = new Date().toISOString();
-  }
+  const nowIso = new Date().toISOString();
+  const actor = currentActor();
+  const stamp = (col, value) => {
+    if (!meta.types.has(col)) return;
+    if (raw && clean[col] != null) return;
+    clean[col] = value;
+  };
+  stamp("created_at", nowIso);
+  stamp("updated_at", nowIso);
+  stamp("created_by", actor);
+  stamp("updated_by", actor);
   const cols = Object.keys(clean);
   const rows = await query(
     `INSERT INTO ${q(meta.table)} (${cols.map(q).join(", ")}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`,
@@ -195,19 +206,22 @@ export async function createRow(tableKey, data) {
 
 // Used by the NocoDB import script: rows are copied as-is (already encrypted
 // where applicable), without re-encrypting.
-export const insertRaw = insert;
+export const insertRaw = (tableKey, data) => insert(tableKey, data, { raw: true });
 
 export async function updateRowByBusinessId(tableKey, id, patch) {
   const meta = await metaOf(tableKey);
   const clean = cleanData(meta, tableKey, encryptRow(tableKey, patch));
-  delete clean.id;
+  // The audit columns are never taken from a request body.
+  for (const col of ["id", "created_at", "created_by", "updated_at", "updated_by"]) delete clean[col];
   const cols = Object.keys(clean);
   if (!cols.length) return findOneByBusinessId(tableKey, id);
-  const sets = cols.map((c, i) => `${q(c)} = $${i + 2}`);
-  if (meta.types.has("updated_at")) sets.push("updated_at = now()");
+  if (meta.types.has("updated_at")) clean.updated_at = new Date().toISOString();
+  if (meta.types.has("updated_by")) clean.updated_by = currentActor();
+  const setCols = Object.keys(clean);
+  const sets = setCols.map((c, i) => `${q(c)} = $${i + 2}`);
   const rows = await query(
     `UPDATE ${q(meta.table)} SET ${sets.join(", ")} WHERE id = $1 RETURNING *`,
-    [id, ...cols.map((c) => clean[c])]
+    [id, ...setCols.map((c) => clean[c])]
   );
   return rows[0] ? toAppRow(tableKey, meta, rows[0]) : null;
 }

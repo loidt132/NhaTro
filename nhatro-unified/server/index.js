@@ -633,11 +633,12 @@ async function findOrCreateTenantUser(tenantRecord, phone) {
     email: '',
     phone,
     ...createPasswordRecord(crypto.randomBytes(16).toString('hex')),
-    createdAt: new Date().toISOString(),
+    created_at: new Date().toISOString(),
     role: 'tenant',
     isActive: true,
     maxRoomLimit: null,
     landlordId: tenantRecord.created_by,
+    created_by: tenantRecord.created_by,
     linkedTenantId: tenantRecord.id,
     linkedRoomId: tenantRecord.roomId || '',
   };
@@ -675,7 +676,7 @@ function mapUserRow(row) {
     password: '',
     passwordHash: readUserValue(row, ['password_hash']),
     passwordSalt: readUserValue(row, ['password_salt']),
-    createdAt: readUserValue(row, ['created_at']),
+    created_at: readUserValue(row, ['created_at']),
     role: readUserValue(row, ['role']) || 'user',
     isActive: normalizeUserActive(row?.isActive),
     maxRoomLimit: row?.maxRoomLimit !== null && row?.maxRoomLimit !== undefined && Number.isFinite(parsedMaxRoom) ? parsedMaxRoom : null,
@@ -701,7 +702,9 @@ async function createUserRecord(user) {
     phone: encryptField(user.phone),
     password_hash: user.passwordHash,
     password_salt: user.passwordSalt,
-    created_at: user.createdAt || new Date().toISOString(),
+    created_at: user.created_at || new Date().toISOString(),
+    created_by: user.created_by || user.id,
+    updated_by: user.created_by || user.id,
     role: user.role,
     isActive: user.isActive !== false,
     maxRoomLimit: user.maxRoomLimit ?? null,
@@ -737,16 +740,18 @@ async function updateUserRecord(rowId, updates = {}) {
   if (updates.maxRoomLimit !== undefined) add('maxRoomLimit', updates.maxRoomLimit);
   if (sets.length === 0) return;
 
+  add('updated_by', String(updates.updatedBy || 'system'));
+  add('updated_at', new Date().toISOString());
   values.push(String(targetId));
-  await db.query(`UPDATE users SET ${sets.join(', ')}, updated_at = now() WHERE id = $${values.length}`, values);
+  await db.query(`UPDATE users SET ${sets.join(', ')} WHERE id = $${values.length}`, values);
 }
 
 async function migrateRoomCreatedBy(fromId, toId) {
   if (!fromId || !toId || sameUserId(fromId, toId) || !hasRoomsConfig()) return 0;
 
   const result = await getDbPool().query(
-    'UPDATE rooms SET created_by = $2, updated_at = now() WHERE created_by = $1',
-    [String(fromId), String(toId)]
+    'UPDATE rooms SET created_by = $2, updated_by = $2, updated_at = $3 WHERE created_by = $1',
+    [String(fromId), String(toId), new Date().toISOString()]
   );
   if (result.rowCount > 0) {
     console.log(`Migrated ${result.rowCount} room(s) from ${fromId} to ${toId}`);
@@ -1021,7 +1026,7 @@ app.post('/api/auth/register', async (req, res) => {
       email: normalizedEmail,
       phone: normalizedPhone,
       ...createPasswordRecord(password),
-      createdAt: new Date().toISOString(),
+      created_at: new Date().toISOString(),
       role: 'user',
       isActive: true,
       maxRoomLimit: 20,
@@ -1180,8 +1185,8 @@ function mapMeterSubmission(row) {
     submittedByName: row?.submittedByName || '',
     reviewedByUserId: row?.reviewedByUserId || '',
     reviewedAt: row?.reviewedAt || null,
-    createdAt: row?.createdAt || '',
-    updatedAt: row?.updatedAt || '',
+    created_at: row?.created_at || '',
+    updated_at: row?.updated_at || '',
   };
 }
 
@@ -1263,10 +1268,10 @@ app.post('/api/meter-submissions', authMiddleware, async (req, res) => {
       submittedByRole: 'tenant',
       submittedByUserId: req.userId,
       submittedByName,
-      createdAt: nowIso,
-      updatedAt: nowIso,
+      created_at: nowIso,
+      updated_at: nowIso,
       created_by: landlordId,
-      modified_by: landlordId,
+      updated_by: landlordId,
       isDeleted: false,
     };
     await db.upsertRow('meter_submissions', record, { onConflict: 'nothing' });
@@ -1307,10 +1312,10 @@ app.patch('/api/meter-submissions/:id', authMiddleware, async (req, res) => {
 
     const nowIso = new Date().toISOString();
     const patch = action === 'confirm'
-      ? { status: 'confirmed', finalValue: Number(req.body.finalValue), reviewedByUserId: req.userId, reviewedAt: nowIso, updatedAt: nowIso }
-      : { status: 'rejected', reviewedByUserId: req.userId, reviewedAt: nowIso, updatedAt: nowIso };
+      ? { status: 'confirmed', finalValue: Number(req.body.finalValue), reviewedByUserId: req.userId, reviewedAt: nowIso, updated_at: nowIso }
+      : { status: 'rejected', reviewedByUserId: req.userId, reviewedAt: nowIso, updated_at: nowIso };
 
-    await db.upsertRow('meter_submissions', { id: row.id, created_by: String(req.userId), modified_by: String(req.userId), ...patch });
+    await db.upsertRow('meter_submissions', { id: row.id, created_by: String(req.userId), updated_by: String(req.userId), ...patch });
     return res.json({ ok: true });
   } catch (error) {
     console.error('update meter-submission error', error);
@@ -1475,7 +1480,7 @@ app.get('/api/admin/users', adminMiddleware, async (req, res) => {
       role: user.role || 'user',
       isActive: user.isActive !== false,
       maxRoomLimit: user.maxRoomLimit,
-      createdAt: user.createdAt,
+      created_at: user.created_at,
       roomCount: roomCounts[String(user.id)] || 0,
     }));
     return res.json({ users: userList });
@@ -1539,6 +1544,7 @@ app.put('/api/admin/users/:userId', adminMiddleware, async (req, res) => {
       role: updatedUser.role,
       isActive: updatedUser.isActive !== false,
       maxRoomLimit: updatedUser.maxRoomLimit ?? null,
+      updatedBy: req.userId,
     });
 
     return res.json({

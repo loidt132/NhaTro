@@ -29,6 +29,67 @@ for (const { table_name, column_name, data_type } of cols) {
 await query(schema);
 console.log("Schema đã được áp dụng.");
 
+// CREATE TABLE IF NOT EXISTS leaves an existing table as it is, so give every
+// table of schema.sql the four audit columns (created_by, updated_by, created_at,
+// updated_at). Old rows keep NULL created_by/updated_by — nobody can say who made them.
+const schemaTables = [...schema.matchAll(/CREATE TABLE IF NOT EXISTS ("?\w+"?) \(/g)].map((m) => m[1]);
+for (const table of schemaTables) {
+  for (const [column, type] of [["created_by", "VARCHAR(64)"], ["updated_by", "VARCHAR(64)"], ["created_at", "TIMESTAMPTZ"], ["updated_at", "TIMESTAMPTZ"]]) {
+    await query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${type}`);
+  }
+}
+console.log(`Đã kiểm tra 4 cột audit trên ${schemaTables.length} bảng.`);
+
+// Old / imported tables carry the audit columns under other spellings: createdat,
+// createdAt, createdby, updatedat, updatedAt, updatedby, modified_at, modified_by, ...
+// Fold each into the canonical column (created_at, created_by, updated_at, updated_by —
+// only where the canonical value is still NULL) and drop the extra column.
+const AUDIT_ALIASES = {
+  created_at: ["createdat", "createdAt", "CreatedAt"],
+  created_by: ["createdby", "createdBy", "CreatedBy"],
+  updated_at: ["updatedat", "updatedAt", "UpdatedAt", "modifiedat", "modifiedAt", "modified_at"],
+  updated_by: ["updatedby", "updatedBy", "UpdatedBy", "modifiedby", "modifiedBy", "modified_by"],
+};
+const auditCols = await query(
+  `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema()`
+);
+const auditPresent = new Set(auditCols.map((c) => `${c.table_name}.${c.column_name}`));
+for (const { table_name, column_name } of auditCols) {
+  const canonical = Object.keys(AUDIT_ALIASES).find((key) => AUDIT_ALIASES[key].includes(column_name));
+  if (!canonical || !auditPresent.has(`${table_name}.${canonical}`)) continue;
+  try {
+    await query(
+      `UPDATE "${table_name}" SET "${canonical}" = "${column_name}" WHERE "${canonical}" IS NULL AND "${column_name}" IS NOT NULL`
+    );
+  } catch (err) {
+    console.warn(`Không chép được ${table_name}.${column_name} -> ${canonical}: ${err.message}`);
+  }
+  await query(`ALTER TABLE "${table_name}" DROP COLUMN "${column_name}"`);
+  console.log(`Đã xóa cột ${table_name}.${column_name} (gộp vào ${canonical})`);
+}
+
+// Drop duplicate columns that NocoDB / UI imports leave behind when a column of that
+// name already existed: "created_by_1", "created_at_2", ... A column "X_<n>" is removed
+// only when the plain column "X" exists in the same table and schema.sql does not define
+// "X_<n>" itself. If X is NULL where X_<n> has a value of the same type, the value is
+// copied into X first, so no data is lost.
+const wanted = new Set([...schema.matchAll(/^\s+"?(\w+)"?\s+[A-Z]/gm)].map((m) => m[1]));
+const allCols = await query(
+  `SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = current_schema()`
+);
+const colType = new Map(allCols.map((c) => [`${c.table_name}.${c.column_name}`, c.data_type]));
+for (const { table_name, column_name } of allCols) {
+  const m = column_name.match(/^(.+)_(\d+)$/);
+  if (!m || wanted.has(column_name)) continue;
+  const base = m[1];
+  if (!colType.has(`${table_name}.${base}`)) continue;
+  if (colType.get(`${table_name}.${base}`) === colType.get(`${table_name}.${column_name}`)) {
+    await query(`UPDATE "${table_name}" SET "${base}" = "${column_name}" WHERE "${base}" IS NULL AND "${column_name}" IS NOT NULL`);
+  }
+  await query(`ALTER TABLE "${table_name}" DROP COLUMN "${column_name}"`);
+  console.log(`Đã xóa cột trùng ${table_name}.${column_name} (giữ ${base})`);
+}
+
 // CREATE TABLE IF NOT EXISTS never touches a table that already existed, so one
 // created without DEFAULT now() would keep writing NULL created_at/updated_at.
 // Force the default on every such column and backfill the NULLs.

@@ -25,8 +25,8 @@ async function request(path, options = {}) {
 }
 
 // Meter-submission review queue (tenant uploads a photo, landlord confirms
-// or rejects it) — proxied through the backend instead of calling NocoDB
-// directly from the browser.
+// or rejects it) — proxied through the backend; the browser never
+// talks to the database.
 export async function listMeterSubmissions(status = '') {
   const query = status ? `?status=${encodeURIComponent(status)}` : '';
   const data = await request(`/api/meter-submissions${query}`);
@@ -49,7 +49,7 @@ export async function reviewMeterSubmission(id, action, finalValue) {
 }
 
 // Tenant's own landlord's room list (to show which room they're linked to) —
-// also proxied through the backend instead of calling NocoDB directly.
+// also proxied through the backend.
 export async function fetchOwnedRooms(ownerUserId) {
   const data = await request(`/api/rooms/records?ownerUserId=${encodeURIComponent(ownerUserId)}`);
   return data?.list || [];

@@ -1,8 +1,10 @@
 -- nhatro-unified schema for PostgreSQL (Neon). Apply with: npm run migrate-to-neon
 -- (idempotent — safe to re-run). Column names are quoted camelCase so they match
 -- the JS objects the web app sends, field for field.
+-- Audit columns on every business table: created_by, updated_by, created_at, updated_at
+-- (the server always passes them explicitly; the DEFAULTs are only a safety net).
 -- Every business row belongs to one user via created_by; deleted rows are soft
--- deleted via "isDeleted" (same behaviour the NocoDB version had).
+-- deleted via "isDeleted".
 -- Money / meter values are NUMERIC (node-pg returns them as JS numbers).
 
 CREATE TABLE IF NOT EXISTS users (
@@ -18,6 +20,8 @@ CREATE TABLE IF NOT EXISTS users (
   "landlordId" VARCHAR(64),
   "linkedTenantId" VARCHAR(64),
   "linkedRoomId" VARCHAR(64),
+  created_by VARCHAR(64), -- the user's own id for self-registration, the landlord's id for tenant accounts
+  updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -28,15 +32,13 @@ CREATE INDEX IF NOT EXISTS idx_users_linked_tenant ON users ("linkedTenantId");
 CREATE TABLE IF NOT EXISTS rooms (
   id VARCHAR(64) PRIMARY KEY,
   created_by VARCHAR(64) NOT NULL,
-  modified_by VARCHAR(64),
+  updated_by VARCHAR(64),
   "name" TEXT,
   "baseRent" NUMERIC,
   "electricRate" NUMERIC,
   "waterRate" NUMERIC,
   "tuyaDeviceId" TEXT,
   "primaryTenantId" TEXT,
-  "createdAt" TIMESTAMPTZ,
-  "updatedAt" TIMESTAMPTZ,
   "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
@@ -46,7 +48,7 @@ CREATE INDEX IF NOT EXISTS idx_rooms_created_by ON rooms (created_by);
 CREATE TABLE IF NOT EXISTS tenants (
   id VARCHAR(64) PRIMARY KEY,
   created_by VARCHAR(64) NOT NULL,
-  modified_by VARCHAR(64),
+  updated_by VARCHAR(64),
   "name" TEXT,
   "cccd" TEXT,
   "phone" TEXT,
@@ -63,15 +65,13 @@ CREATE INDEX IF NOT EXISTS idx_tenants_roomId ON tenants ("roomId");
 CREATE TABLE IF NOT EXISTS rental_contracts (
   id VARCHAR(64) PRIMARY KEY,
   created_by VARCHAR(64) NOT NULL,
-  modified_by VARCHAR(64),
+  updated_by VARCHAR(64),
   "tenantId" TEXT,
   "roomId" TEXT,
   "startDate" DATE,
   "endDate" DATE,
   "monthlyRent" NUMERIC,
   "status" TEXT,
-  "createdAt" TIMESTAMPTZ,
-  "updatedAt" TIMESTAMPTZ,
   "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
@@ -83,15 +83,13 @@ CREATE INDEX IF NOT EXISTS idx_rental_contracts_roomId ON rental_contracts ("roo
 CREATE TABLE IF NOT EXISTS deposits (
   id VARCHAR(64) PRIMARY KEY,
   created_by VARCHAR(64) NOT NULL,
-  modified_by VARCHAR(64),
+  updated_by VARCHAR(64),
   "contractId" TEXT,
   "roomId" TEXT,
   "tenantId" TEXT,
   "amount" NUMERIC,
   "remainingAmount" NUMERIC,
   "status" TEXT,
-  "createdAt" TIMESTAMPTZ,
-  "updatedAt" TIMESTAMPTZ,
   "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
@@ -101,7 +99,7 @@ CREATE INDEX IF NOT EXISTS idx_deposits_created_by ON deposits (created_by);
 CREATE TABLE IF NOT EXISTS deposit_transactions (
   id VARCHAR(64) PRIMARY KEY,
   created_by VARCHAR(64) NOT NULL,
-  modified_by VARCHAR(64),
+  updated_by VARCHAR(64),
   "depositId" TEXT,
   "amount" NUMERIC,
   "type" TEXT,
@@ -116,7 +114,7 @@ CREATE INDEX IF NOT EXISTS idx_deposit_transactions_created_by ON deposit_transa
 CREATE TABLE IF NOT EXISTS deposit_refunds (
   id VARCHAR(64) PRIMARY KEY,
   created_by VARCHAR(64) NOT NULL,
-  modified_by VARCHAR(64),
+  updated_by VARCHAR(64),
   "depositId" TEXT,
   "amount" NUMERIC,
   "method" TEXT,
@@ -131,7 +129,7 @@ CREATE INDEX IF NOT EXISTS idx_deposit_refunds_created_by ON deposit_refunds (cr
 CREATE TABLE IF NOT EXISTS readings (
   id VARCHAR(64) PRIMARY KEY,
   created_by VARCHAR(64) NOT NULL,
-  modified_by VARCHAR(64),
+  updated_by VARCHAR(64),
   "roomId" TEXT,
   "month" TEXT,
   "electricStart" NUMERIC,
@@ -140,8 +138,6 @@ CREATE TABLE IF NOT EXISTS readings (
   "waterEnd" NUMERIC,
   "electricPhotoUrl" TEXT,
   "waterPhotoUrl" TEXT,
-  "createdAt" TIMESTAMPTZ,
-  "updatedAt" TIMESTAMPTZ,
   "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
@@ -152,7 +148,7 @@ CREATE INDEX IF NOT EXISTS idx_readings_roomId_month ON readings ("roomId", "mon
 CREATE TABLE IF NOT EXISTS meter_submissions (
   id VARCHAR(64) PRIMARY KEY,
   created_by VARCHAR(64) NOT NULL,
-  modified_by VARCHAR(64),
+  updated_by VARCHAR(64),
   "roomId" TEXT,
   "month" TEXT,
   "meterType" TEXT,
@@ -166,8 +162,6 @@ CREATE TABLE IF NOT EXISTS meter_submissions (
   "submittedByName" TEXT,
   "reviewedByUserId" TEXT,
   "reviewedAt" TIMESTAMPTZ,
-  "createdAt" TIMESTAMPTZ,
-  "updatedAt" TIMESTAMPTZ,
   "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
@@ -179,7 +173,7 @@ CREATE INDEX IF NOT EXISTS idx_meter_submissions_status ON meter_submissions ("s
 CREATE TABLE IF NOT EXISTS invoices (
   id VARCHAR(64) PRIMARY KEY,
   created_by VARCHAR(64) NOT NULL,
-  modified_by VARCHAR(64),
+  updated_by VARCHAR(64),
   "roomId" TEXT,
   "tenantId" TEXT,
   "month" TEXT,
@@ -196,8 +190,6 @@ CREATE TABLE IF NOT EXISTS invoices (
   "total" NUMERIC,
   "status" TEXT,
   "paidAt" TIMESTAMPTZ,
-  "createdAt" TIMESTAMPTZ,
-  "updatedAt" TIMESTAMPTZ,
   "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
@@ -208,7 +200,7 @@ CREATE INDEX IF NOT EXISTS idx_invoices_roomId_month ON invoices ("roomId", "mon
 CREATE TABLE IF NOT EXISTS payments (
   id VARCHAR(64) PRIMARY KEY,
   created_by VARCHAR(64) NOT NULL,
-  modified_by VARCHAR(64),
+  updated_by VARCHAR(64),
   "invoiceId" TEXT,
   "roomId" TEXT,
   "tenantId" TEXT,
@@ -216,8 +208,6 @@ CREATE TABLE IF NOT EXISTS payments (
   "method" TEXT,
   "note" TEXT,
   "paidAt" TIMESTAMPTZ,
-  "createdAt" TIMESTAMPTZ,
-  "updatedAt" TIMESTAMPTZ,
   "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
@@ -228,14 +218,12 @@ CREATE INDEX IF NOT EXISTS idx_payments_invoiceId ON payments ("invoiceId");
 CREATE TABLE IF NOT EXISTS rent_periods (
   id VARCHAR(64) PRIMARY KEY,
   created_by VARCHAR(64) NOT NULL,
-  modified_by VARCHAR(64),
+  updated_by VARCHAR(64),
   "roomId" TEXT,
   "tenantId" TEXT,
   "month" TEXT,
   "rent" NUMERIC,
   "invoiceId" TEXT,
-  "createdAt" TIMESTAMPTZ,
-  "updatedAt" TIMESTAMPTZ,
   "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
@@ -246,13 +234,11 @@ CREATE INDEX IF NOT EXISTS idx_rent_periods_roomId_month ON rent_periods ("roomI
 CREATE TABLE IF NOT EXISTS payment_allocations (
   id VARCHAR(64) PRIMARY KEY,
   created_by VARCHAR(64) NOT NULL,
-  modified_by VARCHAR(64),
+  updated_by VARCHAR(64),
   "paymentId" TEXT,
   "rentPeriodId" TEXT,
   "invoiceId" TEXT,
   "amount" NUMERIC,
-  "createdAt" TIMESTAMPTZ,
-  "updatedAt" TIMESTAMPTZ,
   "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
@@ -264,7 +250,7 @@ CREATE INDEX IF NOT EXISTS idx_payment_allocations_rentPeriodId ON payment_alloc
 CREATE TABLE IF NOT EXISTS settings (
   id VARCHAR(64) PRIMARY KEY,
   created_by VARCHAR(64) NOT NULL,
-  modified_by VARCHAR(64),
+  updated_by VARCHAR(64),
   "bankCode" TEXT,
   "accountNo" TEXT,
   "accountName" TEXT,

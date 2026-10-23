@@ -101,7 +101,7 @@ export default function Rooms(){
   const isInvoicePaid = (invoice) => Boolean(invoice) && remainingOf(invoice) === 0;
 
   const latestReadingOf = (roomId, ym) => {
-    const list = (readings||[]).filter(r=> r.roomId===roomId && r.month===ym).sort((a,b)=> new Date(b.createdAt)-new Date(a.createdAt));
+    const list = (readings||[]).filter(r=> r.roomId===roomId && r.month===ym).sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
     return list[0];
   };
  
@@ -140,8 +140,8 @@ export default function Rooms(){
       waterRate: +f.waterRate || 0,
       tuyaDeviceId,
       primaryTenantId: existingRoom.primaryTenantId,
-      createdAt: existingRoom.createdAt || nowIso,
-      updatedAt: nowIso,
+      created_at: existingRoom.created_at || nowIso,
+      updated_at: nowIso,
     };
     const nextRooms = roomModal.mode==='edit' ? rooms.map(r=> r.id===roomModal.roomId? payload : r) : [...rooms, payload];
     // If editing an existing room, update unpaid invoices for this room so Payments view shows new rent

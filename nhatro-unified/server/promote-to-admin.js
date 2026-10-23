@@ -1,13 +1,9 @@
-#!/usr/bin/env node
-
 /**
- * Admin Promotion Script — operates on the NocoDB `users` table (the only
- * place user data lives now; there is no local users.json fallback anymore).
+ * Admin Promotion Script — operates on the PostgreSQL (Neon) `users` table.
  * Usage: node promote-to-admin.js <email_or_phone>
  *
- * Run from the server directory with NOCODB_URL / NOCODB_API_KEY /
- * NOCODB_TABLE_USERS set (or VITE_NOCODB_URL / VITE_NOCODB_API_KEY /
- * VITE_TABLE_USERS, e.g. by pointing at ../web/.env.development).
+ * Run from the server directory with DATABASE_URL set (in server/.env or the
+ * environment).
  */
 
 const fs = require('fs');
@@ -30,40 +26,14 @@ function loadEnvFile(filePath) {
   }
 }
 
-[
-  path.join(__dirname, '.env'),
-  path.join(__dirname, '..', 'web', '.env.development'),
-].forEach(loadEnvFile);
+loadEnvFile(path.join(__dirname, '.env'));
 
-function firstEnv(...names) {
-  for (const name of names) {
-    const value = process.env[name];
-    if (value != null && String(value).trim() !== '') return String(value).trim();
-  }
-  return '';
-}
+const db = require('./db');
+const { decryptField } = require('./cryptoFields');
 
-const NOCODB_URL = firstEnv('NOCODB_URL', 'VITE_NOCODB_URL').replace(/\/+$/, '');
-const NOCODB_API_KEY = firstEnv('NOCODB_API_KEY', 'VITE_NOCODB_API_KEY');
-const NOCODB_TABLE_USERS = firstEnv('NOCODB_TABLE_USERS', 'VITE_TABLE_USERS');
-
-if (!NOCODB_URL || !NOCODB_API_KEY || !NOCODB_TABLE_USERS) {
-  console.error('Error: Thiếu NOCODB_URL / NOCODB_API_KEY / NOCODB_TABLE_USERS (hoặc bản VITE_ tương ứng).');
+if (!db.isConfigured()) {
+  console.error('Error: Thiếu DATABASE_URL (chuỗi kết nối Neon).');
   process.exit(1);
-}
-
-function usersUrl(suffix = '') {
-  return `${NOCODB_URL}/api/v2/tables/${encodeURIComponent(NOCODB_TABLE_USERS)}/records${suffix}`;
-}
-
-async function request(url, options = {}) {
-  const response = await fetch(url, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', 'xc-token': NOCODB_API_KEY, ...(options.headers || {}) },
-  });
-  const data = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(data?.msg || data?.message || `NocoDB request failed (${response.status})`);
-  return data;
 }
 
 function normalizeEmail(value = '') {
@@ -74,37 +44,31 @@ function normalizePhone(value = '') {
   return value.replace(/\D+/g, '');
 }
 
-function readUserValue(row, variants) {
-  for (const key of variants) {
-    const value = row?.[key];
-    if (value !== undefined && value !== null && value !== '') return value;
-  }
-  return '';
-}
-
 function mapUser(row) {
+  const parsed = Number(row?.maxRoomLimit);
   return {
-    rowId: row?.Id ?? row?.ID ?? null,
-    id: readUserValue(row, ['id']),
-    name: readUserValue(row, ['name']),
-    email: normalizeEmail(readUserValue(row, ['email'])),
-    phone: normalizePhone(readUserValue(row, ['phone'])),
-    role: readUserValue(row, ['role']) || 'user',
-    maxRoomLimit: (() => {
-      const raw = readUserValue(row, ['maxRoomLimit', 'max_room_limit', 'maxroomlimit']);
-      const parsed = Number(raw);
-      return Number.isFinite(parsed) ? parsed : null;
-    })(),
+    id: row.id,
+    name: row.name || '',
+    email: normalizeEmail(row.email || ''),
+    phone: normalizePhone(decryptField(row.phone || '')),
+    role: row.role || 'user',
+    maxRoomLimit: row.maxRoomLimit !== null && row.maxRoomLimit !== undefined && Number.isFinite(parsed) ? parsed : null,
   };
 }
 
 async function loadUsers() {
-  const data = await request(usersUrl('?limit=1000'));
-  return (data?.list || []).map(mapUser);
+  const rows = await db.query('SELECT id, name, email, phone, role, "maxRoomLimit" FROM users ORDER BY created_at');
+  return rows.map(mapUser);
 }
 
-async function updateUser(rowId, fields) {
-  await request(usersUrl(), { method: 'PATCH', body: JSON.stringify([{ Id: rowId, ...fields }]) });
+async function updateUser(id, fields) {
+  const keys = Object.keys(fields);
+  const sets = keys.map((key, i) => `${db.q(key)} = $${i + 1}`);
+  const values = keys.map((key) => fields[key]);
+  sets.push(`updated_by = $${values.length + 1}`, `updated_at = $${values.length + 2}`);
+  values.push('script:promote-to-admin', new Date().toISOString());
+  values.push(String(id));
+  await db.query(`UPDATE users SET ${sets.join(', ')} WHERE id = $${values.length}`, values);
 }
 
 function findUser(users, identifier) {
@@ -122,7 +86,7 @@ async function promoteToAdmin(identifier) {
 
   const users = await loadUsers();
   if (users.length === 0) {
-    console.error('Error: No users found in NocoDB.');
+    console.error('Error: No users found.');
     process.exit(1);
   }
 
@@ -139,7 +103,7 @@ async function promoteToAdmin(identifier) {
     return;
   }
 
-  await updateUser(user.rowId, { role: 'admin' });
+  await updateUser(user.id, { role: 'admin' });
   console.log(`✓ Successfully promoted "${user.name}" to admin role`);
   console.log(`  Email: ${user.email || '(none)'}`);
   console.log(`  Phone: ${user.phone || '(none)'}`);
@@ -164,7 +128,7 @@ async function demoteFromAdmin(identifier) {
     return;
   }
 
-  await updateUser(user.rowId, { role: 'user' });
+  await updateUser(user.id, { role: 'user' });
   console.log(`✓ Successfully demoted "${user.name}" from admin role`);
 }
 
@@ -209,7 +173,7 @@ async function setRoomLimit(identifier, limit) {
     process.exit(1);
   }
 
-  await updateUser(user.rowId, { maxRoomLimit: limitNum === 0 ? null : limitNum });
+  await updateUser(user.id, { maxRoomLimit: limitNum === 0 ? null : limitNum });
   console.log(`✓ Set room limit for "${user.name}" to ${limitNum === 0 ? 'unlimited' : limitNum}`);
 }
 
@@ -227,7 +191,7 @@ async function main() {
     await setRoomLimit(args[1], args[2]);
   } else {
     console.log(`
-User Management CLI (NocoDB-backed)
+User Management CLI (PostgreSQL-backed)
 
 Commands:
   promote <email_or_phone>    Promote a user to admin
@@ -243,7 +207,9 @@ Examples:
   }
 }
 
-main().catch((error) => {
-  console.error('Error:', error.message);
-  process.exitCode = 1;
-});
+main()
+  .catch((error) => {
+    console.error('Error:', error.message);
+    process.exitCode = 1;
+  })
+  .finally(() => db.closePool());

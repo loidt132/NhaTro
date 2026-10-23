@@ -706,7 +706,8 @@ async function proxyToCatalog(req, res, path, method) {
     const body = method === "DELETE" ? undefined : JSON.stringify({ ...req.body, homestayId: req.homestayId });
     const r = await fetch(`${SERVICE_CATALOG_URL}${path}`, {
       method,
-      headers: { "Content-Type": "application/json", "x-api-key": CATALOG_ADMIN_KEY },
+      // x-actor-id lets catalog-service stamp created_by / updated_by with the real user.
+      headers: { "Content-Type": "application/json", "x-api-key": CATALOG_ADMIN_KEY, "x-actor-id": String(req.user?.sub || "system") },
       body,
       signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS),
     });

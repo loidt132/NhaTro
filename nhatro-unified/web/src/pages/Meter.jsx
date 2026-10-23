@@ -125,8 +125,8 @@ export default function Meter() {
       if (!reading?.roomId || !reading?.month) return;
       const key = `${reading.roomId}__${reading.month}`;
       const prev = map.get(key);
-      const prevTime = prev?.updatedAt || prev?.createdAt || '';
-      const nextTime = reading?.updatedAt || reading?.createdAt || '';
+      const prevTime = prev?.updated_at || prev?.created_at || '';
+      const nextTime = reading?.updated_at || reading?.created_at || '';
       if (!prev || String(nextTime) > String(prevTime)) {
         map.set(key, reading);
       }
@@ -233,7 +233,7 @@ export default function Meter() {
           waterEnd: !isElectric ? finalValue : r.waterEnd,
           electricPhotoUrl: isElectric ? submission.photoUrl : r.electricPhotoUrl,
           waterPhotoUrl: !isElectric ? submission.photoUrl : r.waterPhotoUrl,
-          updatedAt: nowIso,
+          updated_at: nowIso,
         }) : r);
       } else {
         const newReading = {
@@ -246,7 +246,7 @@ export default function Meter() {
           waterEnd: !isElectric ? finalValue : 0,
           electricPhotoUrl: isElectric ? submission.photoUrl : '',
           waterPhotoUrl: !isElectric ? submission.photoUrl : '',
-          createdAt: nowIso,
+          created_at: nowIso,
         };
         nextReadings = [newReading, ...(state.readings || [])];
       }
@@ -343,7 +343,7 @@ export default function Meter() {
             ...reading,
             electricStart: electricStart ?? reading.electricStart,
             electricEnd: result.electricEnd,
-            updatedAt: nowIso,
+            updated_at: nowIso,
           }) : reading);
         } else {
           nextReadings.unshift({
@@ -354,8 +354,8 @@ export default function Meter() {
             electricEnd: result.electricEnd,
             waterStart: null,
             waterEnd: null,
-            createdAt: nowIso,
-            updatedAt: nowIso,
+            created_at: nowIso,
+            updated_at: nowIso,
           });
         }
         successCount += 1;
@@ -485,8 +485,8 @@ export default function Meter() {
         waterEnd: +form.waterEnd,
         electricPhotoUrl: form.electricPhotoUrl || r.electricPhotoUrl || '',
         waterPhotoUrl: form.waterPhotoUrl || r.waterPhotoUrl || '',
-        createdAt: r.createdAt || nowIso,
-        updatedAt: nowIso
+        created_at: r.created_at || nowIso,
+        updated_at: nowIso
       }) : r);
       const next = { ...state, readings: nextReadings };
       setState(next); saveState(next);
@@ -502,7 +502,7 @@ export default function Meter() {
         waterEnd: +form.waterEnd,
         electricPhotoUrl: form.electricPhotoUrl || '',
         waterPhotoUrl: form.waterPhotoUrl || '',
-        createdAt: nowIso
+        created_at: nowIso
       };
       const next = { ...state, readings: [reading, ...(state.readings || [])] };
       setState(next); saveState(next);

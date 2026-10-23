@@ -3,6 +3,9 @@
 -- isolated by the "homestayId" column on every table below except
 -- guests/serviceCharges/roomTransfers/lockEventsLog (only ever reached
 -- through an already-scoped stayId).
+-- Every table ends with the same four audit columns: created_by, updated_by (user id,
+-- 'system' when no user is involved), created_at, updated_at. src/db.js passes them
+-- explicitly on every insert/update.
 -- Table and column names are camelCase (quoted) so they match the JS objects
 -- in src/index.js field-for-field. The app also accepts snake_case names
 -- (room_types, homestay_id) if that is what a database already has. Apply with: npm run migrate
@@ -11,6 +14,8 @@ CREATE TABLE IF NOT EXISTS homestays (
   id VARCHAR(64) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   "maxRooms" INT, -- owner-configured cap on rooms; NULL = unlimited
+  created_by VARCHAR(64),
+  updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -23,6 +28,8 @@ CREATE TABLE IF NOT EXISTS users (
   name VARCHAR(255) NOT NULL,
   role VARCHAR(20) NOT NULL DEFAULT 'staff', -- 'owner' | 'admin' | 'staff'
   "passwordHash" TEXT NOT NULL, -- scrypt, stored as "salt:hash"
+  created_by VARCHAR(64),
+  updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -33,6 +40,8 @@ CREATE TABLE IF NOT EXISTS "roomTypes" (
   id VARCHAR(64) PRIMARY KEY,
   "homestayId" VARCHAR(64) NOT NULL,
   name VARCHAR(100) NOT NULL,
+  created_by VARCHAR(64),
+  updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -46,6 +55,8 @@ CREATE TABLE IF NOT EXISTS rooms (
   "lockId" VARCHAR(128), -- TTLock device id for this room's door
   status VARCHAR(20) NOT NULL DEFAULT 'empty', -- 'empty' | 'occupied' | 'cleaning'
   active BOOLEAN NOT NULL DEFAULT TRUE, -- false = "ngừng sử dụng"
+  created_by VARCHAR(64),
+  updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -62,6 +73,8 @@ CREATE TABLE IF NOT EXISTS "ratePlans" (
   "overnightPrice" BIGINT NOT NULL DEFAULT 0,
   "fullDayPrice" BIGINT NOT NULL DEFAULT 0,
   "lateCheckoutPricePerHour" BIGINT NOT NULL DEFAULT 0,
+  created_by VARCHAR(64),
+  updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -80,6 +93,8 @@ CREATE TABLE IF NOT EXISTS stays (
   "expectedCheckOutAt" TIMESTAMPTZ,
   "checkOutAt" TIMESTAMPTZ,
   "lockCardId" VARCHAR(128), -- TTLock card id issued at check-in
+  created_by VARCHAR(64),
+  updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -99,6 +114,8 @@ CREATE TABLE IF NOT EXISTS guests (
   "idNumber" TEXT,
   dob DATE,
   phone TEXT,
+  created_by VARCHAR(64),
+  updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -116,6 +133,8 @@ CREATE TABLE IF NOT EXISTS "serviceCharges" (
   qty INT NOT NULL DEFAULT 1,
   amount BIGINT NOT NULL DEFAULT 0,
   "addedAt" TIMESTAMPTZ NOT NULL,
+  created_by VARCHAR(64),
+  updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -129,6 +148,8 @@ CREATE TABLE IF NOT EXISTS "roomTransfers" (
   "toRoomId" VARCHAR(64) NOT NULL,
   reason TEXT,
   "transferredAt" TIMESTAMPTZ NOT NULL,
+  created_by VARCHAR(64),
+  updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -141,6 +162,8 @@ CREATE TABLE IF NOT EXISTS "lockEventsLog" (
   "lockCardId" VARCHAR(128),
   type VARCHAR(50) NOT NULL,
   at TIMESTAMPTZ NOT NULL,
+  created_by VARCHAR(64),
+  updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -157,6 +180,8 @@ CREATE TABLE IF NOT EXISTS settings (
   "ownerName" VARCHAR(255),
   "ownerPhone" VARCHAR(32),
   "ownerAddress" TEXT,
+  created_by VARCHAR(64),
+  updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );

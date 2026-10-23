@@ -42,6 +42,9 @@ function requireApiKey(req, res, next) {
   if (req.headers["x-api-key"] !== ADMIN_KEY) {
     return res.status(401).json({ error: "Thiếu hoặc sai API key cho thao tác ghi." });
   }
+  // homestay-server forwards the logged-in user's id; it is stamped into
+  // created_by / updated_by ("system" when a caller sends none).
+  req.actorId = String(req.headers["x-actor-id"] || "").trim().slice(0, 64) || "system";
   next();
 }
 
@@ -96,7 +99,7 @@ app.post("/api/categories", requireApiKey, requireHomestayId, async (req, res) =
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "name is required" });
   try {
-    const row = await db.createCategory({ id: uuid(), homestayId: req.homestayId, name });
+    const row = await db.createCategory({ id: uuid(), homestayId: req.homestayId, name }, req.actorId);
     res.status(201).json(asCategory(row));
   } catch (err) {
     dbErrorToHttp(res, err);
@@ -109,7 +112,7 @@ app.put("/api/categories/:id", requireApiKey, requireHomestayId, async (req, res
   try {
     const existing = await db.getCategory(req.params.id);
     if (!existing || existing.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
-    const row = await db.updateCategory(req.params.id, name);
+    const row = await db.updateCategory(req.params.id, name, req.actorId);
     res.json(asCategory(row));
   } catch (err) {
     dbErrorToHttp(res, err);
@@ -171,7 +174,7 @@ app.post("/api/items", requireApiKey, requireHomestayId, async (req, res) => {
       unit: unit || "",
       price: Number(price),
       kind: itemKind,
-    });
+    }, req.actorId);
     res.status(201).json(asItem(row));
   } catch (err) {
     dbErrorToHttp(res, err);
@@ -188,7 +191,7 @@ app.put("/api/items/:id", requireApiKey, requireHomestayId, async (req, res) => 
   try {
     const existing = await db.getItem(req.params.id);
     if (!existing || existing.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
-    const row = await db.updateItem(req.params.id, patch);
+    const row = await db.updateItem(req.params.id, patch, req.actorId);
     res.json(asItem(row));
   } catch (err) {
     dbErrorToHttp(res, err);
