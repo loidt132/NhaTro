@@ -15,6 +15,17 @@
  *       npm run migrate-to-neon -- --dry-run   (read NocoDB, write nothing, report)
  * Rows whose id already exists in Postgres are skipped, so it is safe to re-run.
  * Nothing is ever deleted from NocoDB.
+ *
+ * Columns are never added: only columns that neon-schema.sql defines are copied
+ * (matched case-insensitively), anything else in NocoDB — e.g. the duplicate
+ * created_by_1 / createdby / modifiedby columns NocoDB makes when a table already
+ * has its own created_by — is ignored and listed in the log.
+ *
+ * Cleaning up a Postgres that already has stray columns or bad data
+ * (DESTRUCTIVE — export or snapshot first, e.g. a Neon branch / pg_dump):
+ *   npm run migrate-to-neon -- --clean-columns                      list columns not in the schema
+ *   npm run migrate-to-neon -- --clean-columns --yes-drop-columns   drop them
+ *   npm run migrate-to-neon -- --reset --yes-drop-all               drop every app table, recreate, then copy
  */
 const fs = require('fs');
 const path = require('path');
@@ -43,6 +54,8 @@ const db = require('./db');
 const args = new Set(process.argv.slice(2));
 const SCHEMA_ONLY = args.has('--schema-only');
 const DRY_RUN = args.has('--dry-run');
+const RESET = args.has('--reset');
+const CLEAN_COLUMNS = args.has('--clean-columns');
 
 const firstEnv = (...names) => {
   for (const name of names) {
@@ -102,30 +115,67 @@ async function fetchAllRows(tableId) {
   return rows;
 }
 
-const PG_TYPE_BY_UIDT = {
-  Number: 'NUMERIC', Decimal: 'NUMERIC', Currency: 'NUMERIC', Percent: 'NUMERIC', Rating: 'NUMERIC',
-  Checkbox: 'BOOLEAN', DateTime: 'TIMESTAMPTZ', Date: 'DATE',
-};
+// Real Postgres columns of a table, keyed by lowercase name (nothing is added).
+async function columnMap(table) {
+  const columns = await db.columnsOf(table);
+  return new Map([...columns.keys()].map((name) => [name.toLowerCase(), name]));
+}
 
-// Add Postgres columns for NocoDB columns the schema does not know about, so
-// nothing the old tables stored is lost. Returns Map(lowercase name -> real name).
-async function reconcileColumns(table, tableId, { allowAdd }) {
-  let columns = await db.columnsOf(table);
-  const byLower = () => new Map([...columns.keys()].map((name) => [name.toLowerCase(), name]));
-  if (!allowAdd) return byLower();
-  const meta = await noco(`/api/v2/meta/tables/${encodeURIComponent(tableId)}`);
-  for (const column of meta?.columns || []) {
-    const title = column.column_name || column.title;
-    if (!title || NOCO_SYSTEM.has(title) || NOCO_SYSTEM.has(column.title) || column.pk || byLower().has(title.toLowerCase())) continue;
-    const type = PG_TYPE_BY_UIDT[column.uidt] || 'TEXT';
-    console.log(`  + cột mới ${table}."${title}" ${type}`);
-    if (!DRY_RUN) {
-      await db.query(`ALTER TABLE ${db.q(table)} ADD COLUMN IF NOT EXISTS ${db.q(title)} ${type}`);
-      db.forgetColumns(table);
+const IGNORED_SOURCE_COLUMNS = new Map();
+function noteIgnored(table, key) {
+  if (!IGNORED_SOURCE_COLUMNS.has(table)) IGNORED_SOURCE_COLUMNS.set(table, new Set());
+  IGNORED_SOURCE_COLUMNS.get(table).add(key);
+}
+
+// Column names the schema file defines per table, parsed from neon-schema.sql.
+function expectedColumns() {
+  const sql = fs.readFileSync(path.join(__dirname, 'neon-schema.sql'), 'utf8');
+  const expected = new Map();
+  const re = /CREATE TABLE IF NOT EXISTS (\w+) \(([\s\S]*?)\n\);/g;
+  for (let m = re.exec(sql); m; m = re.exec(sql)) {
+    const names = new Set();
+    for (const line of m[2].split('\n')) {
+      const col = line.trim().match(/^"?([A-Za-z_][\w]*)"?\s+\S/);
+      if (col && !/^(PRIMARY|UNIQUE|CONSTRAINT|CHECK|FOREIGN)$/i.test(col[1])) names.add(col[1]);
     }
+    expected.set(m[1], names);
   }
-  columns = DRY_RUN ? columns : await db.columnsOf(table);
-  return byLower();
+  return expected;
+}
+
+async function cleanColumns() {
+  const expected = expectedColumns();
+  const execute = args.has('--yes-drop-columns');
+  let total = 0;
+  for (const [table, names] of expected) {
+    let columns;
+    try {
+      columns = await db.columnsOf(table);
+    } catch {
+      continue;
+    }
+    const extra = [...columns.keys()].filter((name) => !names.has(name));
+    for (const name of extra) {
+      total += 1;
+      console.log(`${execute ? 'DROP' : 'sẽ xóa'}  ${table}."${name}"`);
+      if (execute) await db.query(`ALTER TABLE ${db.q(table)} DROP COLUMN ${db.q(name)}`);
+    }
+    db.forgetColumns(table);
+  }
+  if (total === 0) console.log('Không có cột thừa — các bảng khớp neon-schema.sql.');
+  else if (!execute) console.log(`\n${total} cột thừa. Thêm --yes-drop-columns để xóa (dữ liệu trong các cột đó sẽ mất).`);
+  else console.log(`\nĐã xóa ${total} cột thừa.`);
+}
+
+async function resetTables() {
+  if (!args.has('--yes-drop-all')) {
+    throw new Error('--reset xóa TOÀN BỘ dữ liệu các bảng app trên Postgres. Chỉ chạy khi NocoDB còn đủ dữ liệu hoặc đã có bản sao lưu, và thêm --yes-drop-all để xác nhận.');
+  }
+  for (const table of [...expectedColumns().keys()].reverse()) {
+    console.log(`DROP TABLE ${table}`);
+    await db.query(`DROP TABLE IF EXISTS ${db.q(table)} CASCADE`);
+    db.forgetColumns(table);
+  }
 }
 
 function pick(row, ...names) {
@@ -171,12 +221,15 @@ function mapUser(row) {
   return out;
 }
 
-function mapGeneric(row, columnByLower) {
+function mapGeneric(table, row, columnByLower) {
   const out = {};
   for (const [key, value] of Object.entries(row)) {
     if (NOCO_SYSTEM.has(key)) continue;
     const column = columnByLower.get(key.toLowerCase());
-    if (!column) continue;
+    if (!column) {
+      if (value !== null && value !== undefined && value !== '') noteIgnored(table, key);
+      continue;
+    }
     out[column] = value;
   }
   if (out.created_at === undefined && row.CreatedAt) out.created_at = row.CreatedAt;
@@ -194,6 +247,11 @@ async function applySchema() {
 
 async function main() {
   if (!db.isConfigured()) throw new Error('Thiếu DATABASE_URL (chuỗi kết nối Neon).');
+  if (CLEAN_COLUMNS) {
+    await cleanColumns();
+    return;
+  }
+  if (RESET && !DRY_RUN) await resetTables();
   if (!DRY_RUN) await applySchema();
   else console.log('(dry-run) không ghi gì vào Postgres');
   if (SCHEMA_ONLY) return;
@@ -221,10 +279,10 @@ async function main() {
     const result = { table, source: rows.length, inserted: 0, existed: 0, invalid: 0 };
 
     let columnByLower = null;
-    if (!DRY_RUN) columnByLower = await reconcileColumns(table, tableId, { allowAdd: table !== 'users' });
+    if (!DRY_RUN) columnByLower = await columnMap(table);
 
     for (const row of rows) {
-      const mapped = table === 'users' ? mapUser(row) : DRY_RUN ? {} : mapGeneric(row, columnByLower);
+      const mapped = table === 'users' ? mapUser(row) : DRY_RUN ? {} : mapGeneric(table, row, columnByLower);
       const hasOwner = table === 'users' || (DRY_RUN ? row.created_by : mapped.created_by);
       if (!row.id || !hasOwner) {
         result.invalid += 1;
@@ -237,6 +295,10 @@ async function main() {
       else result.existed += 1;
     }
     report.push(result);
+  }
+
+  for (const [table, names] of IGNORED_SOURCE_COLUMNS) {
+    console.log(`  ~ ${table}: bỏ qua cột NocoDB không có trong schema: ${[...names].join(', ')}`);
   }
 
   if (DRY_RUN) {
