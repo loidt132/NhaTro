@@ -3,7 +3,8 @@
 -- isolated by the "homestayId" column on every table below except
 -- guests/serviceCharges/roomTransfers/lockEventsLog (only ever reached
 -- through an already-scoped stayId).
--- Every table ends with the same four audit columns: created_by, updated_by (user id,
+-- Every table has "isDeleted" (soft delete: "delete" only sets it to true and stamps
+-- updated_by/updated_at; reads skip those rows) and ends with the same four audit columns: created_by, updated_by (user id,
 -- 'system' when no user is involved), created_at, updated_at. src/db.js passes them
 -- explicitly on every insert/update.
 -- Table and column names are camelCase (quoted) so they match the JS objects
@@ -14,6 +15,7 @@ CREATE TABLE IF NOT EXISTS homestays (
   id VARCHAR(64) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   "maxRooms" INT, -- owner-configured cap on rooms; NULL = unlimited
+  "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE, -- soft delete: rows are never removed, only flagged
   created_by VARCHAR(64),
   updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
@@ -28,18 +30,21 @@ CREATE TABLE IF NOT EXISTS users (
   name VARCHAR(255) NOT NULL,
   role VARCHAR(20) NOT NULL DEFAULT 'staff', -- 'owner' | 'admin' | 'staff'
   "passwordHash" TEXT NOT NULL, -- scrypt, stored as "salt:hash"
+  "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE, -- soft delete: rows are never removed, only flagged
   created_by VARCHAR(64),
   updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users (username);
+-- Unique only among live rows, so a soft-deleted username can be used again.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users (username) WHERE "isDeleted" = false;
 CREATE INDEX IF NOT EXISTS idx_users_homestay ON users ("homestayId");
 
 CREATE TABLE IF NOT EXISTS "roomTypes" (
   id VARCHAR(64) PRIMARY KEY,
   "homestayId" VARCHAR(64) NOT NULL,
   name VARCHAR(100) NOT NULL,
+  "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE, -- soft delete: rows are never removed, only flagged
   created_by VARCHAR(64),
   updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
@@ -55,6 +60,7 @@ CREATE TABLE IF NOT EXISTS rooms (
   "lockId" VARCHAR(128), -- TTLock device id for this room's door
   status VARCHAR(20) NOT NULL DEFAULT 'empty', -- 'empty' | 'occupied' | 'cleaning'
   active BOOLEAN NOT NULL DEFAULT TRUE, -- false = "ngừng sử dụng"
+  "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE, -- soft delete: rows are never removed, only flagged
   created_by VARCHAR(64),
   updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
@@ -73,12 +79,13 @@ CREATE TABLE IF NOT EXISTS "ratePlans" (
   "overnightPrice" BIGINT NOT NULL DEFAULT 0,
   "fullDayPrice" BIGINT NOT NULL DEFAULT 0,
   "lateCheckoutPricePerHour" BIGINT NOT NULL DEFAULT 0,
+  "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE, -- soft delete: rows are never removed, only flagged
   created_by VARCHAR(64),
   updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_rate_plans_room_type_unique ON "ratePlans" ("roomTypeId");
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rate_plans_room_type_unique ON "ratePlans" ("roomTypeId") WHERE "isDeleted" = false;
 CREATE INDEX IF NOT EXISTS idx_rate_plans_homestay ON "ratePlans" ("homestayId");
 
 -- One stay = one guest's booking of a room from check-in to check-out.
@@ -93,6 +100,7 @@ CREATE TABLE IF NOT EXISTS stays (
   "expectedCheckOutAt" TIMESTAMPTZ,
   "checkOutAt" TIMESTAMPTZ,
   "lockCardId" VARCHAR(128), -- TTLock card id issued at check-in
+  "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE, -- soft delete: rows are never removed, only flagged
   created_by VARCHAR(64),
   updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
@@ -114,6 +122,7 @@ CREATE TABLE IF NOT EXISTS guests (
   "idNumber" TEXT,
   dob DATE,
   phone TEXT,
+  "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE, -- soft delete: rows are never removed, only flagged
   created_by VARCHAR(64),
   updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
@@ -133,6 +142,7 @@ CREATE TABLE IF NOT EXISTS "serviceCharges" (
   qty INT NOT NULL DEFAULT 1,
   amount BIGINT NOT NULL DEFAULT 0,
   "addedAt" TIMESTAMPTZ NOT NULL,
+  "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE, -- soft delete: rows are never removed, only flagged
   created_by VARCHAR(64),
   updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
@@ -148,6 +158,7 @@ CREATE TABLE IF NOT EXISTS "roomTransfers" (
   "toRoomId" VARCHAR(64) NOT NULL,
   reason TEXT,
   "transferredAt" TIMESTAMPTZ NOT NULL,
+  "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE, -- soft delete: rows are never removed, only flagged
   created_by VARCHAR(64),
   updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
@@ -162,6 +173,7 @@ CREATE TABLE IF NOT EXISTS "lockEventsLog" (
   "lockCardId" VARCHAR(128),
   type VARCHAR(50) NOT NULL,
   at TIMESTAMPTZ NOT NULL,
+  "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE, -- soft delete: rows are never removed, only flagged
   created_by VARCHAR(64),
   updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),
@@ -180,6 +192,7 @@ CREATE TABLE IF NOT EXISTS settings (
   "ownerName" VARCHAR(255),
   "ownerPhone" VARCHAR(32),
   "ownerAddress" TEXT,
+  "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE, -- soft delete: rows are never removed, only flagged
   created_by VARCHAR(64),
   updated_by VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT now(),

@@ -86,7 +86,8 @@ function RevenueReport() {
         ...data.rows.map((r) => [dayjs(r.date).format("DD/MM/YYYY"), r.stayCount, r.roomRevenue, r.serviceRevenue, r.total]),
         ["Tổng cộng", g.stayCount, g.roomRevenue, g.serviceRevenue, g.total],
       ],
-      [14, 16, 18, 18, 16]
+      [14, 16, 18, 18, 16],
+      { totalRow: true }
     );
   }
 

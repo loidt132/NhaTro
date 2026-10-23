@@ -28,11 +28,13 @@ export async function ping() {
   await query("SELECT 1");
 }
 
+// Soft delete: deleteCategory / deleteItem only set "isDeleted" (and stamp updated_by /
+// updated_at); every read below skips those rows.
 export const listCategories = (homestayId) =>
-  query(`SELECT * FROM categories WHERE "homestayId" = $1 ORDER BY created_at, id`, [homestayId]);
+  query(`SELECT * FROM categories WHERE "homestayId" = $1 AND "isDeleted" = false ORDER BY created_at, id`, [homestayId]);
 
 export async function getCategory(id) {
-  return (await query(`SELECT * FROM categories WHERE id = $1`, [id]))[0] || null;
+  return (await query(`SELECT * FROM categories WHERE id = $1 AND "isDeleted" = false`, [id]))[0] || null;
 }
 
 // Audit columns are always passed explicitly: created_by/created_at and
@@ -51,17 +53,20 @@ export async function createCategory({ id, homestayId, name }, actor = "system")
 
 export async function updateCategory(id, name, actor = "system") {
   return (await query(
-    `UPDATE categories SET name = $2, updated_by = $3, updated_at = $4 WHERE id = $1 RETURNING *`,
+    `UPDATE categories SET name = $2, updated_by = $3, updated_at = $4 WHERE id = $1 AND "isDeleted" = false RETURNING *`,
     [id, name, actor, nowIso()]
   ))[0] || null;
 }
 
-export async function deleteCategory(id) {
-  await query(`DELETE FROM categories WHERE id = $1`, [id]);
+export async function deleteCategory(id, actor = "system") {
+  await query(
+    `UPDATE categories SET "isDeleted" = true, updated_by = $2, updated_at = $3 WHERE id = $1 AND "isDeleted" = false`,
+    [id, actor, nowIso()]
+  );
 }
 
 export async function countItemsInCategory(categoryId) {
-  const rows = await query(`SELECT count(*)::int AS n FROM items WHERE "categoryId" = $1`, [categoryId]);
+  const rows = await query(`SELECT count(*)::int AS n FROM items WHERE "categoryId" = $1 AND "isDeleted" = false`, [categoryId]);
   return rows[0].n;
 }
 
@@ -69,18 +74,18 @@ export async function countItemsInCategory(categoryId) {
 // callers don't need a second request to /api/categories. Surcharges have no
 // category, hence LEFT JOIN and a NULL name.
 const ITEM_SELECT = `SELECT i.*, c.name AS "categoryName"
-  FROM items i LEFT JOIN categories c ON c.id = i."categoryId"`;
+  FROM items i LEFT JOIN categories c ON c.id = i."categoryId" AND c."isDeleted" = false`;
 
 export function listItems(homestayId, { categoryId, kind } = {}) {
   const params = [homestayId];
-  let sql = `${ITEM_SELECT} WHERE i."homestayId" = $1`;
+  let sql = `${ITEM_SELECT} WHERE i."homestayId" = $1 AND i."isDeleted" = false`;
   if (categoryId) { params.push(categoryId); sql += ` AND i."categoryId" = $${params.length}`; }
   if (kind) { params.push(kind); sql += ` AND i.kind = $${params.length}`; }
   return query(`${sql} ORDER BY i.created_at, i.id`, params);
 }
 
 export async function getItem(id) {
-  return (await query(`${ITEM_SELECT} WHERE i.id = $1`, [id]))[0] || null;
+  return (await query(`${ITEM_SELECT} WHERE i.id = $1 AND i."isDeleted" = false`, [id]))[0] || null;
 }
 
 export async function createItem({ id, homestayId, categoryId, name, unit, price, kind }, actor = "system") {
@@ -106,10 +111,13 @@ export async function updateItem(id, patch, actor = "system") {
   if (!sets.length) return getItem(id);
   params.push(actor, nowIso());
   sets.push(`updated_by = $${params.length - 1}`, `updated_at = $${params.length}`);
-  await query(`UPDATE items SET ${sets.join(", ")} WHERE id = $1`, params);
+  await query(`UPDATE items SET ${sets.join(", ")} WHERE id = $1 AND "isDeleted" = false`, params);
   return getItem(id);
 }
 
-export async function deleteItem(id) {
-  await query(`DELETE FROM items WHERE id = $1`, [id]);
+export async function deleteItem(id, actor = "system") {
+  await query(
+    `UPDATE items SET "isDeleted" = true, updated_by = $2, updated_at = $3 WHERE id = $1 AND "isDeleted" = false`,
+    [id, actor, nowIso()]
+  );
 }

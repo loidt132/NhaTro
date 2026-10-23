@@ -126,7 +126,7 @@ app.delete("/api/categories/:id", requireApiKey, requireHomestayId, async (req, 
     if ((await db.countItemsInCategory(category.id)) > 0) {
       return res.status(409).json({ error: "Danh mục đang có dịch vụ — hãy chuyển/xoá dịch vụ trong danh mục này trước." });
     }
-    await db.deleteCategory(req.params.id);
+    await db.deleteCategory(req.params.id, req.actorId);
     res.status(204).end();
   } catch (err) {
     dbErrorToHttp(res, err);
@@ -202,7 +202,7 @@ app.delete("/api/items/:id", requireApiKey, requireHomestayId, async (req, res) 
   try {
     const existing = await db.getItem(req.params.id);
     if (!existing || existing.homestayId !== req.homestayId) return res.status(404).json({ error: "not found" });
-    await db.deleteItem(req.params.id);
+    await db.deleteItem(req.params.id, req.actorId);
     res.status(204).end();
   } catch (err) {
     dbErrorToHttp(res, err);

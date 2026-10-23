@@ -129,8 +129,13 @@ function cleanData(meta, tableKey, data) {
 function toAppRow(tableKey, meta, row) {
   const out = {};
   for (const [col, value] of Object.entries(row)) out[meta.colToApp.get(col) ?? toCamel(col)] = value;
+  delete out.isDeleted; // soft-delete flag is internal; deleted rows are never returned
   return decryptRow(tableKey, out);
 }
+
+// Rows flagged isDeleted are invisible to every read; the flag is only ever set by
+// deleteRowByBusinessId below.
+const liveCondition = (alias = "") => `COALESCE(${alias}${q("isDeleted")}, false) = false`;
 
 const OPS = { eq: "=", neq: "<>", gt: ">", gte: ">=", ge: ">=", lt: "<", lte: "<=", le: "<=" };
 
@@ -154,7 +159,8 @@ function buildWhere(meta, tableKey, where, params) {
 export async function listRows(tableKey, { where, limit = 1000 } = {}) {
   const meta = await metaOf(tableKey);
   const params = [];
-  const clause = buildWhere(meta, tableKey, where, params);
+  let clause = buildWhere(meta, tableKey, where, params);
+  if (meta.types.has("isDeleted")) clause += `${clause ? " AND" : " WHERE"} ${liveCondition()}`;
   params.push(limit);
   const order = meta.types.has("created_at") ? "created_at, id" : "id";
   const rows = await query(
@@ -180,6 +186,7 @@ export async function findOneWhere(tableKey, where) {
 async function insert(tableKey, data, { raw = false } = {}) {
   const meta = await metaOf(tableKey);
   const clean = cleanData(meta, tableKey, data);
+  if (!raw) delete clean.isDeleted;
   const nowIso = new Date().toISOString();
   const actor = currentActor();
   const stamp = (col, value) => {
@@ -212,7 +219,7 @@ export async function updateRowByBusinessId(tableKey, id, patch) {
   const meta = await metaOf(tableKey);
   const clean = cleanData(meta, tableKey, encryptRow(tableKey, patch));
   // The audit columns are never taken from a request body.
-  for (const col of ["id", "created_at", "created_by", "updated_at", "updated_by"]) delete clean[col];
+  for (const col of ["id", "isDeleted", "created_at", "created_by", "updated_at", "updated_by"]) delete clean[col];
   const cols = Object.keys(clean);
   if (!cols.length) return findOneByBusinessId(tableKey, id);
   if (meta.types.has("updated_at")) clean.updated_at = new Date().toISOString();
@@ -220,15 +227,35 @@ export async function updateRowByBusinessId(tableKey, id, patch) {
   const setCols = Object.keys(clean);
   const sets = setCols.map((c, i) => `${q(c)} = $${i + 2}`);
   const rows = await query(
-    `UPDATE ${q(meta.table)} SET ${sets.join(", ")} WHERE id = $1 RETURNING *`,
+    `UPDATE ${q(meta.table)} SET ${sets.join(", ")} WHERE id = $1${meta.types.has("isDeleted") ? ` AND ${liveCondition()}` : ""} RETURNING *`,
     [id, ...setCols.map((c) => clean[c])]
   );
   return rows[0] ? toAppRow(tableKey, meta, rows[0]) : null;
 }
 
+// Soft delete: the row stays in the table with isDeleted = true, and updated_by /
+// updated_at record who deleted it and when. A table without the column (not migrated
+// yet) falls back to a real DELETE.
 export async function deleteRowByBusinessId(tableKey, id) {
-  const { table } = await metaOf(tableKey);
-  const rows = await query(`DELETE FROM ${q(table)} WHERE id = $1 RETURNING id`, [id]);
+  const meta = await metaOf(tableKey);
+  if (!meta.types.has("isDeleted")) {
+    const rows = await query(`DELETE FROM ${q(meta.table)} WHERE id = $1 RETURNING id`, [id]);
+    return rows.length > 0;
+  }
+  const sets = [`${q("isDeleted")} = true`];
+  const params = [id];
+  if (meta.types.has("updated_by")) {
+    params.push(currentActor());
+    sets.push(`updated_by = $${params.length}`);
+  }
+  if (meta.types.has("updated_at")) {
+    params.push(new Date().toISOString());
+    sets.push(`updated_at = $${params.length}`);
+  }
+  const rows = await query(
+    `UPDATE ${q(meta.table)} SET ${sets.join(", ")} WHERE id = $1 AND ${liveCondition()} RETURNING id`,
+    params
+  );
   return rows.length > 0;
 }
 

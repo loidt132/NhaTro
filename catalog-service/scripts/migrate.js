@@ -26,6 +26,14 @@ for (const { table_name, column_name, data_type } of cols) {
   console.log(`Đã đổi kiểu ${table_name}.${column_name} -> TIMESTAMPTZ`);
 }
 
+// Soft delete: every table gets "isDeleted" before schema.sql runs (its partial unique
+// indexes reference the column). The old plain unique indexes are dropped so schema.sql
+// can recreate them as "WHERE isDeleted = false".
+for (const table of [...schema.matchAll(/CREATE TABLE IF NOT EXISTS ("?\w+"?) \(/g)].map((m) => m[1])) {
+  if ((await query(`SELECT to_regclass($1) IS NOT NULL AS ok`, [table]))[0].ok) {
+    await query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE`);
+  }
+}
 await query(schema);
 console.log("Schema đã được áp dụng.");
 

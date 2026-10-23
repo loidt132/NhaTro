@@ -71,7 +71,18 @@ async function normalizeLegacy() {
   }
 }
 
-await normalizeLegacy();
+await normalizeLegacy(); // legacy table/column names first, so the steps below see the final names
+
+// Soft delete: every table gets "isDeleted" before schema.sql runs (its partial unique
+// indexes reference the column). The old plain unique indexes are dropped so schema.sql
+// can recreate them as "WHERE isDeleted = false".
+for (const table of [...schema.matchAll(/CREATE TABLE IF NOT EXISTS ("?\w+"?) \(/g)].map((m) => m[1])) {
+  if ((await query(`SELECT to_regclass($1) IS NOT NULL AS ok`, [table]))[0].ok) {
+    await query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS "isDeleted" BOOLEAN NOT NULL DEFAULT FALSE`);
+  }
+}
+await query(`DROP INDEX IF EXISTS idx_users_username_unique`);
+await query(`DROP INDEX IF EXISTS idx_rate_plans_room_type_unique`);
 await query(schema);
 console.log("Schema đã được áp dụng.");
 
