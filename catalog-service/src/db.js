@@ -29,7 +29,7 @@ export async function ping() {
 }
 
 export const listCategories = (businessId) =>
-  query(`SELECT * FROM categories WHERE "businessId" = $1 ORDER BY created_at, id`, [businessId]);
+  query(`SELECT * FROM categories WHERE "businessId" = $1 ORDER BY name, created_at, updated_at`, [businessId]);
 
 export async function getCategory(id) {
   return (await query(`SELECT * FROM categories WHERE id = $1`, [id]))[0] || null;
@@ -76,7 +76,7 @@ export function listItems(businessId, { categoryId, kind } = {}) {
   let sql = `${ITEM_SELECT} WHERE i."businessId" = $1`;
   if (categoryId) { params.push(categoryId); sql += ` AND i."categoryId" = $${params.length}`; }
   if (kind) { params.push(kind); sql += ` AND i.kind = $${params.length}`; }
-  return query(`${sql} ORDER BY i.created_at, i.id`, params);
+  return query(`${sql} ORDER BY i.name, i.created_at, i.updated_at`, params);
 }
 
 export async function getItem(id) {
@@ -120,7 +120,7 @@ export function listOrders(businessId, { roomId, month, status } = {}) {
   if (roomId) { params.push(roomId); sql += ` AND "roomId" = $${params.length}`; }
   if (month) { params.push(month); sql += ` AND "month" = $${params.length}`; }
   if (status) { params.push(status); sql += ` AND status = $${params.length}`; }
-  return query(`${sql} ORDER BY created_at, id`, params);
+  return query(`${sql} ORDER BY updated_at DESC, created_at DESC, id DESC`, params);
 }
 
 export async function getOrder(id) {
