@@ -37,6 +37,7 @@ The browser never talks to the database: the web app only calls this API.
 Details:
 - Only columns defined in `neon-schema.sql` are copied (case-insensitive). Extra NocoDB columns such as
   `created_by_1`, `createdby`, `modifiedby` are ignored and listed in the log; no columns are ever added.
+- Only rows that are not soft-deleted (`isDeleted` false/empty in NocoDB) are migrated; deleted rows are skipped and counted in the log.
 - Rows without `id` or `created_by` can't be used by the app and are skipped (listed in the log).
 - Legacy users that only had a plaintext `password` column get a salted hash instead.
 - **Safety stop:** if NocoDB has fewer rows than Neon already holds in any table (or a table's
@@ -45,10 +46,39 @@ Details:
   `--force` if you really want to overwrite.
 - `--schema-only` drops and recreates the empty tables without copying anything.
 
+## Cleaning the existing Neon tables in place (no NocoDB needed)
+
+When NocoDB no longer holds the data, fix the Neon tables where they are:
+
+```
+npm run migrate-to-neon -- --cleanup          # shows the plan, changes nothing
+npm run migrate-to-neon -- --cleanup --yes    # applies it in one transaction
+```
+
+Per table it adds the missing schema columns, folds `createdAt`/`createdat`, `updatedAt`/`updatedat`,
+`createdby`, `updatedby`, `modified_at`, `modified_by` and `xxx_1`-style duplicates into
+`created_at` / `created_by` / `updated_at` / `updated_by` (earliest `created_at`, latest `updated_at`,
+the `*_by` columns only fill gaps) and drops the old columns, then **deletes the rows with `isDeleted = true`**.
+Columns outside the schema are left alone and listed. Take a Neon branch/snapshot first — this is destructive.
+
+## How the server code is laid out
+
+- `db.js` — the Postgres (Neon) connection and small helpers (upsert, list owned rows, soft delete).
+- `stateStore.js` — backs `/api/state`: the web app sends/receives a user's whole rooms / tenants / readings /
+  invoices / payments / ... collections; this module diffs them against the database and upserts or
+  soft-deletes rows. It talks to Neon through `db.js` only.
+- `index.js` — routes (auth, users, admin, meter submissions) using `db.js` directly.
+- `promote-to-admin.js` — CLI to promote/demote users and set room limits (`node promote-to-admin.js list`).
+- `encrypt-existing-data.js` — one-off: encrypts CCCD/phone on rows that are still plaintext.
+
+Audit columns on every business table: `created_by`, `updated_by`, `created_at`, `updated_at`. The server always
+passes them explicitly: a create sets `created_by/created_at/updated_by/updated_at`; an update sets
+`updated_by/updated_at` (`created_*` never change).
+
 ## Schema
 
 `neon-schema.sql` (idempotent). Every business table has `created_by` (the owner's user id),
-`modified_by` and a soft-delete flag `"isDeleted"`; column names are quoted camelCase to match the
+`updated_by` and a soft-delete flag `"isDeleted"`; column names are quoted camelCase to match the
 JSON the web app sends. Fields the app sends that are not columns are dropped with a `[db]` warning in the log.
 
 ## Endpoints

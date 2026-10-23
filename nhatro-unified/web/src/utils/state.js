@@ -221,7 +221,7 @@ export async function hydrateState(options = {}) {
   isHydrating = true;
   const requestedAdminViewUserId = adminViewUserId;
   try {
-    // Load from server / NocoDB only, scoped by requested tables.
+    // Load from the server only, scoped by requested tables.
     const serverState = await loadStateFromServer({ tables });
     // A user may have switched the admin preview while this request was in
     // flight. Never overwrite the newly selected account with stale data.
@@ -251,7 +251,7 @@ function seed(){
   const r1={ id:uid(), name:'P101', baseRent:2500000, electricRate:3500, waterRate:12000 };
   const r2={ id:uid(), name:'P102', baseRent:2700000, electricRate:3500, waterRate:12000 };
   const t1={ id:uid(), name:'Nguyen Van A', cccd:'012345678901', phone:'0901234567', roomId:r1.id };
-  const readings=[{ id:uid(), roomId:r1.id, month:monthKey(), electricStart:100, electricEnd:120, waterStart:30, waterEnd:32, createdAt:new Date().toISOString() }];
+  const readings=[{ id:uid(), roomId:r1.id, month:monthKey(), electricStart:100, electricEnd:120, waterStart:30, waterEnd:32, created_at:new Date().toISOString() }];
   const s={ rooms:[r1,r2], tenants:[t1], readings, invoices:[], payments:[], rentPeriods:[], paymentAllocations:[], deposits:[], depositTransactions:[], settings:{ bankCode:'VCB', accountNo:'', accountName:'', qrNoteTemplate:'Tien phong {room} {month}', landlordName:'', landlordPhone:'', landlordAddress:'', occupancyMode:'month', meterRoomScope:'occupied' }, __meta: { lastModified: new Date().toISOString() } };
   return s;
 }

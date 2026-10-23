@@ -22,6 +22,8 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }) {
       <LinkItem to="/rooms" icon="🏠">Phòng trọ</LinkItem>
       <LinkItem to="/tenants" icon="👥">Khách thuê</LinkItem>
       <LinkItem to="/meter" icon="⚡">Ghi điện nước</LinkItem>
+      <LinkItem to="/service-orders" icon="🧺">Đơn dịch vụ</LinkItem>
+      <LinkItem to="/service-catalog" icon="🏷️">Quản lý dịch vụ</LinkItem>
       <LinkItem to="/payments" icon="💵">Thu tiền</LinkItem>
       <LinkItem to="/reports" icon="📊">Báo cáo</LinkItem>
       <LinkItem to="/settings" icon="⚙️">Cài đặt</LinkItem>
@@ -50,6 +52,8 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }) {
           <LinkItem to="/rooms" icon="🏠" onClick={onClose}>Phòng trọ</LinkItem>
           <LinkItem to="/tenants" icon="👥" onClick={onClose}>Khách thuê</LinkItem>
           <LinkItem to="/meter" icon="⚡" onClick={onClose}>Ghi điện nước</LinkItem>
+          <LinkItem to="/service-orders" icon="🧺" onClick={onClose}>Đơn dịch vụ</LinkItem>
+          <LinkItem to="/service-catalog" icon="🏷️" onClick={onClose}>Quản lý dịch vụ</LinkItem>
           <LinkItem to="/payments" icon="💵" onClick={onClose}>Thu tiền</LinkItem>
           <LinkItem to="/reports" icon="📊" onClick={onClose}>Báo cáo</LinkItem>
           <LinkItem to="/settings" icon="⚙️" onClick={onClose}>Cài đặt</LinkItem>

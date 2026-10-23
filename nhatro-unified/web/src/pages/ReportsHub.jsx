@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { TenantsReport, RoomsReport, PaymentsReport, AdvanceReport } from './reports';
+import { TenantsReport, RoomsReport, PaymentsReport, AdvanceReport, ServiceRevenueReport } from './reports';
 import Page from '../components/Page';
 import Footer from '../components/Footer';
 import { hydrateState } from '../utils/state';
@@ -31,11 +31,13 @@ export default function ReportsHub(){
         <Tab id="tenants">Danh sách khách</Tab>
         <Tab id="payments">Báo cáo thanh toán</Tab>
         <Tab id="advance">Đóng trước</Tab>
+        <Tab id="services">Dịch vụ</Tab>
       </div>
       {tab==='rooms' && <RoomsReport/>}
       {tab==='tenants' && <TenantsReport/>}
       {tab==='payments' && <PaymentsReport/>}
       {tab==='advance' && <AdvanceReport/>}
+      {tab==='services' && <ServiceRevenueReport/>}
       <Footer />
     </Page>
   );

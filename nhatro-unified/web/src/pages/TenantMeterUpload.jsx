@@ -106,7 +106,7 @@ export default function TenantMeterUpload({ user }) {
     try {
       const rows = await listMeterSubmissions();
       setSubmissions(
-        rows.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+        rows.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
       );
     } catch (err) {
       setLoadError(err?.message || 'Không tải được lịch sử gửi ảnh.');

@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { getAdminViewUserId, loadState, reloadStateForAdminView, resetStateSession, setAdminViewUserId } from './utils/state';
+import { roomsApi } from './utils/api/tables';
 import { clearAuth, fetchCurrentUser, getStoredToken, loginAccount, registerAccount, setStoredToken } from './utils/auth';
 import Sidebar from './components/Sidebar';
 import Rooms from './pages/Rooms';
 import Tenants from './pages/Tenants';
 import Meter from './pages/Meter';
 import Payments from './pages/Payments';
+import ServiceOrders from './pages/ServiceOrders';
+import ServiceCatalog from './pages/ServiceCatalog';
 import Settings from './pages/Settings';
 import ReportsHub from './pages/ReportsHub';
 import Auth from './pages/Auth';
@@ -23,7 +26,7 @@ export default function App() {
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminViewUserId, setAdminViewUserIdState] = useState(() => getAdminViewUserId());
   const [adminViewLoading, setAdminViewLoading] = useState(false);
-  const [roomCount, setRoomCount] = useState(() => (loadState().rooms || []).length);
+  const [roomCount, setRoomCount] = useState(0);
   const [saveError, setSaveError] = useState('');
 
   useEffect(() => {
@@ -59,16 +62,21 @@ export default function App() {
     setAdminViewLoading(true);
     try {
       await reloadStateForAdminView();
+      roomsApi.list().then((rows) => setRoomCount(rows.length)).catch(() => {});
     } finally {
       setAdminViewLoading(false);
     }
   };
 
   useEffect(() => {
-    const sync = () => setRoomCount((loadState().rooms || []).length);
-    window.addEventListener('boarding_state_updated', sync);
-    sync();
-    return () => window.removeEventListener('boarding_state_updated', sync);
+    const sync = () => {
+      roomsApi.list().then((rows) => setRoomCount(rows.length)).catch(() => {});
+    };
+    // 'rooms_table_changed' only (tables.js), not the bulk-sync event — the
+    // room count only needs to react to actual room create/update/delete.
+    window.addEventListener('rooms_table_changed', sync);
+    if (getStoredToken()) sync();
+    return () => window.removeEventListener('rooms_table_changed', sync);
   }, []);
 
   useEffect(() => {
@@ -224,6 +232,8 @@ export default function App() {
               <Route path="/rooms" element={<Rooms />} />
               <Route path="/tenants" element={<Tenants />} />
               <Route path="/meter" element={<Meter />} />
+              <Route path="/service-orders" element={<ServiceOrders />} />
+              <Route path="/service-catalog" element={<ServiceCatalog />} />
               <Route path="/payments" element={<Payments />} />
               <Route path="/reports" element={<ReportsHub />} />
               <Route path="/settings" element={<Settings user={user} />} />

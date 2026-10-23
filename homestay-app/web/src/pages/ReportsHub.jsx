@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import { homestayApi, formatVnd } from "../api.js";
-import { exportExcel } from "../utils/exportExcel.js";
+import { exportStyledExcel } from "../utils/exportExcel.js";
 import { badgeBase, btn, btnPrimary, card, table, tableWrap, td, th } from "../ui.js";
 import DateField from "../components/DateField.jsx";
 import { useHomestay } from "../HomestayContext.js";
@@ -16,9 +16,12 @@ export default function ReportsHub() {
       <h1 className="text-xl font-bold text-slate-900">Báo cáo</h1>
       <div className="flex gap-2 overflow-x-auto border-b border-slate-200 pb-0">
         <TabButton active={tab === "revenue"} onClick={() => setTab("revenue")}>Doanh thu</TabButton>
+        <TabButton active={tab === "services"} onClick={() => setTab("services")}>Dịch vụ</TabButton>
         <TabButton active={tab === "occupancy"} onClick={() => setTab("occupancy")}>Khách ở</TabButton>
       </div>
-      {tab === "revenue" ? <RevenueReport /> : <OccupancyReport />}
+      {tab === "revenue" && <RevenueReport />}
+      {tab === "services" && <ServiceRevenueReport />}
+      {tab === "occupancy" && <OccupancyReport />}
     </div>
   );
 }
@@ -60,7 +63,7 @@ function RevenueReport() {
   const { currentHomestayId } = useHomestay();
   const [from, setFrom] = useState(dayjs().startOf("month").format("YYYY-MM-DD"));
   const [to, setTo] = useState(dayjs().format("YYYY-MM-DD"));
-  const [data, setData] = useState({ rows: [], grandTotal: { roomRevenue: 0, serviceRevenue: 0, total: 0, stayCount: 0 } });
+  const [data, setData] = useState({ rows: [], grandTotal: { roomRevenue: 0, serviceRevenue: 0, total: 0, stayCount: 0 }, serviceBreakdown: [] });
   const [error, setError] = useState("");
 
   async function refresh() {
@@ -77,17 +80,27 @@ function RevenueReport() {
   }, [from, to, currentHomestayId]);
 
   function download() {
-    const g = data.grandTotal;
-    exportExcel(
-      `doanh-thu-${from}-${to}.xlsx`,
-      "Doanh thu",
-      [
-        ["Ngày", "Lượt trả phòng", "Doanh thu phòng", "Dịch vụ/phụ thu", "Tổng"],
-        ...data.rows.map((r) => [dayjs(r.date).format("DD/MM/YYYY"), r.stayCount, r.roomRevenue, r.serviceRevenue, r.total]),
-        ["Tổng cộng", g.stayCount, g.roomRevenue, g.serviceRevenue, g.total],
+    exportStyledExcel({
+      filename: `doanh-thu-${from}-${to}.xlsx`,
+      sheetName: "Doanh thu",
+      title: "Báo cáo doanh thu",
+      subtitle: `${dayjs(from).format("DD/MM/YYYY")} – ${dayjs(to).format("DD/MM/YYYY")}`,
+      columns: [
+        { header: "Ngày", key: "date", width: 14 },
+        { header: "Lượt trả phòng", key: "stayCount", width: 16 },
+        { header: "Doanh thu phòng", key: "roomRevenue", width: 18, money: true },
+        { header: "Dịch vụ/phụ thu", key: "serviceRevenue", width: 18, money: true },
+        { header: "Tổng", key: "total", width: 16, money: true },
       ],
-      [14, 16, 18, 18, 16]
-    );
+      rows: data.rows.map((r) => ({
+        date: dayjs(r.date).format("DD/MM/YYYY"),
+        stayCount: r.stayCount,
+        roomRevenue: r.roomRevenue,
+        serviceRevenue: r.serviceRevenue,
+        total: r.total,
+      })),
+      totals: { date: "Tổng cộng", stayCount: data.grandTotal.stayCount, roomRevenue: data.grandTotal.roomRevenue, serviceRevenue: data.grandTotal.serviceRevenue, total: data.grandTotal.total },
+    });
   }
 
   return (
@@ -184,24 +197,32 @@ function OccupancyReport() {
 
   function download() {
     const fmt = (v) => (v ? dayjs(v).format("DD/MM/YYYY HH:mm") : "");
-    exportExcel(
-      `khach-luu-tru-${from}-${to}.xlsx`,
-      "Khách lưu trú",
-      [
-        ["Phòng", "Khách", "Số khách", "Loại giá", "Nhận phòng", "Trả phòng", "Số giờ", "Trạng thái"],
-        ...data.stays.map((s) => [
-          s.roomName,
-          (s.guestNames?.length ? s.guestNames : [s.guestName]).join(", "),
-          s.guestCount,
-          PRICING_LABEL[s.pricingType] || s.pricingType,
-          fmt(s.checkInAt),
-          fmt(s.checkOutAt),
-          s.durationHours,
-          s.status === "active" ? "Đang ở" : "Đã trả phòng",
-        ]),
+    exportStyledExcel({
+      filename: `khach-luu-tru-${from}-${to}.xlsx`,
+      sheetName: "Khách lưu trú",
+      title: "Báo cáo khách lưu trú",
+      subtitle: `${dayjs(from).format("DD/MM/YYYY")} – ${dayjs(to).format("DD/MM/YYYY")}`,
+      columns: [
+        { header: "Phòng", key: "roomName", width: 10 },
+        { header: "Khách", key: "guestName", width: 36 },
+        { header: "Số khách", key: "guestCount", width: 10 },
+        { header: "Loại giá", key: "pricingType", width: 12 },
+        { header: "Nhận phòng", key: "checkInAt", width: 18 },
+        { header: "Trả phòng", key: "checkOutAt", width: 18 },
+        { header: "Số giờ", key: "durationHours", width: 8 },
+        { header: "Trạng thái", key: "status", width: 14 },
       ],
-      [10, 36, 10, 12, 18, 18, 8, 14]
-    );
+      rows: data.stays.map((s) => ({
+        roomName: s.roomName,
+        guestName: (s.guestNames?.length ? s.guestNames : [s.guestName]).join(", "),
+        guestCount: s.guestCount,
+        pricingType: PRICING_LABEL[s.pricingType] || s.pricingType,
+        checkInAt: fmt(s.checkInAt),
+        checkOutAt: fmt(s.checkOutAt),
+        durationHours: s.durationHours,
+        status: s.status === "active" ? "Đang ở" : "Đã trả phòng",
+      })),
+    });
   }
 
   return (
@@ -280,6 +301,130 @@ function OccupancyReport() {
                         {s.status === "active" ? "Đang ở" : "Đã trả phòng"}
                       </span>
                     </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const KIND_LABEL = { service: "Dịch vụ", surcharge: "Phụ thu" };
+
+function ServiceRevenueReport() {
+  const { currentHomestayId } = useHomestay();
+  const [from, setFrom] = useState(dayjs().startOf("month").format("YYYY-MM-DD"));
+  const [to, setTo] = useState(dayjs().format("YYYY-MM-DD"));
+  const [data, setData] = useState({ serviceBreakdown: [], grandTotal: { serviceRevenue: 0 } });
+  const [error, setError] = useState("");
+
+  async function refresh() {
+    try {
+      setData(await homestayApi.getRevenueReport(from, to));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, to, currentHomestayId]);
+
+  const rows = data.serviceBreakdown || [];
+  const total = data.grandTotal?.serviceRevenue || 0;
+
+  function download() {
+    exportStyledExcel({
+      filename: `doanh-thu-dich-vu-${from}-${to}.xlsx`,
+      sheetName: "Doanh thu dịch vụ",
+      title: "Báo cáo doanh thu theo dịch vụ",
+      subtitle: `${dayjs(from).format("DD/MM/YYYY")} – ${dayjs(to).format("DD/MM/YYYY")}`,
+      columns: [
+        { header: "Tên dịch vụ/phụ thu", key: "name", width: 30 },
+        { header: "Loại", key: "kind", width: 12 },
+        { header: "Số lượt", key: "orderCount", width: 10 },
+        { header: "Số lượng", key: "qty", width: 10 },
+        { header: "Doanh thu", key: "amount", width: 18, money: true },
+      ],
+      rows: rows.map((r) => ({
+        name: r.name,
+        kind: KIND_LABEL[r.kind] || r.kind,
+        orderCount: r.orderCount,
+        qty: r.qty,
+        amount: r.amount,
+      })),
+      totals: { name: "Tổng cộng", amount: total },
+    });
+  }
+
+  return (
+    <div className="invoice-print space-y-4">
+      <h2 className="hidden text-lg font-bold print:block">Báo cáo doanh thu dịch vụ {dayjs(from).format("DD/MM/YYYY")} – {dayjs(to).format("DD/MM/YYYY")}</h2>
+      <div className="no-print space-y-3 sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-white sm:p-4 sm:shadow-sm">
+        <DateRangePicker from={from} to={to} setFrom={setFrom} setTo={setTo} />
+      </div>
+      {error && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
+      )}
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
+        <StatCard label="Số loại dịch vụ/phụ thu" value={rows.length} />
+        <StatCard label="Tổng lượt đặt" value={rows.reduce((s, r) => s + r.orderCount, 0)} />
+        <StatCard label="Tổng doanh thu dịch vụ" value={formatVnd(total)} highlight />
+      </div>
+
+      <div className={card}>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-semibold text-slate-900">Doanh thu theo từng loại dịch vụ</h2>
+          <ExportButtons onExcel={download} disabled={rows.length === 0} />
+        </div>
+        <p className="mb-2 text-xs text-slate-500">Tính theo ngày trả phòng (checkout) của các lượt lưu trú đã hoàn tất, giống báo cáo doanh thu.</p>
+        {rows.length === 0 ? (
+          <p className="text-sm text-slate-500">Chưa có dữ liệu trong khoảng ngày đã chọn.</p>
+        ) : (
+          <>
+          <div className="divide-y divide-slate-100 sm:hidden">
+            {rows.map((r) => (
+              <div key={`${r.kind}:${r.name}`} className="space-y-1 py-2.5 text-sm">
+                <div className="flex items-baseline justify-between">
+                  <span className="font-medium text-slate-900">{r.name}</span>
+                  <span className="font-semibold tabular-nums text-emerald-700">{formatVnd(r.amount)}</span>
+                </div>
+                <div className="flex justify-between text-xs text-slate-500">
+                  <span>{KIND_LABEL[r.kind] || r.kind} · {r.orderCount} lượt</span>
+                  <span className="tabular-nums">SL {r.qty}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className={`${tableWrap} hidden sm:block`}>
+            <table className={table}>
+              <thead>
+                <tr>
+                  <th className={th}>Tên dịch vụ/phụ thu</th>
+                  <th className={th}>Loại</th>
+                  <th className={`${th} text-right`}>Số lượt</th>
+                  <th className={`${th} text-right`}>Số lượng</th>
+                  <th className={`${th} text-right`}>Doanh thu</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={`${r.kind}:${r.name}`}>
+                    <td className={td}>{r.name}</td>
+                    <td className={td}>
+                      <span className={`${badgeBase} ${r.kind === "surcharge" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
+                        {KIND_LABEL[r.kind] || r.kind}
+                      </span>
+                    </td>
+                    <td className={`${td} text-right tabular-nums`}>{r.orderCount}</td>
+                    <td className={`${td} text-right tabular-nums`}>{r.qty}</td>
+                    <td className={`${td} text-right tabular-nums font-semibold`}>{formatVnd(r.amount)}</td>
                   </tr>
                 ))}
               </tbody>

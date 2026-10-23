@@ -10,7 +10,13 @@
  * Only columns defined in neon-schema.sql are copied (matched case-insensitively);
  * extra NocoDB columns — e.g. the duplicate created_by_1 / createdby / modifiedby
  * that NocoDB makes when a table already has its own created_by — are ignored and
- * listed in the log. Rows without id or created_by are skipped and listed too.
+ * listed in the log. Rows without id or created_by are skipped and listed too, and so are
+ * rows soft-deleted in NocoDB (isDeleted = true): only isDeleted = false rows are migrated.
+ *
+ * Cleaning Neon in place, without NocoDB (when NocoDB no longer has the data):
+ *   npm run migrate-to-neon -- --cleanup          show what would change
+ *   npm run migrate-to-neon -- --cleanup --yes    apply it (DESTRUCTIVE: deletes isDeleted=true rows,
+ *                                                 drops the old audit columns — snapshot Neon first)
  *
  * Needs (server/.env or the environment):
  *   DATABASE_URL                               Neon connection string
@@ -54,6 +60,7 @@ const args = new Set(process.argv.slice(2));
 const DRY_RUN = args.has('--dry-run');
 const SCHEMA_ONLY = args.has('--schema-only');
 const FORCE = args.has('--force');
+const CLEANUP = args.has('--cleanup');
 
 const firstEnv = (...names) => {
   for (const name of names) {
@@ -113,6 +120,13 @@ async function fetchAllRows(tableId) {
   return rows;
 }
 
+// NocoDB soft delete: isDeleted checkbox (true / 1 / "true"). Only rows where it is false
+// or empty are migrated.
+function isSoftDeleted(row) {
+  const value = row.isDeleted ?? row.isdeleted;
+  return value === true || value === 1 || String(value).trim().toLowerCase() === 'true' || value === '1';
+}
+
 function pick(row, ...names) {
   for (const name of names) {
     const value = row[name];
@@ -139,7 +153,10 @@ function mapUser(row) {
     landlordId: pick(row, 'landlordId', 'landlord_id'),
     linkedTenantId: pick(row, 'linkedTenantId', 'linked_tenant_id'),
     linkedRoomId: pick(row, 'linkedRoomId', 'linked_room_id'),
+    created_by: pick(row, 'created_by') ?? row.id,
+    updated_by: pick(row, 'modified_by', 'updated_by') ?? pick(row, 'created_by') ?? row.id,
     created_at: pick(row, 'created_at', 'createdAt', 'createdat', 'CreatedAt'),
+    updated_at: pick(row, 'updated_at', 'updatedAt', 'UpdatedAt', 'modified_at'),
   };
   let hash = pick(row, 'password_hash', 'passwordHash', 'passwordhash');
   let salt = pick(row, 'password_salt', 'passwordSalt', 'passwordsalt');
@@ -153,6 +170,7 @@ function mapUser(row) {
   }
   out.password_hash = hash;
   out.password_salt = salt;
+  out.updated_at = out.updated_at ?? out.created_at;
   return out;
 }
 
@@ -161,16 +179,23 @@ function mapUser(row) {
 function parseSchema() {
   const sql = fs.readFileSync(path.join(__dirname, 'neon-schema.sql'), 'utf8');
   const tables = new Map();
+  const defs = new Map(); // table -> Map(column -> definition usable in ADD COLUMN)
   const re = /CREATE TABLE IF NOT EXISTS (\w+) \(([\s\S]*?)\n\);/g;
   for (let m = re.exec(sql); m; m = re.exec(sql)) {
     const columns = new Map(); // lowercase -> real name
+    const tableDefs = new Map();
     for (const line of m[2].split('\n')) {
       const col = line.trim().match(/^"?([A-Za-z_]\w*)"?\s+\S/);
-      if (col && !/^(PRIMARY|UNIQUE|CONSTRAINT|CHECK|FOREIGN)$/i.test(col[1])) columns.set(col[1].toLowerCase(), col[1]);
+      if (col && !/^(PRIMARY|UNIQUE|CONSTRAINT|CHECK|FOREIGN)$/i.test(col[1])) {
+        columns.set(col[1].toLowerCase(), col[1]);
+        // "name" TYPE ... -> without comment, trailing comma, NOT NULL (existing rows may be empty there)
+        tableDefs.set(col[1], line.trim().replace(/--.*$/, '').trim().replace(/,$/, '').replace(/\s+NOT NULL/i, '').replace(/\s+PRIMARY KEY/i, ''));
+      }
     }
     tables.set(m[1], columns);
+    defs.set(m[1], tableDefs);
   }
-  return { sql, tables };
+  return { sql, tables, defs };
 }
 
 const IGNORED_COLUMNS = new Map(); // table -> Set of source column names that hold data
@@ -179,10 +204,20 @@ function noteIgnored(table, key) {
   IGNORED_COLUMNS.get(table).add(key);
 }
 
+// NocoDB's own audit names -> the schema's created_at / updated_at / updated_by.
+// The app's createdAt/updatedAt win over NocoDB's system columns (they hold the
+// real business time); everything else falls back to the next candidate. The old
+// schema called the editor column modified_by.
+const AUDIT_ALIASES = new Set([
+  'created_at', 'createdAt', 'createdat', 'CreatedAt',
+  'updated_at', 'updatedAt', 'UpdatedAt', 'modified_at',
+  'updated_by', 'modified_by',
+]);
+
 function mapGeneric(table, row, columnByLower) {
   const out = {};
   for (const [key, value] of Object.entries(row)) {
-    if (NOCO_SYSTEM.has(key)) continue;
+    if (NOCO_SYSTEM.has(key) || AUDIT_ALIASES.has(key)) continue;
     const column = columnByLower.get(key.toLowerCase());
     if (!column) {
       if (value !== null && value !== undefined && value !== '') noteIgnored(table, key);
@@ -190,8 +225,9 @@ function mapGeneric(table, row, columnByLower) {
     }
     out[column] = value;
   }
-  if (out.created_at === undefined && row.CreatedAt) out.created_at = row.CreatedAt;
-  if (out.updated_at === undefined && row.UpdatedAt) out.updated_at = row.UpdatedAt;
+  out.created_at = pick(row, 'createdAt', 'created_at', 'createdat', 'CreatedAt');
+  out.updated_at = pick(row, 'updatedAt', 'updated_at', 'UpdatedAt', 'modified_at') ?? out.created_at;
+  out.updated_by = pick(row, 'modified_by', 'updated_by');
   if (out.isDeleted === undefined || out.isDeleted === null) out.isDeleted = false;
   return out;
 }
@@ -216,7 +252,9 @@ async function existingRowCounts(tableNames) {
   const counts = new Map();
   for (const table of tableNames) {
     try {
-      const [{ count }] = await db.query(`SELECT count(*)::int AS count FROM ${db.q(table)}`);
+      const cols = await db.columnsOf(table);
+      const live = cols.has('isDeleted') ? ` WHERE COALESCE(${db.q('isDeleted')}, false) = false` : '';
+      const [{ count }] = await db.query(`SELECT count(*)::int AS count FROM ${db.q(table)}${live}`);
       counts.set(table, count);
     } catch {
       // table does not exist yet
@@ -225,8 +263,133 @@ async function existingRowCounts(tableNames) {
   return counts;
 }
 
+// ---- --cleanup: fix the existing Neon tables in place (no NocoDB needed) -----------------
+// Old tables carry the audit data under other names (createdAt, updatedAt, createdat,
+// modified_by, created_by_1, ...). Fold each into created_at / created_by / updated_at /
+// updated_by, drop the old column, add whatever schema columns are missing, and delete
+// the rows that are soft-deleted (isDeleted = true).
+const AUDIT_ALIASES_PG = {
+  created_at: ['createdAt', 'createdat', 'CreatedAt'],
+  created_by: ['createdBy', 'createdby', 'CreatedBy'],
+  updated_at: ['updatedAt', 'updatedat', 'UpdatedAt', 'modifiedAt', 'modifiedat', 'modified_at'],
+  updated_by: ['updatedBy', 'updatedby', 'UpdatedBy', 'modifiedBy', 'modifiedby', 'modified_by'],
+};
+
+async function trySql(client, sql, label) {
+  await client.query('SAVEPOINT cleanup_step');
+  try {
+    await client.query(sql);
+    await client.query('RELEASE SAVEPOINT cleanup_step');
+    return true;
+  } catch (error) {
+    await client.query('ROLLBACK TO SAVEPOINT cleanup_step');
+    console.warn(`  ! bỏ qua ${label}: ${error.message}`);
+    return false;
+  }
+}
+
+async function cleanupInPlace() {
+  const execute = args.has('--yes');
+  const schema = parseSchema();
+  const cols = await db.query(
+    'SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = current_schema()'
+  );
+  const byTable = new Map();
+  for (const c of cols) {
+    if (!byTable.has(c.table_name)) byTable.set(c.table_name, new Map());
+    byTable.get(c.table_name).set(c.column_name, c.data_type);
+  }
+
+  const plan = [];
+  for (const [table, schemaCols] of schema.tables) {
+    const have = byTable.get(table);
+    if (!have) {
+      plan.push({ table, create: true, add: [], fold: [], dups: [], extra: [], deleted: 0 });
+      continue;
+    }
+    const known = new Set(schemaCols.values());
+    const item = { table, create: false, add: [], fold: [], dups: [], extra: [], deleted: 0 };
+    for (const [lower, name] of schemaCols) {
+      if (name !== 'id' && !have.has(name)) item.add.push({ name, def: schema.defs.get(table).get(name) });
+    }
+    for (const column of have.keys()) {
+      if (known.has(column)) continue;
+      const canonical = Object.keys(AUDIT_ALIASES_PG).find((key) => AUDIT_ALIASES_PG[key].includes(column));
+      const dup = column.match(/^(.+)_(\d+)$/);
+      if (canonical) item.fold.push({ from: column, to: canonical });
+      else if (dup && (have.has(dup[1]) || known.has(dup[1]))) item.dups.push({ from: column, to: dup[1] });
+      else item.extra.push(column);
+    }
+    if (have.has('isDeleted')) {
+      const [{ count }] = await db.query(`SELECT count(*)::int AS count FROM ${db.q(table)} WHERE ${db.q('isDeleted')} = true`);
+      item.deleted = count;
+    }
+    plan.push(item);
+  }
+
+  console.log(execute ? '=== Dọn Neon (đang áp dụng) ===' : '=== Kế hoạch dọn Neon (chưa thay đổi gì) ===');
+  for (const item of plan) {
+    const lines = [];
+    if (item.create) lines.push('tạo bảng mới (chưa có)');
+    if (item.add.length) lines.push(`thêm cột: ${item.add.map((a) => a.name).join(', ')}`);
+    if (item.fold.length) lines.push(`gộp rồi xóa cột: ${item.fold.map((f) => `${f.from}→${f.to}`).join(', ')}`);
+    if (item.dups.length) lines.push(`xóa cột trùng: ${item.dups.map((f) => `${f.from}→${f.to}`).join(', ')}`);
+    if (item.deleted) lines.push(`xóa ${item.deleted} dòng isDeleted=true`);
+    if (item.extra.length) lines.push(`(giữ nguyên cột ngoài schema: ${item.extra.join(', ')})`);
+    if (lines.length) console.log(`- ${item.table}: ${lines.join(' | ')}`);
+  }
+  if (!execute) {
+    console.log('\nThêm --yes để áp dụng. Việc này xóa các dòng đã xóa và các cột cũ — tạo branch/snapshot Neon trước.');
+    return;
+  }
+
+  await db.withTransaction(async (client) => {
+    for (const item of plan) {
+      if (item.create) continue;
+      const t = db.q(item.table);
+      for (const a of item.add) await client.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS ${a.def}`);
+      for (const f of item.fold) {
+        const from = db.q(f.from);
+        const to = db.q(f.to);
+        // earliest created_at, latest updated_at; the *_by columns only fill gaps.
+        const sql = f.to === 'created_at'
+          ? `UPDATE ${t} SET ${to} = LEAST(${to}, ${from}) WHERE ${from} IS NOT NULL`
+          : f.to === 'updated_at'
+            ? `UPDATE ${t} SET ${to} = GREATEST(${to}, ${from}) WHERE ${from} IS NOT NULL`
+            : `UPDATE ${t} SET ${to} = ${from} WHERE ${to} IS NULL AND ${from} IS NOT NULL`;
+        await trySql(client, sql, `${item.table}.${f.from} → ${f.to}`);
+        await client.query(`ALTER TABLE ${t} DROP COLUMN ${from}`);
+      }
+      for (const d of item.dups) {
+        await trySql(client, `UPDATE ${t} SET ${db.q(d.to)} = ${db.q(d.from)} WHERE ${db.q(d.to)} IS NULL AND ${db.q(d.from)} IS NOT NULL`, `${item.table}.${d.from} → ${d.to}`);
+        await client.query(`ALTER TABLE ${t} DROP COLUMN ${db.q(d.from)}`);
+      }
+      if (item.deleted) await client.query(`DELETE FROM ${t} WHERE ${db.q('isDeleted')} = true`);
+    }
+    await client.query(schema.sql); // creates missing tables and indexes
+    // Last editor unknown -> the creator; users have no created_by from the old schema.
+    await client.query(`UPDATE users SET created_by = id WHERE created_by IS NULL`);
+    await client.query(`UPDATE users SET updated_by = created_by WHERE updated_by IS NULL`);
+    for (const [table] of schema.tables) {
+      if (table === 'users') continue;
+      await client.query(`UPDATE ${db.q(table)} SET updated_by = created_by WHERE updated_by IS NULL`);
+    }
+  });
+  db.forgetColumns('users');
+
+  const left = await db.query(
+    `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema()
+      AND (column_name ~ '^(createdAt|updatedAt|createdat|updatedat|createdby|updatedby|modifiedby|modified_by|modified_at)$' OR column_name ~ '_[0-9]+$')`
+  );
+  console.log(left.length ? `\nVẫn còn cột cũ: ${left.map((c) => `${c.table_name}.${c.column_name}`).join(', ')}` : '\n✔ Đã dọn xong: không còn cột createdAt/updatedAt/…_1, không còn dòng isDeleted=true.');
+}
+
 async function main() {
   if (!db.isConfigured()) throw new Error('Thiếu DATABASE_URL (chuỗi kết nối Neon).');
+  if (CLEANUP) {
+    await cleanupInPlace();
+    return;
+  }
   const schema = parseSchema();
   const tableNames = [...schema.tables.keys()];
   const existing = await existingRowCounts(tableNames);
@@ -245,7 +408,12 @@ async function main() {
       const columnByLower = schema.tables.get(table);
       const rows = [];
       let invalid = 0;
+      let deleted = 0;
       for (const row of raw) {
+        if (isSoftDeleted(row)) {
+          deleted += 1;
+          continue;
+        }
         const mapped = table === 'users' ? mapUser(row) : mapGeneric(table, row, columnByLower);
         if (!row.id || (table !== 'users' && !mapped.created_by)) {
           invalid += 1;
@@ -254,8 +422,8 @@ async function main() {
         }
         rows.push(mapped);
       }
-      console.log(`- ${table}: đọc ${raw.length} dòng từ NocoDB (${rows.length} dùng được)`);
-      source.push({ table, rows, total: raw.length, invalid });
+      console.log(`- ${table}: đọc ${raw.length} dòng từ NocoDB (${rows.length} dùng được, ${deleted} đã xóa bị bỏ qua)`);
+      source.push({ table, rows, total: raw.length, invalid, deleted });
     }
     for (const [table, names] of IGNORED_COLUMNS) {
       console.log(`  ~ ${table}: bỏ qua cột NocoDB không có trong schema: ${[...names].join(', ')}`);
@@ -315,7 +483,7 @@ async function main() {
   for (const item of source) {
     const ok = item.duplicates === 0;
     if (!ok) problem = true;
-    console.log(`${ok ? '✔' : '✘'} ${item.table.padEnd(22)} NocoDB ${String(item.total).padStart(5)} | bỏ qua ${String(item.invalid).padStart(3)} | trùng id ${String(item.duplicates).padStart(3)} | Neon ${String(item.count).padStart(5)}`);
+    console.log(`${ok ? '✔' : '✘'} ${item.table.padEnd(22)} NocoDB ${String(item.total).padStart(5)} | đã xóa ${String(item.deleted).padStart(4)} | bỏ qua ${String(item.invalid).padStart(3)} | trùng id ${String(item.duplicates).padStart(3)} | Neon ${String(item.count).padStart(5)}`);
   }
   if (problem) {
     console.error('\nCó bảng bị trùng id trong NocoDB (chỉ giữ dòng đầu tiên) — kiểm tra log phía trên.');

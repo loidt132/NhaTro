@@ -1,5 +1,5 @@
 // Field-level encryption for sensitive tenant data (CCCD/ID number, phone)
-// at rest in NocoDB. AES-256-GCM, one random IV per value.
+// at rest in the database. AES-256-GCM, one random IV per value.
 //
 // ENCRYPTION_KEY must be a 32-byte key, given as 64 hex chars or base64.
 // Values that aren't in our "enc:v1:..." format are returned unchanged on
@@ -57,7 +57,7 @@ function decryptField(value) {
   return plaintext.toString('utf8');
 }
 
-// Which columns get encrypted at rest, per NocoDB collection key (stateStore.js's keys).
+// Which columns get encrypted at rest, per collection key (stateStore.js's keys).
 const ENCRYPTED_FIELDS = {
   tenants: ['cccd', 'phone'],
   users: ['phone'],

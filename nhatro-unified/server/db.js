@@ -1,11 +1,10 @@
-// PostgreSQL (Neon) data layer — replaces the NocoDB REST calls the server used
-// to make. Table and column names come from neon-schema.sql; only columns that
+// PostgreSQL (Neon) data layer used by index.js and stateStore.js. Table and column names come from neon-schema.sql; only columns that
 // really exist are ever interpolated into SQL (request-body keys that are not
 // columns are dropped with a warning) and every value is a bound parameter.
 const { Pool, types } = require('pg');
 
 // NUMERIC/BIGINT -> number, DATE -> "YYYY-MM-DD", TIMESTAMPTZ -> ISO string,
-// so rows look like the JSON NocoDB used to return.
+// so rows are plain JSON-friendly objects.
 types.setTypeParser(20, (v) => Number(v));
 types.setTypeParser(1700, (v) => Number(v));
 types.setTypeParser(1082, (v) => v);
@@ -122,8 +121,8 @@ const WARNED_COLUMNS = new Set();
 
 // INSERT ... ON CONFLICT (id) DO UPDATE. An existing row is only overwritten
 // when it belongs to the same owner (created_by), so a client can never take
-// over another user's record by reusing its id. `created_by` is never changed
-// by an update. Pass `client` to run inside a transaction.
+// over another user's record by reusing its id. `created_by` and `created_at`
+// are never changed by an update. Pass `client` to run inside a transaction.
 async function upsertRow(table, row, { client = null, onConflict = 'update' } = {}) {
   const columns = await columnsOf(table);
   const cols = [];
@@ -144,15 +143,27 @@ async function upsertRow(table, row, { client = null, onConflict = 'update' } = 
   }
   if (!cols.includes('id')) throw new Error(`upsertRow(${table}): thiếu id`);
 
+  // Audit timestamps are always passed explicitly: created_at on insert (never
+  // changed by an update) and updated_at on every write.
+  const nowIso = new Date().toISOString();
+  for (const column of ['created_at', 'updated_at']) {
+    if (!columns.has(column)) continue;
+    const at = cols.indexOf(column);
+    if (at === -1) {
+      cols.push(column);
+      values.push(nowIso);
+    } else if (values[at] === null) {
+      values[at] = nowIso;
+    }
+  }
+
   const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
-  const hasUpdatedAt = columns.has('updated_at');
-  const updatable = cols.filter((c) => c !== 'id' && c !== 'created_by');
+  const updatable = cols.filter((c) => c !== 'id' && c !== 'created_by' && c !== 'created_at');
   let conflict;
   if (onConflict === 'nothing') {
     conflict = 'ON CONFLICT (id) DO NOTHING';
   } else {
     const sets = updatable.map((c) => `${q(c)} = EXCLUDED.${q(c)}`);
-    if (hasUpdatedAt && !cols.includes('updated_at')) sets.push('updated_at = now()');
     conflict = sets.length === 0
       ? 'ON CONFLICT (id) DO NOTHING'
       : `ON CONFLICT (id) DO UPDATE SET ${sets.join(', ')} ${cols.includes('created_by') ? `WHERE ${q(table)}.created_by = EXCLUDED.created_by` : ''}`;
@@ -173,8 +184,8 @@ async function listOwnedRows(table, userId) {
 async function softDeleteRow(table, id, userId, { client = null } = {}) {
   const runner = client || getPool();
   await runner.query(
-    `UPDATE ${q(table)} SET ${q('isDeleted')} = true, modified_by = $3, updated_at = now() WHERE id = $1 AND created_by = $2`,
-    [String(id), String(userId), String(userId)]
+    `UPDATE ${q(table)} SET ${q('isDeleted')} = true, updated_by = $3, updated_at = $4 WHERE id = $1 AND created_by = $2`,
+    [String(id), String(userId), String(userId), new Date().toISOString()]
   );
 }
 

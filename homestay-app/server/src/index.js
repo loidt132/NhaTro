@@ -703,10 +703,11 @@ app.put(
 
 async function proxyToCatalog(req, res, path, method) {
   try {
-    const body = method === "DELETE" ? undefined : JSON.stringify({ ...req.body, homestayId: req.homestayId });
+    const body = method === "DELETE" ? undefined : JSON.stringify({ ...req.body, businessId: req.homestayId });
     const r = await fetch(`${SERVICE_CATALOG_URL}${path}`, {
       method,
-      headers: { "Content-Type": "application/json", "x-api-key": CATALOG_ADMIN_KEY },
+      // x-actor-id lets catalog-service stamp created_by / updated_by with the real user.
+      headers: { "Content-Type": "application/json", "x-api-key": CATALOG_ADMIN_KEY, "x-actor-id": String(req.user?.sub || "system") },
       body,
       signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS),
     });
@@ -727,7 +728,7 @@ async function proxyToCatalog(req, res, path, method) {
 app.get(
   "/api/catalog/categories",
   asyncRoute(async (req, res) => {
-    const r = await fetch(`${SERVICE_CATALOG_URL}/api/categories?homestayId=${req.homestayId}`, { signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS) });
+    const r = await fetch(`${SERVICE_CATALOG_URL}/api/categories?businessId=${req.homestayId}`, { signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS) });
     const body = await r.json().catch(() => ({}));
     res.status(r.status).json(body);
   })
@@ -735,7 +736,7 @@ app.get(
 app.get(
   "/api/catalog/items",
   asyncRoute(async (req, res) => {
-    const params = new URLSearchParams({ homestayId: req.homestayId });
+    const params = new URLSearchParams({ businessId: req.homestayId });
     if (req.query.kind) params.set("kind", req.query.kind);
     if (req.query.categoryId) params.set("categoryId", req.query.categoryId);
     const r = await fetch(`${SERVICE_CATALOG_URL}/api/items?${params.toString()}`, { signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS) });
@@ -747,17 +748,17 @@ app.get(
 
 app.post("/api/admin/catalog/categories", requireAdmin, (req, res) => proxyToCatalog(req, res, "/api/categories", "POST"));
 app.put("/api/admin/catalog/categories/:id", requireAdmin, (req, res) =>
-  proxyToCatalog(req, res, `/api/categories/${req.params.id}?homestayId=${req.homestayId}`, "PUT")
+  proxyToCatalog(req, res, `/api/categories/${req.params.id}?businessId=${req.homestayId}`, "PUT")
 );
 app.delete("/api/admin/catalog/categories/:id", requireAdmin, (req, res) =>
-  proxyToCatalog(req, res, `/api/categories/${req.params.id}?homestayId=${req.homestayId}`, "DELETE")
+  proxyToCatalog(req, res, `/api/categories/${req.params.id}?businessId=${req.homestayId}`, "DELETE")
 );
 app.post("/api/admin/catalog/items", requireAdmin, (req, res) => proxyToCatalog(req, res, "/api/items", "POST"));
 app.put("/api/admin/catalog/items/:id", requireAdmin, (req, res) =>
-  proxyToCatalog(req, res, `/api/items/${req.params.id}?homestayId=${req.homestayId}`, "PUT")
+  proxyToCatalog(req, res, `/api/items/${req.params.id}?businessId=${req.homestayId}`, "PUT")
 );
 app.delete("/api/admin/catalog/items/:id", requireAdmin, (req, res) =>
-  proxyToCatalog(req, res, `/api/items/${req.params.id}?homestayId=${req.homestayId}`, "DELETE")
+  proxyToCatalog(req, res, `/api/items/${req.params.id}?businessId=${req.homestayId}`, "DELETE")
 );
 
 // ---- Stays (check-in / detail / services / surcharges / transfer / checkout) ----
@@ -921,7 +922,7 @@ function forgetCatalogItems(homestayId) {
 async function fetchCatalogItem(itemId, homestayId) {
   const cached = catalogItemCache.get(`${homestayId}:${itemId}`);
   if (cached && Date.now() - cached.at < CATALOG_CACHE_TTL_MS) return cached.item;
-  const url = `${SERVICE_CATALOG_URL}/api/items/${encodeURIComponent(itemId)}?homestayId=${encodeURIComponent(homestayId)}`;
+  const url = `${SERVICE_CATALOG_URL}/api/items/${encodeURIComponent(itemId)}?businessId=${encodeURIComponent(homestayId)}`;
   let lastErr;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -1212,6 +1213,7 @@ app.get(
     const completed = await listRows("stays", { where: withTenant(req, "(status,eq,checked_out)") });
 
     const byDay = {};
+    const byService = {};
     for (const stayRow of completed) {
       const stay = normStay(stayRow);
       const day = dayjs(stay.checkOutAt).format("YYYY-MM-DD");
@@ -1225,6 +1227,16 @@ app.get(
       byDay[day].serviceRevenue += view.breakdown.serviceTotal;
       byDay[day].total += view.breakdown.total;
       byDay[day].stayCount += 1;
+
+      for (const charge of view.serviceCharges) {
+        const key = `${charge.kind}:${charge.name}`;
+        if (!byService[key]) {
+          byService[key] = { name: charge.name, kind: charge.kind, qty: 0, amount: 0, orderCount: 0 };
+        }
+        byService[key].qty += charge.qty;
+        byService[key].amount += charge.amount;
+        byService[key].orderCount += 1;
+      }
     }
 
     const rows = Object.values(byDay).sort((a, b) => (a.date < b.date ? -1 : 1));
@@ -1237,8 +1249,9 @@ app.get(
       }),
       { roomRevenue: 0, serviceRevenue: 0, total: 0, stayCount: 0 }
     );
+    const serviceBreakdown = Object.values(byService).sort((a, b) => b.amount - a.amount);
 
-    res.json({ rows, grandTotal });
+    res.json({ rows, grandTotal, serviceBreakdown });
   })
 );
 

@@ -1,0 +1,35 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "nhatro-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "nhatro-unified/web"],
+      "port": 5173
+    },
+    {
+      "name": "nhatro-server",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start", "--prefix", "nhatro-unified/server"],
+      "port": 4000
+    },
+    {
+      "name": "homestay-server",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "homestay-app/server"],
+      "port": 4003
+    },
+    {
+      "name": "homestay-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "homestay-app/web", "--", "--port", "5174"],
+      "port": 5174
+    },
+    {
+      "name": "catalog-service",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "catalog-service"],
+      "port": 4100
+    }
+  ]
+}

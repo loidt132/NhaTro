@@ -2,7 +2,7 @@ import { useState } from "react";
 import dayjs from "dayjs";
 import { homestayApi } from "../api.js";
 import DateField from "../components/DateField.jsx";
-import { exportExcel } from "../utils/exportExcel.js";
+import { exportStyledExcel } from "../utils/exportExcel.js";
 import { btn, btnPrimary, card } from "../ui.js";
 
 export default function GuestReport() {
@@ -14,15 +14,30 @@ export default function GuestReport() {
     try {
       const data = await homestayApi.getGuestReport(date);
       const fmt = (v) => (v ? dayjs(v).format("DD/MM/YYYY HH:mm") : "");
-      await exportExcel(
-        `bao-cao-luu-tru-${date}.xlsx`,
-        "Lưu trú",
-        [
-          ["Phòng", "Họ tên", "CCCD", "Ngày sinh", "Điện thoại", "Nhận phòng", "Trả phòng"],
-          ...data.map((r) => [r.room, r.name, r.idNumber, r.dob, r.phone, fmt(r.checkInAt), fmt(r.checkOutAt)]),
+      await exportStyledExcel({
+        filename: `bao-cao-luu-tru-${date}.xlsx`,
+        sheetName: "Lưu trú",
+        title: "Báo cáo lưu trú",
+        subtitle: `Ngày nhận phòng: ${dayjs(date).format("DD/MM/YYYY")}`,
+        columns: [
+          { header: "Phòng", key: "room", width: 10 },
+          { header: "Họ tên", key: "name", width: 26 },
+          { header: "CCCD", key: "idNumber", width: 16 },
+          { header: "Ngày sinh", key: "dob", width: 12 },
+          { header: "Điện thoại", key: "phone", width: 14 },
+          { header: "Nhận phòng", key: "checkInAt", width: 18 },
+          { header: "Trả phòng", key: "checkOutAt", width: 18 },
         ],
-        [10, 26, 16, 12, 14, 18, 18]
-      );
+        rows: data.map((r) => ({
+          room: r.room,
+          name: r.name,
+          idNumber: r.idNumber,
+          dob: r.dob,
+          phone: r.phone,
+          checkInAt: fmt(r.checkInAt),
+          checkOutAt: fmt(r.checkOutAt),
+        })),
+      });
     } catch (err) {
       setError(err.message);
     }
