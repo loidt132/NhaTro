@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { getAdminViewUserId, loadState, reloadStateForAdminView, resetStateSession, setAdminViewUserId } from './utils/state';
 import { roomsApi } from './utils/api/tables';
 import { clearAuth, fetchCurrentUser, getStoredToken, loginAccount, registerAccount, setStoredToken } from './utils/auth';
+import { apiUrl } from './utils/apiBase';
 import Sidebar from './components/Sidebar';
 import Rooms from './pages/Rooms';
 import Tenants from './pages/Tenants';
@@ -50,7 +51,7 @@ export default function App() {
   useEffect(() => {
     if (String(user?.role || '').toLowerCase() !== 'admin') return;
     const token = getStoredToken();
-    fetch('/api/admin/users', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(apiUrl('/api/admin/users'), { headers: { Authorization: `Bearer ${token}` } })
       .then((response) => response.ok ? response.json() : null)
       .then((data) => setAdminUsers(data?.users || []))
       .catch(() => setAdminUsers([]));

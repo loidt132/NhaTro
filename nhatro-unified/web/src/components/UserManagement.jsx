@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getStoredToken } from '../utils/auth';
+import { apiUrl } from '../utils/apiBase';
 
 export default function UserManagement({ isAdmin = false }) {
   const [users, setUsers] = useState([]);
@@ -24,7 +25,7 @@ export default function UserManagement({ isAdmin = false }) {
     try {
       setLoading(true);
       setError('');
-      const response = await fetch('/api/admin/users', {
+      const response = await fetch(apiUrl('/api/admin/users'), {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -50,7 +51,7 @@ export default function UserManagement({ isAdmin = false }) {
 
   async function handleSaveUser(userId) {
     try {
-      const response = await fetch(`/api/admin/users/${userId}`, {
+      const response = await fetch(apiUrl(`/api/admin/users/${userId}`), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { loadState, saveState, hydrateState } from '../utils/state';
 import { getStoredToken } from '../utils/auth';
+import { apiUrl } from '../utils/apiBase';
 import Footer from '../components/Footer';
 import Page from '../components/Page';
 import UserManagement from '../components/UserManagement';
@@ -16,7 +17,7 @@ export default function Settings({ user = null }) {
   const refreshNocoStatus = () => {
     const token = getStoredToken();
     if (!token) return;
-    fetch('/api/config/status', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(apiUrl('/api/config/status'), { headers: { Authorization: `Bearer ${token}` } })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data) setNocoStatus(data);
@@ -30,7 +31,7 @@ export default function Settings({ user = null }) {
     const token = getStoredToken();
     if (!token) return;
 
-    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(apiUrl('/api/auth/me'), { headers: { Authorization: `Bearer ${token}` } })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data?.user) {
