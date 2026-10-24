@@ -15,7 +15,7 @@ import HomestayAdmin from "./pages/HomestayAdmin.jsx";
 import { AuthContext } from "./AuthContext.js";
 import { HomestayContext } from "./HomestayContext.js";
 import { clearAuth, loadAuth, saveAuth } from "./auth.js";
-import { setUnauthorizedHandler, setCurrentHomestayId as setApiHomestayId, ownerApi } from "./api.js";
+import { setUnauthorizedHandler, setCurrentHomestayId as setApiHomestayId, ownerApi, homestayApi } from "./api.js";
 
 const SELECTED_HOMESTAY_KEY = "homestay_selected_v1";
 
@@ -56,6 +56,16 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth]);
 
+  // Header title for admin/staff: owner name if configured, else homestay name.
+  const [headerName, setHeaderName] = useState("");
+  useEffect(() => {
+    if (!auth || auth.user.role === "owner") return undefined;
+    const load = () => homestayApi.getCurrentHomestay().then((h) => setHeaderName(h?.displayName || h?.name || "")).catch(() => {});
+    load();
+    window.addEventListener("homestay-settings-saved", load);
+    return () => window.removeEventListener("homestay-settings-saved", load);
+  }, [auth]);
+
   async function refreshHomestays(preferId) {
     const rows = await ownerApi.listHomestays();
     setHomestays(rows);
@@ -93,7 +103,7 @@ export default function App() {
   const isOwner = auth.user.role === "owner";
   const currentHomestayName = isOwner
     ? homestays.find((h) => h.id === currentHomestayId)?.name || "Chọn homestay"
-    : auth.user.homestayName || "";
+    : headerName || auth.user.homestayName || "";
 
   return (
     <AuthContext.Provider value={{ user: auth.user, logout }}>

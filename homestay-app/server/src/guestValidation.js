@@ -18,9 +18,9 @@ export function normalizeIdNumber(value) {
 }
 
 // Returns { field: message } for each invalid field, {} when valid.
-// Every field is required, for the main guest and companions alike.
-// A CCCD expiry only has to be a valid date; a passport must have an expiry
-// date that is still in the future.
+// Every field is required, for the main guest and companions alike, except
+// the expiry date: CCCD expiry is stored when given but never required; a
+// passport must have an expiry date that is still in the future.
 export function validateGuest(guest, { today = dayjs() } = {}) {
   const errors = {};
 
@@ -56,9 +56,9 @@ export function validateGuest(guest, { today = dayjs() } = {}) {
     errors.idNumber = "Số hộ chiếu gồm 6–9 chữ hoặc số";
   }
 
-  if (!guest.idExpiryDate) {
-    errors.idExpiryDate = "Vui lòng nhập ngày hết hạn giấy tờ";
-  } else {
+  if (idType === "passport" && !guest.idExpiryDate) {
+    errors.idExpiryDate = "Vui lòng nhập ngày hết hạn hộ chiếu";
+  } else if (guest.idExpiryDate) {
     const expiry = dayjs(guest.idExpiryDate);
     if (!expiry.isValid()) errors.idExpiryDate = "Ngày hết hạn không hợp lệ";
     else if (idType === "passport" && !expiry.isAfter(today, "day")) errors.idExpiryDate = "Hộ chiếu đã hết hạn";

@@ -65,6 +65,7 @@ function GeneralSettings({ isAdmin }) {
     };
     await homestayApi.updateSettings(normalized);
     setS(normalized);
+    window.dispatchEvent(new Event("homestay-settings-saved"));
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
   }
