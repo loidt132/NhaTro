@@ -124,6 +124,11 @@ CREATE TABLE IF NOT EXISTS guests (
 );
 CREATE INDEX IF NOT EXISTS idx_guests_stay ON guests ("stayId");
 
+-- Giấy tờ của khách: CCCD (mặc định) hoặc hộ chiếu. Hộ chiếu bắt buộc có ngày
+-- hết hạn còn hiệu lực lúc nhận phòng; CCCD có thể ghi ngày hết hạn nhưng không kiểm tra.
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS "idType" VARCHAR(20) NOT NULL DEFAULT 'cccd';
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS "idExpiryDate" DATE;
+
 -- Dịch vụ AND phụ thu lines added to a stay; name/unitPrice are snapshots
 -- from catalog-service at the moment they were added.
 CREATE TABLE IF NOT EXISTS "serviceCharges" (
@@ -157,6 +162,20 @@ CREATE TABLE IF NOT EXISTS "roomTransfers" (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_room_transfers_stay ON "roomTransfers" ("stayId");
+
+-- Audit trail of rental-type changes on one stay (hourly/overnight/fullday).
+CREATE TABLE IF NOT EXISTS "pricingChanges" (
+  id VARCHAR(64) PRIMARY KEY,
+  "stayId" VARCHAR(64) NOT NULL,
+  "fromPricingType" VARCHAR(20) NOT NULL,
+  "toPricingType" VARCHAR(20) NOT NULL,
+  "changedAt" TIMESTAMPTZ NOT NULL,
+  created_by VARCHAR(64),
+  updated_by VARCHAR(64),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_pricing_changes_stay ON "pricingChanges" ("stayId");
 
 -- Raw TTLock card-swipe events, for audit/debug only.
 CREATE TABLE IF NOT EXISTS "lockEventsLog" (

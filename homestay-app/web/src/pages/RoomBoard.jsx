@@ -4,6 +4,8 @@ import { homestayApi } from "../api.js";
 import { badgeBase, btn, btnDanger, btnPrimary, card, input, label, roomStatus } from "../ui.js";
 import { useAuth } from "../AuthContext.js";
 import { useHomestay } from "../HomestayContext.js";
+import GuestFields from "../components/GuestFields.jsx";
+import { validateGuest } from "../utils/guestValidation.js";
 
 export default function RoomBoard() {
   const { user } = useAuth();
@@ -269,15 +271,16 @@ function RoomModal({ mode, room, onClose, onSaved }) {
 
 function CheckInModal({ room, onClose, onDone }) {
   const [pricingType, setPricingType] = useState("hourly");
-  const [name, setName] = useState("");
-  const [idNumber, setIdNumber] = useState("");
-  const [phone, setPhone] = useState("");
+  const [guest, setGuest] = useState({ name: "", idType: "cccd", idNumber: "", idExpiryDate: "", phone: "" });
+  const [fieldErrors, setFieldErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   async function submit() {
-    if (!name.trim()) {
-      setError("Vui lòng nhập tên khách");
+    const errors = validateGuest(guest, { main: true });
+    setFieldErrors(errors);
+    if (Object.keys(errors).length) {
+      setError(Object.values(errors)[0]);
       return;
     }
     setSubmitting(true);
@@ -286,7 +289,7 @@ function CheckInModal({ room, onClose, onDone }) {
       const stay = await homestayApi.checkIn({
         roomId: room.id,
         pricingType,
-        mainGuest: { name, idNumber, phone },
+        mainGuest: guest,
       });
       onDone(stay.id);
     } catch (err) {
@@ -313,20 +316,8 @@ function CheckInModal({ room, onClose, onDone }) {
           </select>
         </div>
 
-        <div className="space-y-1">
-          <label className={label}>Họ tên khách chính</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nguyễn Văn A" className={input} />
-        </div>
-
-        <div className="space-y-1">
-          <label className={label}>Số CCCD/hộ chiếu</label>
-          <input value={idNumber} onChange={(e) => setIdNumber(e.target.value)} className={input} />
-        </div>
-
-        <div className="space-y-1">
-          <label className={label}>Số điện thoại</label>
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} className={input} />
-        </div>
+        <p className={label}>Khách chính</p>
+        <GuestFields value={guest} onChange={(g) => { setGuest(g); setFieldErrors({}); }} errors={fieldErrors} main />
 
         <p className="text-xs text-slate-500">
           Khi xác nhận, hệ thống sẽ phát hành thẻ TTLock (mock) cho khoá phòng {room.lockId}.
