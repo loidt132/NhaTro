@@ -5,7 +5,7 @@ import { homestayApi, catalogApi, formatVnd } from "../api.js";
 import { badgeBase, btn, btnDanger, btnPrimary, card } from "../ui.js";
 import { fetchVietQrPngDataUrl, fillAddInfoTemplate } from "../utils/vietqr.js";
 import GuestFields from "../components/GuestFields.jsx";
-import { validateGuest, ID_TYPES } from "../utils/guestValidation.js";
+import { validateGuest, toApiGuest, ID_TYPES } from "../utils/guestValidation.js";
 
 const PRICING_LABEL = {
   hourly: "Theo giờ",
@@ -28,7 +28,6 @@ function fmtDateTime(v) {
 export default function StayDetail() {
   const { stayId } = useParams();
   const [stay, setStay] = useState(null);
-  const [rooms, setRooms] = useState([]);
   const [addOpen, setAddOpen] = useState(false);
   const [guestOpen, setGuestOpen] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
@@ -74,9 +73,7 @@ export default function StayDetail() {
   const status = stay?.status;
   useEffect(() => {
     if (status !== "active") return undefined;
-    // Rooms are only needed while the stay is open (transferring rooms). The
-    // service catalog is fetched only when the "add" popup is opened.
-    homestayApi.getRooms().then(setRooms).catch((err) => console.error("[rooms]", err));
+    // Keep the stay's totals fresh while it is open.
     const timer = setInterval(refresh, 15000);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -99,7 +96,6 @@ export default function StayDetail() {
   const isActive = stay.status === "active";
   const isCancelled = stay.status === "cancelled";
 
-  const emptyRooms = rooms.filter((r) => r.status === "empty");
 
   async function act(fn, okMessage) {
     setError("");
@@ -345,12 +341,14 @@ export default function StayDetail() {
           </button>
           {transfersOpen && (
             <>
-              <p className="mb-1 mt-1 text-xs text-slate-500">Chỉ để đối soát — không ảnh hưởng tới cách tính tiền phòng.</p>
+              <p className="mb-1 mt-1 text-xs text-slate-500">Chỉ để đối soát — chênh lệch đã được tính vào tiền phòng.</p>
               <div className="divide-y divide-slate-100">
                 {stay.transfers.map((t) => (
                   <div key={t.id} className="py-2 text-sm">
                     <div className="font-medium text-slate-900">{t.fromRoomName} → {t.toRoomName}</div>
-                    <div className="text-xs text-slate-500">{fmtDateTime(t.transferredAt)}{t.reason ? ` · ${t.reason}` : ""}</div>
+                    <div className="text-xs text-slate-500">
+                      {fmtDateTime(t.transferredAt)} · {adjustmentText(t.amountDiff)}{t.reason ? ` · ${t.reason}` : ""}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -365,7 +363,7 @@ export default function StayDetail() {
             <div className="flex items-center justify-between gap-2">
               <div>
                 <h2 className="text-[15px] font-semibold text-slate-900 sm:text-base">Đổi phòng</h2>
-                <p className="text-xs text-slate-500">Không tính lại giá — tiền phòng vẫn tính liên tục từ lúc nhận phòng.</p>
+                <p className="text-xs text-slate-500">Cả lượt lưu trú tính theo giá phòng mới — chênh lệch hiện trước khi xác nhận.</p>
               </div>
               <button className={smallBtn} onClick={() => setRoomOpen(true)}>Đổi phòng</button>
             </div>
@@ -430,11 +428,11 @@ export default function StayDetail() {
 
       {roomOpen && (
         <RoomModal
-          rooms={emptyRooms}
+          stayId={stayId}
           onClose={() => setRoomOpen(false)}
-          onPick={async (room) => {
+          onConfirm={async (roomId) => {
             setRoomOpen(false);
-            await transfer(room.id);
+            await transfer(roomId);
           }}
         />
       )}
@@ -540,31 +538,68 @@ function AddChargesModal({ onClose, onAddService, onAddSurcharge }) {
   );
 }
 
-// Popup listing the empty rooms the stay can move to. Moving keeps the room charge running.
-function RoomModal({ rooms, onClose, onPick }) {
+// Popup listing the empty rooms the stay can move to, with what each move adds (bù) or refunds (hoàn).
+function RoomModal({ stayId, onClose, onConfirm }) {
+  const [options, setOptions] = useState(null);
+  const [loadError, setLoadError] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    homestayApi
+      .getTransferOptions(stayId)
+      .then(setOptions)
+      .catch((err) => setLoadError(err.message));
+  }, [stayId]);
+
+  const chosen = options?.options.find((o) => o.roomId === selected);
+
+  async function confirm() {
+    setSaving(true);
+    try {
+      await onConfirm(selected);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="no-print fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onClick={onClose}>
       <div className="w-full max-w-md space-y-3 rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="text-base font-semibold text-slate-900">Chuyển sang phòng trống</div>
-        <p className="text-xs text-slate-500">Không tính lại giá — tiền phòng vẫn tính liên tục từ lúc nhận phòng.</p>
-        {rooms.length === 0 ? (
-          <p className="text-sm text-slate-500">Không có phòng trống để chuyển.</p>
-        ) : (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {rooms.map((r) => (
+        {loadError && <p className="text-sm text-rose-600">{loadError}</p>}
+        {!options && !loadError && <p className="text-sm text-slate-500">Đang tính giá...</p>}
+
+        {options && options.options.length === 0 && <p className="text-sm text-slate-500">Không có phòng trống để chuyển.</p>}
+        {options && options.options.length > 0 && (
+          <div className="space-y-1.5">
+            {options.options.map((o) => (
               <button
-                key={r.id}
+                key={o.roomId}
                 type="button"
-                className={`${btn} !justify-start !py-2 !text-sm`}
-                onClick={() => onPick(r)}
+                onClick={() => setSelected(o.roomId)}
+                className={`flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-sm ${
+                  selected === o.roomId ? "border-emerald-600 bg-emerald-50" : "border-slate-200 bg-white hover:bg-slate-50"
+                }`}
               >
-                {r.name}
+                <span className="font-medium text-slate-900">Phòng {o.roomName}</span>
+                <span className="text-xs text-slate-600">{adjustmentText(o.diff)}</span>
               </button>
             ))}
           </div>
         )}
-        <div className="flex justify-end pt-1">
-          <button className={btn} onClick={onClose}>Đóng</button>
+
+        {chosen && (
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            Chuyển sang phòng {chosen.roomName}: {adjustmentText(chosen.diff)}.
+          </p>
+        )}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <button className={btn} onClick={onClose}>Huỷ</button>
+          <button className={btnPrimary} disabled={!selected || saving} onClick={confirm}>
+            {saving ? "Đang chuyển..." : "Xác nhận chuyển"}
+          </button>
         </div>
       </div>
     </div>
@@ -698,7 +733,7 @@ function AddGuestModal({ stayId, onClose, onAdded }) {
     setSaving(true);
     setError("");
     try {
-      await homestayApi.addGuest(stayId, guest);
+      await homestayApi.addGuest(stayId, toApiGuest(guest));
       onAdded();
     } catch (err) {
       setError(err.message);

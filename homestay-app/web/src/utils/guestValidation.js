@@ -19,6 +19,27 @@ export function normalizeIdNumber(value) {
   return String(value || "").replace(/\s/g, "").toUpperCase();
 }
 
+// Date typed as dd/mm/yyyy. The form keeps this text; the API gets YYYY-MM-DD.
+export function formatDmyInput(raw) {
+  const digits = String(raw || "").replace(/\D/g, "").slice(0, 8);
+  let out = digits.slice(0, 2);
+  if (digits.length > 2) out += `/${digits.slice(2, 4)}`;
+  if (digits.length > 4) out += `/${digits.slice(4)}`;
+  return out;
+}
+
+export function parseDmy(text) {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(text || ""));
+  if (!m) return null;
+  const iso = `${m[3]}-${m[2]}-${m[1]}`;
+  return dayjs(iso, "YYYY-MM-DD", true).isValid() ? iso : null;
+}
+
+// Form state -> body for the API (dates converted to YYYY-MM-DD).
+export function toApiGuest(guest) {
+  return { ...guest, idExpiryDate: parseDmy(guest.idExpiryDate) || "" };
+}
+
 // Returns { field: message } for each invalid field, {} when valid.
 export function validateGuest(guest, { main = false, today = dayjs() } = {}) {
   const errors = {};
@@ -55,14 +76,12 @@ export function validateGuest(guest, { main = false, today = dayjs() } = {}) {
     errors.idNumber = "Số hộ chiếu gồm 6–9 chữ hoặc số";
   }
 
-  if (idType === "passport") {
-    if (!guest.idExpiryDate) {
-      errors.idExpiryDate = "Vui lòng nhập ngày hết hạn hộ chiếu";
-    } else {
-      const expiry = dayjs(guest.idExpiryDate);
-      if (!expiry.isValid()) errors.idExpiryDate = "Ngày hết hạn không hợp lệ";
-      else if (!expiry.isAfter(today, "day")) errors.idExpiryDate = "Hộ chiếu đã hết hạn";
-    }
+  if (idType === "passport" && !guest.idExpiryDate) {
+    errors.idExpiryDate = "Vui lòng nhập ngày hết hạn hộ chiếu";
+  } else if (guest.idExpiryDate) {
+    const iso = parseDmy(guest.idExpiryDate);
+    if (!iso) errors.idExpiryDate = "Ngày hết hạn dạng dd/mm/yyyy";
+    else if (idType === "passport" && !dayjs(iso).isAfter(today, "day")) errors.idExpiryDate = "Hộ chiếu đã hết hạn";
   }
 
   return errors;

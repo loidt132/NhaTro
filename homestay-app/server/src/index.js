@@ -522,6 +522,7 @@ async function buildStayView(stay, req) {
         fromRoomId: t.fromRoomId,
         toRoomId: t.toRoomId,
         reason: t.reason || "",
+        amountDiff: Number(t.amountDiff || 0),
         transferredAt: t.transferredAt || t.created_at || null,
         fromRoomName: fromRoom?.name || t.fromRoomId,
         toRoomName: toRoom?.name || t.toRoomId,
@@ -1122,6 +1123,7 @@ app.post(
     if (!toRoom) return res.status(404).json({ error: "target room not found" });
     if (toRoom.status !== "empty") return res.status(409).json({ error: "target room is not empty" });
 
+    const amountDiff = await roomTransferDiff(stay, toRoomId, req);
     await createRow("roomTransfers", {
       id: uuid(),
       stayId: stay.id,
@@ -1129,6 +1131,7 @@ app.post(
       toRoomId,
       reason: reason || "",
       transferredAt: dayjs().toISOString(),
+      amountDiff,
     });
     await updateRowByBusinessId("rooms", stay.roomId, { status: "cleaning" });
     await updateRowByBusinessId("rooms", toRoomId, { status: "occupied" });
@@ -1141,6 +1144,16 @@ app.post(
 // Switch the rental type (hourly / overnight / fullday) of an active stay.
 // Billing is always recomputed from the original check-in, so the provisional
 // total updates right away; nothing else on the stay changes.
+// Extra room charge (bù) or refund (hoàn) if the stay moved to `toRoomId`: the whole
+// stay is priced with the room it is in, so the difference is the two totals.
+async function roomTransferDiff(stay, toRoomId, req) {
+  const endAt = dayjs().toISOString();
+  const current = normStay(stay);
+  const { ratePlan: currentPlan } = await ratePlanForRoomId(stay.roomId, req);
+  const { ratePlan: targetPlan } = await ratePlanForRoomId(toRoomId, req);
+  return roomTotalFor(current, stay.pricingType, targetPlan, endAt) - roomTotalFor(current, stay.pricingType, currentPlan, endAt);
+}
+
 // Room total under each rental type right now, so the screen can show what a
 // switch would add (bù) or refund (hoàn) before the staff confirms it.
 app.get(
@@ -1155,6 +1168,30 @@ app.get(
       PRICING_TYPES.map((t) => [t, roomTotalFor(normStay(stay), t, ratePlan, endAt)])
     );
     res.json({ current: stay.pricingType, totals });
+  })
+);
+
+// Empty rooms the stay can move to, each with what the switch would add (bù) or refund (hoàn).
+app.get(
+  "/api/stays/:id/transfer-options",
+  asyncRoute(async (req, res) => {
+    const stay = owned(await findOneByBusinessId("stays", req.params.id), req);
+    if (!stay) return res.status(404).json({ error: "not found" });
+    if (stay.status !== "active") return res.status(409).json({ error: "stay is not active" });
+    const { ratePlan } = await ratePlanForRoomId(stay.roomId, req);
+    const endAt = dayjs().toISOString();
+    const currentTotal = roomTotalFor(normStay(stay), stay.pricingType, ratePlan, endAt);
+    const emptyRooms = await listRows("rooms", { where: withTenant(req, "(status,eq,empty)") });
+    const options = await Promise.all(
+      emptyRooms
+        .filter((r) => r.id !== stay.roomId)
+        .map(async (r) => {
+          const { ratePlan: targetPlan } = await ratePlanForRoomId(r.id, req);
+          const total = roomTotalFor(normStay(stay), stay.pricingType, targetPlan, endAt);
+          return { roomId: r.id, roomName: r.name, total, diff: total - currentTotal };
+        })
+    );
+    res.json({ currentTotal, options });
   })
 );
 
