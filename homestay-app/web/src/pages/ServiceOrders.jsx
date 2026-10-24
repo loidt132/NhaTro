@@ -41,7 +41,7 @@ export default function ServiceOrders() {
   const [rooms, setRooms] = useState([]);
   const [orders, setOrders] = useState(null);
   const [from, setFrom] = useState(dayjs().startOf("month").format("YYYY-MM-DD"));
-  const [to, setTo] = useState("");
+  const [to, setTo] = useState(dayjs().endOf("month").format("YYYY-MM-DD"));
   const [statusFilter, setStatusFilter] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [invoice, setInvoice] = useState(null);
@@ -234,7 +234,7 @@ function OrderForm({ items, rooms, onClose, onCreated }) {
     <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <form
         onSubmit={submit}
-        className="modal-panel max-h-[90vh] w-full max-w-md space-y-3 overflow-y-auto rounded-2xl bg-white p-4 shadow-xl"
+        className="modal-panel max-h-[90vh] w-full max-w-md space-y-3 overflow-y-auto overflow-x-hidden rounded-2xl bg-white p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="text-[15px] font-semibold text-slate-900">Tạo đơn dịch vụ</div>
@@ -274,20 +274,26 @@ function OrderForm({ items, rooms, onClose, onCreated }) {
         <div className="space-y-2">
           <label className={label}>Dịch vụ</label>
           {lines.map((l, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <select className={`${input} min-w-0 flex-1`} value={l.itemId} onChange={(e) => setLine(i, { itemId: e.target.value })}>
+            <div key={i} className="space-y-1.5 rounded-xl border border-slate-200 bg-slate-50/60 p-2">
+              <select className={input} value={l.itemId} onChange={(e) => setLine(i, { itemId: e.target.value })}>
                 {items.map((it) => <option key={it.id} value={it.id}>{it.name} ({formatVnd(it.price)})</option>)}
               </select>
-              <input
-                type="number" min="0" step="any" aria-label="Số lượng"
-                className={`${input} w-20 shrink-0`} value={l.quantity}
-                onChange={(e) => setLine(i, { quantity: e.target.value })}
-              />
-              <button
-                type="button" className={`${btn} !px-2.5`} aria-label="Xoá dòng"
-                disabled={lines.length === 1}
-                onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))}
-              >✕</button>
+              <div className="flex items-center gap-2">
+                <label className="shrink-0 text-xs text-slate-600" htmlFor={`qty-${i}`}>Số lượng</label>
+                <input
+                  id={`qty-${i}`} type="number" min="0" step="any" inputMode="decimal"
+                  className={`${input} !w-20 shrink-0`} value={l.quantity}
+                  onChange={(e) => setLine(i, { quantity: e.target.value })}
+                />
+                <span className="ml-auto min-w-0 truncate text-sm tabular-nums text-slate-700">
+                  {formatVnd((Number(itemById[l.itemId]?.price) || 0) * (Number(l.quantity) || 0))}
+                </span>
+                <button
+                  type="button" className={`${btn} !px-2.5 !py-1.5`} aria-label="Xoá dòng"
+                  disabled={lines.length === 1}
+                  onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))}
+                >✕</button>
+              </div>
             </div>
           ))}
           <div className="flex items-center justify-between gap-2">

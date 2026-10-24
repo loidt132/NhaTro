@@ -1513,6 +1513,29 @@ app.put(
 
 // ---- Reports ----
 
+// Đơn dịch vụ đã hoàn thành và thu tiền ngay (khách vãng lai, hoặc khách đang
+// ở nhưng thu riêng) trong khoảng ngày. Đơn "tính vào phòng" không lấy ở đây:
+// tiền của chúng đã nằm trong dịch vụ của lượt thuê, lấy thêm sẽ bị tính hai lần.
+async function paidServiceOrdersInRange(req, from, to) {
+  const start = dayjs(from || undefined).startOf("month");
+  const end = dayjs(to || undefined).startOf("month");
+  const months = [];
+  for (let m = start; !m.isAfter(end) && months.length < 24; m = m.add(1, "month")) months.push(m.format("YYYY-MM"));
+  const lists = await Promise.all(
+    months.map(async (month) => {
+      const params = new URLSearchParams({ businessId: req.homestayId, month, status: "done" });
+      const r = await fetch(`${SERVICE_CATALOG_URL}/api/orders?${params.toString()}`, { signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS) });
+      if (!r.ok) throw new Error(`catalog-service HTTP ${r.status}`);
+      return r.json();
+    })
+  );
+  return lists.flat().filter((o) => {
+    if (o.settlement !== "paid") return false;
+    const day = dayjs(o.orderedAt).format("YYYY-MM-DD");
+    return (!from || day >= from) && (!to || day <= to);
+  });
+}
+
 app.get(
   "/api/reports/revenue",
   asyncRoute(async (req, res) => {
@@ -1520,7 +1543,8 @@ app.get(
     const completed = await listRows("stays", { where: withTenant(req, "(status,eq,checked_out)") });
 
     const byDay = {};
-    const byService = {};
+    const byService = {}; // dịch vụ/phụ thu của các lượt thuê đã trả phòng (tính vào phòng)
+    const byOrder = {}; // đơn dịch vụ thu tiền ngay, không thuộc lượt thuê nào
     for (const stayRow of completed) {
       const stay = normStay(stayRow);
       const day = dayjs(stay.checkOutAt).format("YYYY-MM-DD");
@@ -1546,6 +1570,25 @@ app.get(
       }
     }
 
+    let ordersError = null;
+    try {
+      for (const o of await paidServiceOrdersInRange(req, from, to)) {
+        const day = dayjs(o.orderedAt).format("YYYY-MM-DD");
+        if (!byDay[day]) byDay[day] = { date: day, roomRevenue: 0, serviceRevenue: 0, total: 0, stayCount: 0 };
+        byDay[day].serviceRevenue += o.amount;
+        byDay[day].total += o.amount;
+        const key = `service:${o.itemName}`;
+        if (!byOrder[key]) byOrder[key] = { name: o.itemName, kind: "service", qty: 0, amount: 0, orderCount: 0 };
+        byOrder[key].qty += o.quantity;
+        byOrder[key].amount += o.amount;
+        byOrder[key].orderCount += 1;
+      }
+    } catch (err) {
+      // Báo cáo phòng vẫn hiển thị được khi catalog-service chậm/lỗi; báo rõ là thiếu phần đơn dịch vụ.
+      console.error("[reports] service orders unavailable:", err);
+      ordersError = "Không tải được đơn dịch vụ thu tiền ngay — doanh thu dịch vụ bên dưới có thể thiếu.";
+    }
+
     const rows = Object.values(byDay).sort((a, b) => (a.date < b.date ? -1 : 1));
     const grandTotal = rows.reduce(
       (acc, r) => ({
@@ -1557,8 +1600,12 @@ app.get(
       { roomRevenue: 0, serviceRevenue: 0, total: 0, stayCount: 0 }
     );
     const serviceBreakdown = Object.values(byService).sort((a, b) => b.amount - a.amount);
+    const orderBreakdown = Object.values(byOrder).sort((a, b) => b.amount - a.amount);
+    const sumAmount = (list) => list.reduce((s, r) => s + r.amount, 0);
+    grandTotal.stayServiceRevenue = sumAmount(serviceBreakdown);
+    grandTotal.orderServiceRevenue = sumAmount(orderBreakdown);
 
-    res.json({ rows, grandTotal, serviceBreakdown });
+    res.json({ rows, grandTotal, serviceBreakdown, orderBreakdown, ordersError });
   })
 );
 

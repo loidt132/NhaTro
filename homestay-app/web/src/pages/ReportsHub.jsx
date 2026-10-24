@@ -62,13 +62,15 @@ function ExportButtons({ onExcel, disabled }) {
 function RevenueReport() {
   const { currentHomestayId } = useHomestay();
   const [from, setFrom] = useState(dayjs().startOf("month").format("YYYY-MM-DD"));
-  const [to, setTo] = useState(dayjs().format("YYYY-MM-DD"));
+  const [to, setTo] = useState(dayjs().endOf("month").format("YYYY-MM-DD"));
   const [data, setData] = useState({ rows: [], grandTotal: { roomRevenue: 0, serviceRevenue: 0, total: 0, stayCount: 0 }, serviceBreakdown: [] });
   const [error, setError] = useState("");
 
   async function refresh() {
     try {
-      setData(await homestayApi.getRevenueReport(from, to));
+      const report = await homestayApi.getRevenueReport(from, to);
+      setData(report);
+      setError(report.ordersError || "");
     } catch (err) {
       setError(err.message);
     }
@@ -125,7 +127,7 @@ function RevenueReport() {
           <h2 className="font-semibold text-slate-900">Doanh thu theo ngày</h2>
           <ExportButtons onExcel={download} disabled={data.rows.length === 0} />
         </div>
-        <p className="mb-2 text-xs text-slate-500">Tính theo ngày trả phòng (checkout) của các lượt lưu trú đã hoàn tất.</p>
+        <p className="mb-2 text-xs text-slate-500">Tính theo ngày trả phòng (checkout) của các lượt lưu trú đã hoàn tất. Dịch vụ/phụ thu gồm cả đơn dịch vụ đã hoàn thành và thu tiền ngay (theo ngày đặt).</p>
         {data.rows.length === 0 ? (
           <p className="text-sm text-slate-500">Chưa có dữ liệu trong khoảng ngày đã chọn.</p>
         ) : (
@@ -178,7 +180,7 @@ function RevenueReport() {
 function OccupancyReport() {
   const { currentHomestayId } = useHomestay();
   const [from, setFrom] = useState(dayjs().startOf("month").format("YYYY-MM-DD"));
-  const [to, setTo] = useState(dayjs().format("YYYY-MM-DD"));
+  const [to, setTo] = useState(dayjs().endOf("month").format("YYYY-MM-DD"));
   const [data, setData] = useState({ totalRooms: 0, currentOccupied: 0, currentCleaning: 0, currentEmpty: 0, occupancyRate: 0, stays: [] });
   const [error, setError] = useState("");
 
@@ -318,13 +320,15 @@ const KIND_LABEL = { service: "Dịch vụ", surcharge: "Phụ thu" };
 function ServiceRevenueReport() {
   const { currentHomestayId } = useHomestay();
   const [from, setFrom] = useState(dayjs().startOf("month").format("YYYY-MM-DD"));
-  const [to, setTo] = useState(dayjs().format("YYYY-MM-DD"));
-  const [data, setData] = useState({ serviceBreakdown: [], grandTotal: { serviceRevenue: 0 } });
+  const [to, setTo] = useState(dayjs().endOf("month").format("YYYY-MM-DD"));
+  const [data, setData] = useState({ serviceBreakdown: [], orderBreakdown: [], grandTotal: {} });
   const [error, setError] = useState("");
 
   async function refresh() {
     try {
-      setData(await homestayApi.getRevenueReport(from, to));
+      const report = await homestayApi.getRevenueReport(from, to);
+      setData(report);
+      setError(report.ordersError || "");
     } catch (err) {
       setError(err.message);
     }
@@ -335,7 +339,10 @@ function ServiceRevenueReport() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, currentHomestayId]);
 
-  const rows = data.serviceBreakdown || [];
+  const stayRows = data.serviceBreakdown || [];
+  const orderRows = data.orderBreakdown || [];
+  const stayTotal = data.grandTotal?.stayServiceRevenue || 0;
+  const orderTotal = data.grandTotal?.orderServiceRevenue || 0;
   const total = data.grandTotal?.serviceRevenue || 0;
 
   function download() {
@@ -345,20 +352,18 @@ function ServiceRevenueReport() {
       title: "Báo cáo doanh thu theo dịch vụ",
       subtitle: `${dayjs(from).format("DD/MM/YYYY")} – ${dayjs(to).format("DD/MM/YYYY")}`,
       columns: [
+        { header: "Nguồn", key: "source", width: 22 },
         { header: "Tên dịch vụ/phụ thu", key: "name", width: 30 },
         { header: "Loại", key: "kind", width: 12 },
         { header: "Số lượt", key: "orderCount", width: 10 },
         { header: "Số lượng", key: "qty", width: 10 },
         { header: "Doanh thu", key: "amount", width: 18, money: true },
       ],
-      rows: rows.map((r) => ({
-        name: r.name,
-        kind: KIND_LABEL[r.kind] || r.kind,
-        orderCount: r.orderCount,
-        qty: r.qty,
-        amount: r.amount,
-      })),
-      totals: { name: "Tổng cộng", amount: total },
+      rows: [
+        ...stayRows.map((r) => ({ source: "Theo phòng (lưu trú)", name: r.name, kind: KIND_LABEL[r.kind] || r.kind, orderCount: r.orderCount, qty: r.qty, amount: r.amount })),
+        ...orderRows.map((r) => ({ source: "Đơn dịch vụ (thu ngay)", name: r.name, kind: KIND_LABEL[r.kind] || r.kind, orderCount: r.orderCount, qty: r.qty, amount: r.amount })),
+      ],
+      totals: { source: "Tổng cộng", amount: total },
     });
   }
 
@@ -373,21 +378,45 @@ function ServiceRevenueReport() {
       )}
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
-        <StatCard label="Số loại dịch vụ/phụ thu" value={rows.length} />
-        <StatCard label="Tổng lượt đặt" value={rows.reduce((s, r) => s + r.orderCount, 0)} />
-        <StatCard label="Tổng doanh thu dịch vụ" value={formatVnd(total)} highlight />
+        <StatCard label="Tổng dịch vụ theo phòng" value={formatVnd(stayTotal)} />
+        <StatCard label="Tổng đơn dịch vụ" value={formatVnd(orderTotal)} />
+        <div className="col-span-2 sm:col-span-1">
+          <StatCard label="Tổng doanh thu dịch vụ" value={formatVnd(total)} highlight />
+        </div>
       </div>
 
-      <div className={card}>
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-semibold text-slate-900">Doanh thu theo từng loại dịch vụ</h2>
-          <ExportButtons onExcel={download} disabled={rows.length === 0} />
-        </div>
-        <p className="mb-2 text-xs text-slate-500">Tính theo ngày trả phòng (checkout) của các lượt lưu trú đã hoàn tất, giống báo cáo doanh thu.</p>
-        {rows.length === 0 ? (
-          <p className="text-sm text-slate-500">Chưa có dữ liệu trong khoảng ngày đã chọn.</p>
-        ) : (
-          <>
+      <div className="flex justify-end">
+        <ExportButtons onExcel={download} disabled={stayRows.length + orderRows.length === 0} />
+      </div>
+
+      <ServiceTable
+        title="Dịch vụ theo phòng"
+        note="Dịch vụ/phụ thu tính vào các lượt lưu trú đã trả phòng, theo ngày trả phòng (checkout). Gồm cả đơn dịch vụ được tính vào phòng."
+        rows={stayRows}
+        total={stayTotal}
+      />
+      <ServiceTable
+        title="Đơn dịch vụ (thu tiền ngay)"
+        note="Đơn dịch vụ đã hoàn thành và thu tiền ngay — khách vãng lai hoặc khách đang ở thu riêng — theo ngày đặt."
+        rows={orderRows}
+        total={orderTotal}
+      />
+    </div>
+  );
+}
+
+function ServiceTable({ title, note, rows, total }) {
+  return (
+    <div className={card}>
+      <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="font-semibold text-slate-900">{title}</h2>
+        <span className="text-sm font-semibold tabular-nums text-emerald-700">{formatVnd(total)}</span>
+      </div>
+      <p className="mb-2 text-xs text-slate-500">{note}</p>
+      {rows.length === 0 ? (
+        <p className="text-sm text-slate-500">Chưa có dữ liệu trong khoảng ngày đã chọn.</p>
+      ) : (
+        <>
           <div className="divide-y divide-slate-100 sm:hidden">
             {rows.map((r) => (
               <div key={`${r.kind}:${r.name}`} className="space-y-1 py-2.5 text-sm">
@@ -430,9 +459,8 @@ function ServiceRevenueReport() {
               </tbody>
             </table>
           </div>
-          </>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }
