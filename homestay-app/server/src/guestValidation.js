@@ -38,6 +38,13 @@ export function validateGuest(guest, { main = false, today = dayjs() } = {}) {
     errors.phone = "Số điện thoại không hợp lệ (VD: 0912345678)";
   }
 
+  const address = String(guest.address || "").trim();
+  if (!address) {
+    if (main) errors.address = "Vui lòng nhập địa chỉ thường trú";
+  } else if (address.length < 5 || address.length > 255) {
+    errors.address = "Địa chỉ dài 5–255 ký tự";
+  }
+
   const idType = guest.idType || "cccd";
   if (!ID_TYPES.includes(idType)) errors.idType = "Loại giấy tờ không hợp lệ";
 
@@ -66,9 +73,10 @@ export function validateGuest(guest, { main = false, today = dayjs() } = {}) {
 // Trims and normalizes what gets stored, so the checks and the saved row agree.
 export function cleanGuestInput(body) {
   return {
-    name: String(body.name || "").trim(),
+    name: String(body.name || "").trim().replace(/\s+/g, " "),
     idType: body.idType || "cccd",
     idNumber: normalizeIdNumber(body.idNumber),
+    address: String(body.address || "").trim().replace(/\s+/g, " "),
     idExpiryDate: body.idExpiryDate || null, // "" is not a valid DATE
     phone: normalizePhone(body.phone),
     dob: body.dob || null, // "" is not a valid DATE

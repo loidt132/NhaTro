@@ -181,6 +181,7 @@ function normGuest(g) {
     idType: g.idType || "cccd",
     idNumber: g.idNumber || "",
     idExpiryDate: g.idExpiryDate || "",
+    address: g.address || "",
     dob: g.dob || "",
     phone: g.phone || "",
   };

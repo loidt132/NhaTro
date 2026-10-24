@@ -271,7 +271,7 @@ function RoomModal({ mode, room, onClose, onSaved }) {
 
 function CheckInModal({ room, onClose, onDone }) {
   const [pricingType, setPricingType] = useState("hourly");
-  const [guest, setGuest] = useState({ name: "", idType: "cccd", idNumber: "", idExpiryDate: "", phone: "" });
+  const [guest, setGuest] = useState({ name: "", idType: "cccd", idNumber: "", idExpiryDate: "", phone: "", address: "" });
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
