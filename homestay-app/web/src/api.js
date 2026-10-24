@@ -150,7 +150,6 @@ export const homestayApi = {
     request(HOMESTAY_API, `/api/rooms/${roomId}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteRoom: (roomId) => request(HOMESTAY_API, `/api/rooms/${roomId}`, { method: "DELETE" }),
   getGuestReport: (date) => request(HOMESTAY_API, `/api/guest-report?date=${date || ""}`),
-  guestReportUrl: (date) => `${HOMESTAY_API}/api/guest-report?date=${date}&format=csv`,
   getSettings: ({ fresh = false } = {}) => cachedPerHomestay("settings", "/api/settings", fresh),
   updateSettings: (body) =>
     request(HOMESTAY_API, "/api/settings", { method: "PUT", body: JSON.stringify(body) }).then(clearHomestayCaches),
