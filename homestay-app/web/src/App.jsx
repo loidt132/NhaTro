@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import Sidebar from "./components/Sidebar.jsx";
+import BangLangLogo from "./components/BangLangLogo.jsx";
 import Login from "./pages/Login.jsx";
 import RoomBoard from "./pages/RoomBoard.jsx";
 import StayDetail from "./pages/StayDetail.jsx";
@@ -101,7 +102,7 @@ export default function App() {
           <header className="sticky top-0 z-10 border-b bg-white/80 backdrop-blur">
             <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3">
               <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
-                <div className="h-9 w-9 shrink-0 rounded-2xl bg-emerald-600 sm:h-10 sm:w-10" aria-hidden />
+                <BangLangLogo className="h-9 w-9 shrink-0 sm:h-10 sm:w-10" />
                 <div className="min-w-0">
                   <div className="truncate text-lg font-bold leading-tight sm:text-xl">
                     {isOwner ? "Quản lý Homestay" : currentHomestayName || "Quản lý Homestay"}
