@@ -143,7 +143,7 @@ export default function ServiceOrders() {
         quantity: Number(orderForm.quantity) || 1,
         roomId: walkIn ? null : orderForm.roomId,
         tenantId: walkIn ? null : (orderForm.tenantId || null),
-        customerName: walkIn ? orderForm.customerName.trim() : null,
+        customerName: walkIn ? orderForm.customerName.trim() : (roomMap[orderForm.roomId]?.name || null),
         month,
         note: orderForm.note.trim() || null,
       });
@@ -174,8 +174,8 @@ export default function ServiceOrders() {
   }
 
   function customerLabel(order) {
-    if (order.customerName) return `${order.customerName} (vãng lai)`;
-    return tenantMap[order.tenantId]?.name || (order.roomId ? '—' : 'Khách vãng lai');
+    if (!order.roomId) return order.customerName ? `${order.customerName} (vãng lai)` : 'Khách vãng lai';
+    return tenantMap[order.tenantId]?.name || order.customerName || '—';
   }
 
   return (
