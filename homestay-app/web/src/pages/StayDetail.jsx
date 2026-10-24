@@ -270,6 +270,7 @@ export default function StayDetail() {
               <div>
                 <h2 className="text-[15px] font-semibold text-slate-900 sm:text-base">Hình thức thuê</h2>
                 <p className="text-xs text-slate-500">Đang tính theo: {PRICING_LABEL[stay.pricingType]}</p>
+                <p className="mt-0.5 text-xs text-slate-500">Đổi phòng: cả lượt lưu trú tính theo giá phòng mới — chênh lệch hiện trước khi xác nhận.</p>
               </div>
               <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
                 <button className={smallBtn} onClick={() => setPricingOpen(true)}>Đổi hình thức</button>
