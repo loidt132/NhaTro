@@ -102,6 +102,7 @@ export const homestayApi = {
     request(HOMESTAY_API, `/api/stays/${stayId}/surcharges`, { method: "POST", body: JSON.stringify(body) }),
   removeCharge: (stayId, chargeId) =>
     request(HOMESTAY_API, `/api/stays/${stayId}/charges/${chargeId}`, { method: "DELETE" }),
+  getPricingOptions: (stayId) => request(HOMESTAY_API, `/api/stays/${stayId}/pricing-options`),
   setPricingType: (stayId, pricingType) =>
     request(HOMESTAY_API, `/api/stays/${stayId}/pricing-type`, { method: "PUT", body: JSON.stringify({ pricingType }) }),
   transferRoom: (stayId, body) =>
