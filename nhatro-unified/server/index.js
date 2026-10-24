@@ -967,6 +967,11 @@ async function proxyToCatalog(req, res, path, method) {
     });
     if (r.status === 204) return res.status(204).end();
     const responseBody = await r.json().catch(() => ({}));
+    if (!r.ok && !responseBody?.error) {
+      // catalog-service trả lỗi không phải JSON (vd. Vercel crash, sai URL/key) — nêu rõ thay vì "Yêu cầu thất bại".
+      console.error('catalog proxy upstream error', method, path, r.status);
+      return res.status(502).json({ error: `catalog-service trả lỗi HTTP ${r.status} (kiểm tra SERVICE_CATALOG_URL / CATALOG_ADMIN_KEY / DATABASE_URL của catalog-service)` });
+    }
     res.status(r.status).json(responseBody);
   } catch (error) {
     res.status(502).json({ error: `Không kết nối được tới catalog-service: ${error.message}` });

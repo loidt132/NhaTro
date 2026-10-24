@@ -29,7 +29,7 @@ async function request(path, options = {}) {
   const data = contentType.includes('application/json') ? await res.json() : null;
 
   if (!res.ok) {
-    throw new Error(data?.error || 'Yêu cầu thất bại');
+    throw new Error(data?.error || `Yêu cầu thất bại (HTTP ${res.status})`);
   }
 
   return data;
