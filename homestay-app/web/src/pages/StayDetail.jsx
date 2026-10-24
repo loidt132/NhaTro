@@ -109,6 +109,8 @@ export default function StayDetail() {
     act(() => homestayApi.addSurcharge(stayId, { surchargeRuleId: ruleId, qty: 1 }), "Đã thêm phụ thu — tạm tính đã cập nhật.");
   const removeCharge = (chargeId) =>
     act(() => homestayApi.removeCharge(stayId, chargeId), "Đã xoá mục — tạm tính đã cập nhật.");
+  const changePricingType = (pricingType) =>
+    act(() => homestayApi.setPricingType(stayId, pricingType), "Đã đổi hình thức thuê — tạm tính đã cập nhật.");
   const transfer = (toRoomId) =>
     act(() => homestayApi.transferRoom(stayId, { toRoomId, reason: "Đổi phòng theo yêu cầu" }), "Đã đổi phòng thành công.");
   const simulateSwipe = (type) =>
@@ -256,6 +258,22 @@ export default function StayDetail() {
       {isActive && (
         <>
           <div className={cardCls}>
+            <h2 className="mb-2 text-[15px] font-semibold text-slate-900 sm:text-base">Hình thức thuê</h2>
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(PRICING_LABEL).map(([type, text]) => (
+                <button
+                  key={type}
+                  className={`${btn} !px-3 !py-1.5 !text-xs ${stay.pricingType === type ? "!border-emerald-600 !bg-emerald-600 !text-white" : ""}`}
+                  disabled={stay.pricingType === type}
+                  onClick={() => changePricingType(type)}
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className={cardCls}>
             <div className="mb-2 flex items-center justify-between gap-2">
               <h2 className="text-[15px] font-semibold text-slate-900 sm:text-base">Tạm tính hiện tại</h2>
               <button className={smallBtn} onClick={() => setAddOpen(true)}>+ Dịch vụ / phụ thu</button>
@@ -273,6 +291,23 @@ export default function StayDetail() {
             {qrBlock}
           </div>
         </>
+      )}
+
+      {stay.pricingChanges?.length > 0 && (
+        <div className={`${cardCls} no-print`}>
+          <h2 className="mb-1 text-[15px] font-semibold text-slate-900 sm:text-base">
+            Lịch sử đổi hình thức thuê ({stay.pricingChanges.length})
+          </h2>
+          <p className="mb-1 text-xs text-slate-500">Chỉ để đối soát — tiền đã được tính lại theo hình thức mới ở từng thời điểm.</p>
+          <div className="divide-y divide-slate-100">
+            {stay.pricingChanges.map((c) => (
+              <div key={c.id} className="py-2 text-sm">
+                <div className="font-medium text-slate-900">{PRICING_LABEL[c.fromPricingType]} → {PRICING_LABEL[c.toPricingType]}</div>
+                <div className="text-xs text-slate-500">{fmtDateTime(c.changedAt)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {stay.transfers.length > 0 && (

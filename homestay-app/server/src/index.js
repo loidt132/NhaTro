@@ -479,12 +479,23 @@ async function ratePlanForRoomId(roomId, req) {
   return { room: normRoom(room), ratePlan: normRatePlan(ratePlan) };
 }
 
+const PRICING_TYPES = ["hourly", "overnight", "fullday"];
+
 async function buildStayView(stay, req) {
-  const [guestsRaw, chargesRaw, transfersRaw] = await Promise.all([
+  const [guestsRaw, chargesRaw, transfersRaw, pricingChangesRaw] = await Promise.all([
     listRows("guests", { where: `(stayId,eq,${stay.id})` }),
     listRows("serviceCharges", { where: `(stayId,eq,${stay.id})` }),
     listRows("roomTransfers", { where: `(stayId,eq,${stay.id})` }),
+    listRows("pricingChanges", { where: `(stayId,eq,${stay.id})` }),
   ]);
+  const pricingChanges = pricingChangesRaw
+    .map((c) => ({
+      id: c.id,
+      fromPricingType: c.fromPricingType,
+      toPricingType: c.toPricingType,
+      changedAt: c.changedAt || c.created_at || null,
+    }))
+    .sort((a, b) => dayjs(a.changedAt).diff(dayjs(b.changedAt)));
 
   // Pure audit trail of room moves — never used to re-price the stay. See
   // computeStayRoomCharge for why billing stays on one continuous duration.
@@ -528,6 +539,7 @@ async function buildStayView(stay, req) {
     guests,
     serviceCharges,
     transfers,
+    pricingChanges,
     currentRoomName: room.name,
     breakdown: {
       roomLines,
@@ -1110,6 +1122,33 @@ app.post(
     const updatedStay = await updateRowByBusinessId("stays", stay.id, { roomId: toRoomId });
 
     res.status(201).json(await buildStayView(normStay(updatedStay), req));
+  })
+);
+
+// Switch the rental type (hourly / overnight / fullday) of an active stay.
+// Billing is always recomputed from the original check-in, so the provisional
+// total updates right away; nothing else on the stay changes.
+app.put(
+  "/api/stays/:id/pricing-type",
+  asyncRoute(async (req, res) => {
+    const stay = owned(await findOneByBusinessId("stays", req.params.id), req);
+    if (!stay) return res.status(404).json({ error: "not found" });
+    if (stay.status !== "active") return res.status(409).json({ error: "stay is not active" });
+    const { pricingType } = req.body;
+    if (!PRICING_TYPES.includes(pricingType)) {
+      return res.status(400).json({ error: "pricingType phải là hourly, overnight hoặc fullday" });
+    }
+    if (pricingType !== stay.pricingType) {
+      await createRow("pricingChanges", {
+        id: uuid(),
+        stayId: stay.id,
+        fromPricingType: stay.pricingType,
+        toPricingType: pricingType,
+        changedAt: dayjs().toISOString(),
+      });
+    }
+    const updatedStay = await updateRowByBusinessId("stays", stay.id, { pricingType });
+    res.json(await buildStayView(normStay(updatedStay), req));
   })
 );
 
