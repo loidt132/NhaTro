@@ -36,6 +36,13 @@ export function validateGuest(guest, { main = false, today = dayjs() } = {}) {
     errors.phone = "Số điện thoại không hợp lệ (VD: 0912345678)";
   }
 
+  const address = String(guest.address || "").trim();
+  if (!address) {
+    if (main) errors.address = "Vui lòng nhập địa chỉ thường trú";
+  } else if (address.length < 5 || address.length > 255) {
+    errors.address = "Địa chỉ dài 5–255 ký tự";
+  }
+
   const idType = guest.idType || "cccd";
   if (!ID_TYPES.some((t) => t.value === idType)) errors.idType = "Loại giấy tờ không hợp lệ";
 

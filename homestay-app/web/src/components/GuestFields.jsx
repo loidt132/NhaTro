@@ -13,6 +13,10 @@ export default function GuestFields({ value, onChange, errors = {}, main = false
         <input value={value.name} onChange={set("name")} placeholder="Nguyễn Văn A" className={input} autoComplete="off" />
       </Field>
 
+      <Field label={main ? "Địa chỉ thường trú" : "Địa chỉ (không bắt buộc)"} error={errors.address}>
+        <input value={value.address} onChange={set("address")} placeholder="Số nhà, đường, phường/xã, tỉnh/thành" className={input} />
+      </Field>
+
       <div className="grid grid-cols-2 gap-2">
         <Field label="Loại giấy tờ" error={errors.idType}>
           <select value={value.idType} onChange={set("idType")} className={input}>

@@ -128,6 +128,8 @@ CREATE INDEX IF NOT EXISTS idx_guests_stay ON guests ("stayId");
 -- hết hạn còn hiệu lực lúc nhận phòng; CCCD có thể ghi ngày hết hạn nhưng không kiểm tra.
 ALTER TABLE guests ADD COLUMN IF NOT EXISTS "idType" VARCHAR(20) NOT NULL DEFAULT 'cccd';
 ALTER TABLE guests ADD COLUMN IF NOT EXISTS "idExpiryDate" DATE;
+-- Địa chỉ thường trú của khách (bắt buộc với khách chính, theo báo cáo lưu trú).
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS address TEXT;
 
 -- Dịch vụ AND phụ thu lines added to a stay; name/unitPrice are snapshots
 -- from catalog-service at the moment they were added.

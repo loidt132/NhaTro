@@ -247,6 +247,7 @@ export default function StayDetail() {
                   {g.idExpiryDate ? ` · HHSD ${fmtDate(g.idExpiryDate)}` : ""}
                   {g.phone ? ` · ${g.phone}` : ""}
                 </div>
+                {g.address && <div className="text-xs text-slate-500">{g.address}</div>}
               </div>
               <span className="flex shrink-0 items-center gap-2 text-xs text-slate-500">
                 {g.isMain ? "Khách chính" : "Đi cùng"}
@@ -646,7 +647,7 @@ function Breakdown({ breakdown, onRemoveCharge }) {
 }
 
 function AddGuestModal({ stayId, onClose, onAdded }) {
-  const [guest, setGuest] = useState({ name: "", idType: "cccd", idNumber: "", idExpiryDate: "", phone: "" });
+  const [guest, setGuest] = useState({ name: "", idType: "cccd", idNumber: "", idExpiryDate: "", phone: "", address: "" });
   const [fieldErrors, setFieldErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
