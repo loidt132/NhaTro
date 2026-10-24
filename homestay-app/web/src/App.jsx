@@ -6,6 +6,7 @@ import Login from "./pages/Login.jsx";
 import RoomBoard from "./pages/RoomBoard.jsx";
 import StayDetail from "./pages/StayDetail.jsx";
 import ServiceCatalogAdmin from "./pages/ServiceCatalogAdmin.jsx";
+import ServiceOrders from "./pages/ServiceOrders.jsx";
 import RatePlanAdmin from "./pages/RatePlanAdmin.jsx";
 import GuestReport from "./pages/GuestReport.jsx";
 import ReportsHub from "./pages/ReportsHub.jsx";
@@ -60,7 +61,7 @@ export default function App() {
   const [headerName, setHeaderName] = useState("");
   useEffect(() => {
     if (!auth || auth.user.role === "owner") return undefined;
-    const load = () => homestayApi.getCurrentHomestay().then((h) => setHeaderName(h?.displayName || h?.name || "")).catch(() => {});
+    const load = () => homestayApi.getDisplayName().then(setHeaderName).catch(() => {});
     load();
     window.addEventListener("homestay-settings-saved", load);
     return () => window.removeEventListener("homestay-settings-saved", load);
@@ -187,6 +188,7 @@ export default function App() {
                 <Route path="/stays/:stayId" element={<StayDetail />} />
                 <Route path="/history" element={<StayHistory />} />
                 <Route path="/rate-plans" element={<RatePlanAdmin />} />
+                <Route path="/service-orders" element={<ServiceOrders />} />
                 <Route path="/service-catalog" element={<ServiceCatalogAdmin />} />
                 <Route path="/guest-report" element={<GuestReport />} />
                 <Route path="/reports" element={<ReportsHub />} />

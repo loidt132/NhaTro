@@ -66,18 +66,11 @@ export default function StayDetail() {
     setQrDataUrl(null);
     refresh();
     homestayApi.getSettings().then(setSettings).catch((err) => console.error("[settings]", err));
-    homestayApi.getCurrentHomestay().then((h) => setHomestayName(h?.displayName || h?.name || "")).catch(() => {});
+    homestayApi.getDisplayName().then(setHomestayName).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stayId]);
 
   const status = stay?.status;
-  useEffect(() => {
-    if (status !== "active") return undefined;
-    // Keep the stay's totals fresh while it is open.
-    const timer = setInterval(refresh, 15000);
-    return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stayId, status]);
 
   // A finished stay always shows its invoice with the QR already generated.
   useEffect(() => {

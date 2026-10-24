@@ -69,6 +69,14 @@ CREATE TABLE IF NOT EXISTS orders (
 -- CREATE TABLE IF NOT EXISTS skips this column on a table that already
 -- existed before customerName was added (khách vãng lai, không gắn phòng).
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customerName" VARCHAR(255);
+-- Một đơn nhiều dịch vụ = nhiều dòng orders cùng "orderGroupId" (mỗi dòng vẫn
+-- là một dịch vụ nên báo cáo doanh thu/hoá đơn cũ không đổi). Đơn cũ không có
+-- orderGroupId được coi là đơn 1 dòng. "settlement": 'paid' (thu ngay) hoặc
+-- 'room' (tính vào phòng đang ở, "stayId" là lượt thuê đó) — app gọi tự hiểu.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "orderGroupId" VARCHAR(64);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS settlement VARCHAR(20);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "stayId" VARCHAR(64);
+CREATE INDEX IF NOT EXISTS idx_orders_group ON orders ("orderGroupId");
 CREATE INDEX IF NOT EXISTS idx_orders_business ON orders ("businessId");
 CREATE INDEX IF NOT EXISTS idx_orders_room_month ON orders ("roomId", "month");
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status);

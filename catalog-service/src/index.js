@@ -100,6 +100,10 @@ function asOrder(row) {
     note: row.note ?? null,
     orderedAt: row.orderedAt,
     completedAt: row.completedAt ?? null,
+    // Đơn cũ (1 dịch vụ) không có orderGroupId: coi chính nó là cả đơn.
+    orderGroupId: row.orderGroupId || row.id,
+    settlement: row.settlement ?? null,
+    stayId: row.stayId ?? null,
   };
 }
 
@@ -235,8 +239,8 @@ const ORDER_STATUSES = new Set(["pending", "in_progress", "done", "cancelled"]);
 
 app.get("/api/orders", requireBusinessId, async (req, res) => {
   try {
-    const { roomId, month, status } = req.query;
-    const rows = await db.listOrders(req.businessId, { roomId, month, status });
+    const { roomId, month, status, groupId } = req.query;
+    const rows = await db.listOrders(req.businessId, { roomId, month, status, groupId });
     res.json(rows.map(asOrder));
   } catch (err) {
     dbErrorToHttp(res, err);
@@ -244,7 +248,45 @@ app.get("/api/orders", requireBusinessId, async (req, res) => {
 });
 
 app.post("/api/orders", requireApiKey, requireBusinessId, async (req, res) => {
-  const { itemId, itemName, unit, price, quantity, roomId, tenantId, customerName, month, note } = req.body;
+  const { itemId, itemName, unit, price, quantity, roomId, tenantId, customerName, month, note, items, settlement, stayId } = req.body;
+
+  // Nhiều dịch vụ trong một đơn: `items` = [{ itemId, itemName, unit, price, quantity }].
+  // Mỗi dịch vụ là một dòng orders, cùng orderGroupId; trả về mảng các dòng.
+  if (Array.isArray(items)) {
+    const lines = items.filter((l) => l && l.itemName && l.price != null && Number(l.quantity ?? 1) > 0);
+    if (!lines.length) return res.status(400).json({ error: "items must contain at least one line with itemName, price and quantity" });
+    const status = ORDER_STATUSES.has(req.body.status) ? req.body.status : "pending";
+    const orderGroupId = uuid();
+    try {
+      const rows = [];
+      for (const l of lines) {
+        const qty = l.quantity == null ? 1 : Number(l.quantity);
+        rows.push(await db.createOrder({
+          id: uuid(),
+          businessId: req.businessId,
+          itemId: l.itemId || null,
+          itemName: l.itemName,
+          unit: l.unit || "",
+          price: Number(l.price),
+          quantity: qty,
+          amount: Math.round(Number(l.price) * qty),
+          roomId: roomId || null,
+          tenantId: tenantId || null,
+          customerName: customerName || null,
+          month: month || null,
+          status,
+          note: note || null,
+          orderGroupId,
+          settlement: settlement || null,
+          stayId: stayId || null,
+        }, req.actorId));
+      }
+      return res.status(201).json(rows.map(asOrder));
+    } catch (err) {
+      return dbErrorToHttp(res, err);
+    }
+  }
+
   if (!itemName || price == null) {
     return res.status(400).json({ error: "itemName and price are required" });
   }
@@ -263,10 +305,44 @@ app.post("/api/orders", requireApiKey, requireBusinessId, async (req, res) => {
       tenantId: tenantId || null,
       customerName: customerName || null,
       month: month || null,
-      status: "pending",
+      status: ORDER_STATUSES.has(req.body.status) ? req.body.status : "pending",
       note: note || null,
+      settlement: settlement || null,
+      stayId: stayId || null,
     }, req.actorId);
     res.status(201).json(asOrder(row));
+  } catch (err) {
+    dbErrorToHttp(res, err);
+  }
+});
+
+// Đổi trạng thái / ghi chú / cách thanh toán của cả đơn nhiều dịch vụ một lượt.
+// Khai báo trước "/api/orders/:id" cho dễ đọc; hai route không trùng nhau.
+app.put("/api/orders/group/:groupId", requireApiKey, requireBusinessId, async (req, res) => {
+  const patch = {};
+  if (req.body.note !== undefined) patch.note = req.body.note;
+  if (req.body.settlement !== undefined) patch.settlement = req.body.settlement;
+  if (req.body.status != null) {
+    if (!ORDER_STATUSES.has(req.body.status)) return res.status(400).json({ error: "invalid status" });
+    patch.status = req.body.status;
+  }
+  try {
+    const rows = await db.listOrdersInGroup(req.businessId, req.params.groupId);
+    if (!rows.length) return res.status(404).json({ error: "not found" });
+    const updated = [];
+    for (const r of rows) updated.push(asOrder(await db.updateOrder(r.id, patch, req.actorId)));
+    res.json(updated);
+  } catch (err) {
+    dbErrorToHttp(res, err);
+  }
+});
+
+app.delete("/api/orders/group/:groupId", requireApiKey, requireBusinessId, async (req, res) => {
+  try {
+    const rows = await db.listOrdersInGroup(req.businessId, req.params.groupId);
+    if (!rows.length) return res.status(404).json({ error: "not found" });
+    await db.deleteOrderGroup(req.businessId, req.params.groupId);
+    res.status(204).end();
   } catch (err) {
     dbErrorToHttp(res, err);
   }
