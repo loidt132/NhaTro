@@ -150,7 +150,9 @@ function GeneralSettings({ isAdmin }) {
 }
 
 function UserManagement({ currentUserId }) {
-  const { currentHomestayId } = useHomestay();
+  const { currentHomestayId, homestays, setCurrentHomestayId } = useHomestay();
+  const { user } = useAuth();
+  const isOwner = user?.role === "owner";
   const [users, setUsers] = useState([]);
   const [userModal, setUserModal] = useState(null); // { mode: "create" | "edit", userRow? }
   const [error, setError] = useState("");
@@ -180,8 +182,24 @@ function UserManagement({ currentUserId }) {
     <div className={card}>
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="font-semibold text-slate-900">Quản lý người dùng</h2>
-        <button className={`${btn} !py-1.5 !text-xs`} onClick={() => setUserModal({ mode: "create" })}>+ Thêm người dùng</button>
+        <button className={`${btn} !py-1.5 !text-xs`} disabled={!currentHomestayId} onClick={() => setUserModal({ mode: "create" })}>+ Thêm người dùng</button>
       </div>
+      {isOwner && (
+        <div className="mb-3 space-y-1">
+          <label className={label}>Homestay</label>
+          <select
+            className={input}
+            value={currentHomestayId || ""}
+            onChange={(e) => setCurrentHomestayId(e.target.value)}
+          >
+            {homestays.length === 0 && <option value="">Chưa có homestay</option>}
+            {homestays.map((h) => (
+              <option key={h.id} value={h.id}>{h.name}</option>
+            ))}
+          </select>
+          <div className="text-xs text-slate-500">Người dùng bên dưới và người dùng mới sẽ thuộc homestay này.</div>
+        </div>
+      )}
       {error && (
         <div className="mb-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
       )}
