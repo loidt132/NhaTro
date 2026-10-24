@@ -101,11 +101,10 @@ export default function ServiceOrders() {
     const q = query.trim().toLowerCase();
     if (!q) return orders;
     return orders.filter((o) => {
-      const roomName = roomMap[o.roomId]?.name || '';
       const customerName = customerLabel(o);
-      return [roomName, customerName, o.itemName, o.note].some((v) => String(v || '').toLowerCase().includes(q));
+      return [customerName, o.itemName, o.note].some((v) => String(v || '').toLowerCase().includes(q));
     });
-  }, [orders, query, roomMap, tenantMap]);
+  }, [orders, query, tenantMap]);
 
   const totalPages = Math.max(1, Math.ceil(visibleOrders.length / perPage));
   const currentPage = Math.min(page, totalPages);
@@ -175,7 +174,7 @@ export default function ServiceOrders() {
 
   function customerLabel(order) {
     if (!order.roomId) return order.customerName ? `${order.customerName} (vãng lai)` : 'Khách vãng lai';
-    return tenantMap[order.tenantId]?.name || order.customerName || '—';
+    return order.customerName || tenantMap[order.tenantId]?.name || '—';
   }
 
   return (
@@ -285,7 +284,6 @@ export default function ServiceOrders() {
           <table className={table}>
             <thead>
               <tr>
-                <th className={th}>Phòng</th>
                 <th className={th}>Khách</th>
                 <th className={th}>Dịch vụ</th>
                 <th className={th}>SL</th>
@@ -297,7 +295,6 @@ export default function ServiceOrders() {
             <tbody>
               {pagedOrders.map((o) => (
                 <tr key={o.id}>
-                  <td className={td}>{roomMap[o.roomId]?.name || (o.roomId || (o.customerName ? '—' : ''))}</td>
                   <td className={td}>{customerLabel(o)}</td>
                   <td className={td}>{o.itemName}</td>
                   <td className={td}>{o.quantity} {o.unit}</td>
@@ -319,7 +316,7 @@ export default function ServiceOrders() {
                 </tr>
               ))}
               {!pagedOrders.length ? (
-                <tr><td colSpan={7} className={`${td} text-center text-slate-500`}>{query.trim() ? 'Không tìm thấy đơn phù hợp.' : 'Chưa có đơn dịch vụ nào trong tháng này.'}</td></tr>
+                <tr><td colSpan={6} className={`${td} text-center text-slate-500`}>{query.trim() ? 'Không tìm thấy đơn phù hợp.' : 'Chưa có đơn dịch vụ nào trong tháng này.'}</td></tr>
               ) : null}
             </tbody>
           </table>
