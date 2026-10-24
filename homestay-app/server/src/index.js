@@ -117,7 +117,7 @@ function normUser(u) {
 }
 function normHomestay(h) {
   const maxRooms = h.maxRooms === null || h.maxRooms === undefined || h.maxRooms === "" ? null : Number(h.maxRooms);
-  return { id: h.id, name: h.name, maxRooms: Number.isFinite(maxRooms) ? maxRooms : null };
+  return { id: h.id, name: h.name, maxRooms: Number.isFinite(maxRooms) ? maxRooms : null, active: h.active !== false };
 }
 
 // Returns null if unset/invalid (meaning "không giới hạn"), otherwise a
@@ -249,6 +249,12 @@ app.post(
     if (!user || !verifyPassword(password, user.passwordHash)) {
       return res.status(401).json({ error: "Sai tên đăng nhập hoặc mật khẩu." });
     }
+    if (user.role !== "owner" && user.homestayId) {
+      const own = await findOneByBusinessId("homestays", user.homestayId);
+      if (own && own.active === false) {
+        return res.status(403).json({ error: "Homestay này đang tạm ngưng hoạt động. Liên hệ chủ hệ thống." });
+      }
+    }
     const token = signToken(user);
     let homestayName = null;
     if (user.homestayId) {
@@ -301,7 +307,7 @@ app.put(
   requireAuth,
   requireOwner,
   asyncRoute(async (req, res) => {
-    const { name, maxRooms } = req.body;
+    const { name, maxRooms, active } = req.body;
     if (!name) return res.status(400).json({ error: "name is required" });
     let parsedMaxRooms;
     try {
@@ -309,15 +315,60 @@ app.put(
     } catch (err) {
       return res.status(400).json({ error: err.message });
     }
-    const updated = await updateRowByBusinessId("homestays", req.params.id, { name, maxRooms: parsedMaxRooms });
+    const patch = { name, maxRooms: parsedMaxRooms };
+    if (typeof active === "boolean") patch.active = active;
+    const updated = await updateRowByBusinessId("homestays", req.params.id, patch);
     if (!updated) return res.status(404).json({ error: "not found" });
     res.json(normHomestay(updated));
+  })
+);
+
+// Deleting is only allowed for a homestay with no stay history and no staff
+// accounts — otherwise invoices/reports and logins would be orphaned. Its
+// rooms, room types, rate plans and settings (all owner-managed setup data)
+// are removed together with it.
+app.delete(
+  "/api/owner/homestays/:id",
+  requireAuth,
+  requireOwner,
+  asyncRoute(async (req, res) => {
+    const homestay = await findOneByBusinessId("homestays", req.params.id);
+    if (!homestay) return res.status(404).json({ error: "not found" });
+    const stays = await listRows("stays", { where: `(homestayId,eq,${homestay.id})`, limit: 1 });
+    if (stays.length) {
+      return res.status(409).json({ error: "Không thể xoá — homestay này đã có lịch sử lưu trú." });
+    }
+    const members = await listRows("users", { where: `(homestayId,eq,${homestay.id})`, limit: 1 });
+    if (members.length) {
+      return res.status(409).json({ error: "Không thể xoá — hãy xoá hết người dùng của homestay này trước." });
+    }
+    for (const key of ["ratePlans", "rooms", "roomTypes", "settings"]) {
+      const rows = await listRows(key, { where: `(homestayId,eq,${homestay.id})` });
+      for (const row of rows) await deleteRowByBusinessId(key, row.id);
+    }
+    await deleteRowByBusinessId("homestays", homestay.id);
+    res.status(204).end();
   })
 );
 
 // Every route below this line requires a logged-in user AND a resolved
 // homestay context (req.homestayId) — see requireHomestayContext in auth.js.
 app.use("/api", requireAuth, requireHomestayContext);
+// A deactivated homestay is locked for its own admin/staff (tokens issued
+// before it was deactivated included); the owner can still open it.
+app.use("/api", async (req, res, next) => {
+  if (req.isOwnerContext) return next();
+  try {
+    const own = await findOneByBusinessId("homestays", req.homestayId);
+    if (own && own.active === false) {
+      return res.status(403).json({ error: "Homestay này đang tạm ngưng hoạt động. Liên hệ chủ hệ thống." });
+    }
+    next();
+  } catch (err) {
+    console.error(err.detail || err);
+    res.status(502).json({ error: `Database: ${err.message}` });
+  }
+});
 
 // Current homestay's own info (name + its room cap) — unlike
 // /api/owner/homestays (owner-only, lists every homestay), this is scoped to

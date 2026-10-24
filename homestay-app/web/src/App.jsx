@@ -147,6 +147,21 @@ export default function App() {
                 </button>
               </div>
             </div>
+            {isOwner && (
+              <div className="mx-auto max-w-7xl px-3 pb-2.5 sm:hidden">
+                <select
+                  value={currentHomestayId || ""}
+                  onChange={(e) => selectHomestay(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                  aria-label="Chọn homestay"
+                >
+                  {homestays.length === 0 && <option value="">Chưa có homestay</option>}
+                  {homestays.map((h) => (
+                    <option key={h.id} value={h.id}>{h.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </header>
           <main className="mx-auto flex w-full max-w-7xl min-w-0 flex-1 gap-3 px-3 pb-6 pt-3 sm:gap-4 sm:px-4 sm:pt-4">
             <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
