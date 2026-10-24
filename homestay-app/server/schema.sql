@@ -176,6 +176,8 @@ CREATE TABLE IF NOT EXISTS "pricingChanges" (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_pricing_changes_stay ON "pricingChanges" ("stayId");
+-- Room-charge difference of the switch: > 0 khách bù thêm, < 0 hoàn lại.
+ALTER TABLE "pricingChanges" ADD COLUMN IF NOT EXISTS "amountDiff" BIGINT NOT NULL DEFAULT 0;
 
 -- Raw TTLock card-swipe events, for audit/debug only.
 CREATE TABLE IF NOT EXISTS "lockEventsLog" (

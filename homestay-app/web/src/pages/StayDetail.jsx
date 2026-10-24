@@ -33,6 +33,8 @@ export default function StayDetail() {
   const [guestOpen, setGuestOpen] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [transfersOpen, setTransfersOpen] = useState(false);
+  const [pricingOpen, setPricingOpen] = useState(false);
+  const [pricingHistoryOpen, setPricingHistoryOpen] = useState(false);
   const [settings, setSettings] = useState(null);
   const [homestayName, setHomestayName] = useState("");
   const [error, setError] = useState("");
@@ -266,18 +268,12 @@ export default function StayDetail() {
       {isActive && (
         <>
           <div className={cardCls}>
-            <h2 className="mb-2 text-[15px] font-semibold text-slate-900 sm:text-base">Hình thức thuê</h2>
-            <div className="flex flex-wrap gap-1.5">
-              {Object.entries(PRICING_LABEL).map(([type, text]) => (
-                <button
-                  key={type}
-                  className={`${btn} !px-3 !py-1.5 !text-xs ${stay.pricingType === type ? "!border-emerald-600 !bg-emerald-600 !text-white" : ""}`}
-                  disabled={stay.pricingType === type}
-                  onClick={() => changePricingType(type)}
-                >
-                  {text}
-                </button>
-              ))}
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h2 className="text-[15px] font-semibold text-slate-900 sm:text-base">Hình thức thuê</h2>
+                <p className="text-xs text-slate-500">Đang tính theo: {PRICING_LABEL[stay.pricingType]}</p>
+              </div>
+              <button className={smallBtn} onClick={() => setPricingOpen(true)}>Đổi hình thức</button>
             </div>
           </div>
 
@@ -303,18 +299,32 @@ export default function StayDetail() {
 
       {stay.pricingChanges?.length > 0 && (
         <div className={`${cardCls} no-print`}>
-          <h2 className="mb-1 text-[15px] font-semibold text-slate-900 sm:text-base">
-            Lịch sử đổi hình thức thuê ({stay.pricingChanges.length})
-          </h2>
-          <p className="mb-1 text-xs text-slate-500">Chỉ để đối soát — tiền đã được tính lại theo hình thức mới ở từng thời điểm.</p>
-          <div className="divide-y divide-slate-100">
-            {stay.pricingChanges.map((c) => (
-              <div key={c.id} className="py-2 text-sm">
-                <div className="font-medium text-slate-900">{PRICING_LABEL[c.fromPricingType]} → {PRICING_LABEL[c.toPricingType]}</div>
-                <div className="text-xs text-slate-500">{fmtDateTime(c.changedAt)}</div>
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-2 text-left"
+            onClick={() => setPricingHistoryOpen((v) => !v)}
+            aria-expanded={pricingHistoryOpen}
+          >
+            <span className="text-[15px] font-semibold text-slate-900 sm:text-base">
+              Lịch sử đổi hình thức thuê ({stay.pricingChanges.length})
+            </span>
+            <span className="text-slate-500">{pricingHistoryOpen ? "▲" : "▼"}</span>
+          </button>
+          {pricingHistoryOpen && (
+            <>
+              <p className="mb-1 mt-1 text-xs text-slate-500">Chỉ để đối soát — số tiền là chênh lệch tiền phòng tại thời điểm đổi.</p>
+              <div className="divide-y divide-slate-100">
+                {stay.pricingChanges.map((c) => (
+                  <div key={c.id} className="py-2 text-sm">
+                    <div className="font-medium text-slate-900">{PRICING_LABEL[c.fromPricingType]} → {PRICING_LABEL[c.toPricingType]}</div>
+                    <div className="text-xs text-slate-500">
+                      {fmtDateTime(c.changedAt)} · {adjustmentText(c.amountDiff)}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          )}
         </div>
       )}
 
@@ -424,6 +434,18 @@ export default function StayDetail() {
         </div>
       )}
 
+      {pricingOpen && (
+        <PricingModal
+          stayId={stayId}
+          currentType={stay.pricingType}
+          onClose={() => setPricingOpen(false)}
+          onConfirm={async (type) => {
+            setPricingOpen(false);
+            await changePricingType(type);
+          }}
+        />
+      )}
+
       {addOpen && (
         <AddChargesModal onClose={() => setAddOpen(false)} onAddService={addService} onAddSurcharge={addSurcharge} />
       )}
@@ -511,6 +533,88 @@ function AddChargesModal({ onClose, onAddService, onAddSurcharge }) {
       </div>
     </div>
   );
+}
+
+// Popup for switching rental type: shows what each option adds (bù) or refunds (hoàn)
+// against the room charge the stay has accumulated so far.
+function PricingModal({ stayId, currentType, onClose, onConfirm }) {
+  const [options, setOptions] = useState(null);
+  const [loadError, setLoadError] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    homestayApi
+      .getPricingOptions(stayId)
+      .then(setOptions)
+      .catch((err) => setLoadError(err.message));
+  }, [stayId]);
+
+  const currentTotal = options?.totals[currentType];
+  const selectedDiff = selected && currentTotal != null ? options.totals[selected] - currentTotal : 0;
+
+  async function confirm() {
+    setSaving(true);
+    try {
+      await onConfirm(selected);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="no-print fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onClick={onClose}>
+      <div className="w-full max-w-md space-y-3 rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="text-base font-semibold text-slate-900">Đổi hình thức thuê</div>
+        {loadError && <p className="text-sm text-rose-600">{loadError}</p>}
+        {!options && !loadError && <p className="text-sm text-slate-500">Đang tính giá...</p>}
+
+        {options && (
+          <div className="space-y-1.5">
+            {Object.entries(PRICING_LABEL).map(([type, text]) => {
+              const diff = options.totals[type] - currentTotal;
+              const isCurrent = type === currentType;
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  disabled={isCurrent}
+                  onClick={() => setSelected(type)}
+                  className={`flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-sm ${
+                    selected === type ? "border-emerald-600 bg-emerald-50" : "border-slate-200 bg-white"
+                  } ${isCurrent ? "opacity-60" : "hover:bg-slate-50"}`}
+                >
+                  <span className="font-medium text-slate-900">{text}</span>
+                  <span className="text-xs text-slate-600">
+                    {isCurrent ? "Đang dùng" : adjustmentText(diff)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {selected && (
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            Đổi sang {PRICING_LABEL[selected]}: {adjustmentText(selectedDiff)}.
+          </p>
+        )}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <button className={btn} onClick={onClose}>Huỷ</button>
+          <button className={btnPrimary} disabled={!selected || saving} onClick={confirm}>
+            {saving ? "Đang lưu..." : "Xác nhận đổi"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Positive = khách bù thêm, negative = hoàn lại, zero = không chênh lệch.
+function adjustmentText(diff) {
+  if (!diff) return "không chênh lệch";
+  return diff > 0 ? `bù thêm ${formatVnd(diff)}` : `hoàn lại ${formatVnd(-diff)}`;
 }
 
 function Breakdown({ breakdown, onRemoveCharge }) {
