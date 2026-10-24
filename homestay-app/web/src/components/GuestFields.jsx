@@ -1,4 +1,4 @@
-import { ID_TYPES } from "../utils/guestValidation.js";
+import { ID_TYPES, formatDmyInput } from "../utils/guestValidation.js";
 import { input, label } from "../ui.js";
 
 // Identity fields shared by the check-in form and the add-guest form.
@@ -37,8 +37,15 @@ export default function GuestFields({ value, onChange, errors = {}, main = false
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label={idIsPassport ? "Hết hạn hộ chiếu" : "Hết hạn (không bắt buộc)"} error={errors.idExpiryDate}>
-          <input type="date" value={value.idExpiryDate} onChange={set("idExpiryDate")} className={input} />
+        <Field label={idIsPassport ? "Hết hạn (dd/mm/yyyy)" : "Hết hạn (không bắt buộc)"} error={errors.idExpiryDate}>
+          <input
+            value={value.idExpiryDate}
+            onChange={(e) => onChange({ ...value, idExpiryDate: formatDmyInput(e.target.value) })}
+            inputMode="numeric"
+            placeholder="dd/mm/yyyy"
+            maxLength={10}
+            className={input}
+          />
         </Field>
         <Field label={main ? "Số điện thoại" : "Số điện thoại (không bắt buộc)"} error={errors.phone}>
           <input value={value.phone} onChange={set("phone")} inputMode="tel" placeholder="0912345678" className={input} />

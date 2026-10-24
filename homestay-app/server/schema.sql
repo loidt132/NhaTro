@@ -164,6 +164,8 @@ CREATE TABLE IF NOT EXISTS "roomTransfers" (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_room_transfers_stay ON "roomTransfers" ("stayId");
+-- Chênh lệch tiền phòng của lần chuyển: > 0 khách bù thêm, < 0 hoàn lại.
+ALTER TABLE "roomTransfers" ADD COLUMN IF NOT EXISTS "amountDiff" BIGINT NOT NULL DEFAULT 0;
 
 -- Audit trail of rental-type changes on one stay (hourly/overnight/fullday).
 CREATE TABLE IF NOT EXISTS "pricingChanges" (

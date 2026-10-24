@@ -5,7 +5,7 @@ import { badgeBase, btn, btnDanger, btnPrimary, card, input, label, roomStatus }
 import { useAuth } from "../AuthContext.js";
 import { useHomestay } from "../HomestayContext.js";
 import GuestFields from "../components/GuestFields.jsx";
-import { validateGuest } from "../utils/guestValidation.js";
+import { validateGuest, toApiGuest } from "../utils/guestValidation.js";
 
 export default function RoomBoard() {
   const { user } = useAuth();
@@ -289,7 +289,7 @@ function CheckInModal({ room, onClose, onDone }) {
       const stay = await homestayApi.checkIn({
         roomId: room.id,
         pricingType,
-        mainGuest: guest,
+        mainGuest: toApiGuest(guest),
       });
       onDone(stay.id);
     } catch (err) {
