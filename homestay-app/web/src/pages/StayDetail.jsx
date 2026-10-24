@@ -66,7 +66,7 @@ export default function StayDetail() {
     setQrDataUrl(null);
     refresh();
     homestayApi.getSettings().then(setSettings).catch((err) => console.error("[settings]", err));
-    homestayApi.getCurrentHomestay().then((h) => setHomestayName(h?.displayName || h?.name || "")).catch(() => {});
+    homestayApi.getDisplayName().then(setHomestayName).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stayId]);
 

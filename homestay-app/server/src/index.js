@@ -383,11 +383,7 @@ app.get(
   asyncRoute(async (req, res) => {
     const homestay = await findOneByBusinessId("homestays", req.homestayId);
     if (!homestay) return res.status(404).json({ error: "not found" });
-    // Shown in the header and on invoices: the configured owner name, else
-    // the name the system owner gave this homestay.
-    const settings = await findOneWhere("settings", withTenant(req));
-    const displayName = String(settings?.ownerName || "").trim() || homestay.name;
-    res.json({ ...normHomestay(homestay), displayName });
+    res.json(normHomestay(homestay));
   })
 );
 

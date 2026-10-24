@@ -72,6 +72,15 @@ export const ownerApi = {
 
 export const homestayApi = {
   getCurrentHomestay: () => request(HOMESTAY_API, "/api/homestay"),
+  // Name shown in the header and on invoices: the owner name from Settings if
+  // configured, else the name the system owner gave the homestay.
+  getDisplayName: async () => {
+    const [homestay, settings] = await Promise.all([
+      request(HOMESTAY_API, "/api/homestay"),
+      request(HOMESTAY_API, "/api/settings").catch(() => ({})),
+    ]);
+    return String(settings?.ownerName || "").trim() || homestay?.name || "";
+  },
   getRooms: () => request(HOMESTAY_API, "/api/rooms"),
   getRoomTypes: getRoomTypesCached,
   addRoomType: (name) =>

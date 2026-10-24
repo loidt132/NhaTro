@@ -60,7 +60,7 @@ export default function App() {
   const [headerName, setHeaderName] = useState("");
   useEffect(() => {
     if (!auth || auth.user.role === "owner") return undefined;
-    const load = () => homestayApi.getCurrentHomestay().then((h) => setHeaderName(h?.displayName || h?.name || "")).catch(() => {});
+    const load = () => homestayApi.getDisplayName().then(setHeaderName).catch(() => {});
     load();
     window.addEventListener("homestay-settings-saved", load);
     return () => window.removeEventListener("homestay-settings-saved", load);
