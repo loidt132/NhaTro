@@ -124,6 +124,11 @@ CREATE TABLE IF NOT EXISTS guests (
 );
 CREATE INDEX IF NOT EXISTS idx_guests_stay ON guests ("stayId");
 
+-- Giấy tờ của khách: CCCD (mặc định) hoặc hộ chiếu. Hộ chiếu bắt buộc có ngày
+-- hết hạn còn hiệu lực lúc nhận phòng; CCCD có thể ghi ngày hết hạn nhưng không kiểm tra.
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS "idType" VARCHAR(20) NOT NULL DEFAULT 'cccd';
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS "idExpiryDate" DATE;
+
 -- Dịch vụ AND phụ thu lines added to a stay; name/unitPrice are snapshots
 -- from catalog-service at the moment they were added.
 CREATE TABLE IF NOT EXISTS "serviceCharges" (

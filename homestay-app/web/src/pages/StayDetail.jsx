@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import dayjs from "dayjs";
 import { homestayApi, catalogApi, formatVnd } from "../api.js";
-import { badgeBase, btn, btnDanger, btnPrimary, card, input, label } from "../ui.js";
+import { badgeBase, btn, btnDanger, btnPrimary, card } from "../ui.js";
 import { fetchVietQrPngDataUrl, fillAddInfoTemplate } from "../utils/vietqr.js";
+import GuestFields from "../components/GuestFields.jsx";
+import { validateGuest, ID_TYPES } from "../utils/guestValidation.js";
 
 const PRICING_LABEL = {
   hourly: "Theo giờ",
@@ -14,6 +16,10 @@ const PRICING_LABEL = {
 const smallBtn = `${btn} !px-3 !py-1.5 !text-xs`;
 const cardCls = `${card} !p-3 sm:!p-4`;
 const h2Cls = "mb-2 text-[15px] font-semibold text-slate-900 sm:text-base";
+
+function fmtDate(v) {
+  return v && dayjs(v).isValid() ? dayjs(v).format("DD/MM/YYYY") : "—";
+}
 
 function fmtDateTime(v) {
   return v && dayjs(v).isValid() ? dayjs(v).format("DD/MM/YYYY HH:mm") : "—";
@@ -235,7 +241,9 @@ export default function StayDetail() {
               <div className="min-w-0">
                 <div className="font-medium text-slate-900">{g.name}</div>
                 <div className="text-xs text-slate-500">
-                  CCCD: {g.idNumber || "—"}{g.phone ? ` · ${g.phone}` : ""}
+                  {ID_TYPES.find((t) => t.value === g.idType)?.label || "CCCD"}: {g.idNumber || "—"}
+                  {g.idExpiryDate ? ` · HHSD ${fmtDate(g.idExpiryDate)}` : ""}
+                  {g.phone ? ` · ${g.phone}` : ""}
                 </div>
               </div>
               <span className="flex shrink-0 items-center gap-2 text-xs text-slate-500">
@@ -534,22 +542,23 @@ function Breakdown({ breakdown, onRemoveCharge }) {
 }
 
 function AddGuestModal({ stayId, onClose, onAdded }) {
-  const [name, setName] = useState("");
-  const [idNumber, setIdNumber] = useState("");
-  const [phone, setPhone] = useState("");
+  const [guest, setGuest] = useState({ name: "", idType: "cccd", idNumber: "", idExpiryDate: "", phone: "" });
+  const [fieldErrors, setFieldErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   async function submit(e) {
     e.preventDefault();
-    if (!name.trim()) {
-      setError("Vui lòng nhập họ tên");
+    const errors = validateGuest(guest);
+    setFieldErrors(errors);
+    if (Object.keys(errors).length) {
+      setError(Object.values(errors)[0]);
       return;
     }
     setSaving(true);
     setError("");
     try {
-      await homestayApi.addGuest(stayId, { name, idNumber, phone });
+      await homestayApi.addGuest(stayId, guest);
       onAdded();
     } catch (err) {
       setError(err.message);
@@ -561,25 +570,12 @@ function AddGuestModal({ stayId, onClose, onAdded }) {
     <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <form
         onSubmit={submit}
-        className="modal-panel w-full max-w-[19rem] space-y-2 overflow-x-hidden rounded-2xl bg-white p-3 shadow-xl"
+        className="modal-panel w-full max-w-md space-y-3 overflow-x-hidden rounded-2xl bg-white p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="text-[15px] font-semibold text-slate-900">Thêm khách đi cùng</div>
         {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
-        <div className="space-y-0.5">
-          <label className={label}>Họ tên</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} className={`${input} !py-1.5`} autoFocus />
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="min-w-0 space-y-0.5">
-            <label className={label}>CCCD / hộ chiếu</label>
-            <input value={idNumber} onChange={(e) => setIdNumber(e.target.value)} className={`${input} !py-1.5`} />
-          </div>
-          <div className="min-w-0 space-y-0.5">
-            <label className={label}>Số điện thoại</label>
-            <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" className={`${input} !py-1.5`} />
-          </div>
-        </div>
+        <GuestFields value={guest} onChange={(g) => { setGuest(g); setFieldErrors({}); }} errors={fieldErrors} />
         <div className="flex justify-end gap-2 pt-0.5">
           <button type="button" className={`${btn} !py-1.5`} onClick={onClose}>Huỷ</button>
           <button className={`${btnPrimary} !py-1.5`} disabled={saving}>{saving ? "Đang lưu..." : "Thêm"}</button>

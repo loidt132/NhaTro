@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dayjs from "dayjs";
+import { validateGuest, cleanGuestInput } from "./guestValidation.js";
 import fetch from "node-fetch";
 import { v4 as uuid } from "uuid";
 import {
@@ -177,7 +178,9 @@ function normGuest(g) {
     stayId: g.stayId,
     isMain: g.isMain === true || g.isMain === 1 || g.isMain === "true",
     name: g.name,
+    idType: g.idType || "cccd",
     idNumber: g.idNumber || "",
+    idExpiryDate: g.idExpiryDate || "",
     dob: g.dob || "",
     phone: g.phone || "",
   };
@@ -892,6 +895,11 @@ app.post(
     if (!roomId || !pricingType || !mainGuest?.name) {
       return res.status(400).json({ error: "roomId, pricingType, mainGuest.name are required" });
     }
+    const mainInput = cleanGuestInput(mainGuest);
+    const mainErrors = validateGuest(mainInput, { main: true });
+    if (Object.keys(mainErrors).length) {
+      return res.status(400).json({ error: Object.values(mainErrors).join(" · "), fields: mainErrors });
+    }
     const room = owned(await findOneByBusinessId("rooms", roomId), req);
     if (!room) return res.status(404).json({ error: "room not found" });
     if (room.status !== "empty") return res.status(409).json({ error: "room is not empty" });
@@ -925,10 +933,7 @@ app.post(
       id: uuid(),
       stayId: stayRow.id,
       isMain: true,
-      name: mainGuest.name,
-      idNumber: mainGuest.idNumber || "",
-      dob: mainGuest.dob || null, // "" is not a valid DATE
-      phone: mainGuest.phone || "",
+      ...mainInput,
     });
 
     await updateRowByBusinessId("rooms", roomId, { status: "occupied" });
@@ -942,16 +947,16 @@ app.post(
   asyncRoute(async (req, res) => {
     const stay = owned(await findOneByBusinessId("stays", req.params.id), req);
     if (!stay) return res.status(404).json({ error: "not found" });
-    const { name, idNumber, dob, phone } = req.body;
-    if (!name) return res.status(400).json({ error: "name required" });
+    const input = cleanGuestInput(req.body);
+    const errors = validateGuest(input);
+    if (Object.keys(errors).length) {
+      return res.status(400).json({ error: Object.values(errors).join(" · "), fields: errors });
+    }
     const row = await createRow("guests", {
       id: uuid(),
       stayId: stay.id,
       isMain: false,
-      name,
-      idNumber: idNumber || "",
-      dob: dob || null, // "" is not a valid DATE
-      phone: phone || "",
+      ...input,
     });
     res.status(201).json(normGuest(row));
   })
