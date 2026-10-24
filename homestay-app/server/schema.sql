@@ -158,20 +158,6 @@ CREATE TABLE IF NOT EXISTS "roomTransfers" (
 );
 CREATE INDEX IF NOT EXISTS idx_room_transfers_stay ON "roomTransfers" ("stayId");
 
--- Audit trail of rental-type changes on one stay (hourly/overnight/fullday).
-CREATE TABLE IF NOT EXISTS "pricingChanges" (
-  id VARCHAR(64) PRIMARY KEY,
-  "stayId" VARCHAR(64) NOT NULL,
-  "fromPricingType" VARCHAR(20) NOT NULL,
-  "toPricingType" VARCHAR(20) NOT NULL,
-  "changedAt" TIMESTAMPTZ NOT NULL,
-  created_by VARCHAR(64),
-  updated_by VARCHAR(64),
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS idx_pricing_changes_stay ON "pricingChanges" ("stayId");
-
 -- Raw TTLock card-swipe events, for audit/debug only.
 CREATE TABLE IF NOT EXISTS "lockEventsLog" (
   id VARCHAR(64) PRIMARY KEY,

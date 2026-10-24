@@ -293,23 +293,6 @@ export default function StayDetail() {
         </>
       )}
 
-      {stay.pricingChanges?.length > 0 && (
-        <div className={`${cardCls} no-print`}>
-          <h2 className="mb-1 text-[15px] font-semibold text-slate-900 sm:text-base">
-            Lịch sử đổi hình thức thuê ({stay.pricingChanges.length})
-          </h2>
-          <p className="mb-1 text-xs text-slate-500">Chỉ để đối soát — tiền đã được tính lại theo hình thức mới ở từng thời điểm.</p>
-          <div className="divide-y divide-slate-100">
-            {stay.pricingChanges.map((c) => (
-              <div key={c.id} className="py-2 text-sm">
-                <div className="font-medium text-slate-900">{PRICING_LABEL[c.fromPricingType]} → {PRICING_LABEL[c.toPricingType]}</div>
-                <div className="text-xs text-slate-500">{fmtDateTime(c.changedAt)}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {stay.transfers.length > 0 && (
         <div className={`${cardCls} no-print`}>
           <button
