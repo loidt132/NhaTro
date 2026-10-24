@@ -271,7 +271,10 @@ export default function StayDetail() {
                 <h2 className="text-[15px] font-semibold text-slate-900 sm:text-base">Hình thức thuê</h2>
                 <p className="text-xs text-slate-500">Đang tính theo: {PRICING_LABEL[stay.pricingType]}</p>
               </div>
-              <button className={smallBtn} onClick={() => setPricingOpen(true)}>Đổi hình thức</button>
+              <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                <button className={smallBtn} onClick={() => setPricingOpen(true)}>Đổi hình thức</button>
+                <button className={smallBtn} onClick={() => setRoomOpen(true)}>Đổi phòng</button>
+              </div>
             </div>
           </div>
 
@@ -359,16 +362,6 @@ export default function StayDetail() {
 
       {isActive && (
         <>
-          <div className={cardCls}>
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h2 className="text-[15px] font-semibold text-slate-900 sm:text-base">Đổi phòng</h2>
-                <p className="text-xs text-slate-500">Cả lượt lưu trú tính theo giá phòng mới — chênh lệch hiện trước khi xác nhận.</p>
-              </div>
-              <button className={smallBtn} onClick={() => setRoomOpen(true)}>Đổi phòng</button>
-            </div>
-          </div>
-
           {!(stay.swipedIn && stay.swipedOut) && (
             <div className={cardCls}>
               <h2 className="mb-1 text-[15px] font-semibold text-slate-900 sm:text-base">TTLock (mock)</h2>

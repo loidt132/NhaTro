@@ -277,7 +277,7 @@ function CheckInModal({ room, onClose, onDone }) {
   const [error, setError] = useState("");
 
   async function submit() {
-    const errors = validateGuest(guest, { main: true });
+    const errors = validateGuest(guest);
     setFieldErrors(errors);
     if (Object.keys(errors).length) {
       setError(Object.values(errors)[0]);
@@ -317,7 +317,7 @@ function CheckInModal({ room, onClose, onDone }) {
         </div>
 
         <p className={label}>Khách chính</p>
-        <GuestFields value={guest} onChange={(g) => { setGuest(g); setFieldErrors({}); }} errors={fieldErrors} main />
+        <GuestFields value={guest} onChange={(g) => { setGuest(g); setFieldErrors({}); }} errors={fieldErrors} />
 
         <p className="text-xs text-slate-500">
           Khi xác nhận, hệ thống sẽ phát hành thẻ TTLock (mock) cho khoá phòng {room.lockId}.

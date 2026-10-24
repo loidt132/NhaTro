@@ -905,7 +905,7 @@ app.post(
       return res.status(400).json({ error: "roomId, pricingType, mainGuest.name are required" });
     }
     const mainInput = cleanGuestInput(mainGuest);
-    const mainErrors = validateGuest(mainInput, { main: true });
+    const mainErrors = validateGuest(mainInput);
     if (Object.keys(mainErrors).length) {
       return res.status(400).json({ error: Object.values(mainErrors).join(" · "), fields: mainErrors });
     }
