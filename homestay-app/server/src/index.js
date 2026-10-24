@@ -479,6 +479,8 @@ async function ratePlanForRoomId(roomId, req) {
   return { room: normRoom(room), ratePlan: normRatePlan(ratePlan) };
 }
 
+const PRICING_TYPES = ["hourly", "overnight", "fullday"];
+
 async function buildStayView(stay, req) {
   const [guestsRaw, chargesRaw, transfersRaw] = await Promise.all([
     listRows("guests", { where: `(stayId,eq,${stay.id})` }),
@@ -1110,6 +1112,24 @@ app.post(
     const updatedStay = await updateRowByBusinessId("stays", stay.id, { roomId: toRoomId });
 
     res.status(201).json(await buildStayView(normStay(updatedStay), req));
+  })
+);
+
+// Switch the rental type (hourly / overnight / fullday) of an active stay.
+// Billing is always recomputed from the original check-in, so the provisional
+// total updates right away; nothing else on the stay changes.
+app.put(
+  "/api/stays/:id/pricing-type",
+  asyncRoute(async (req, res) => {
+    const stay = owned(await findOneByBusinessId("stays", req.params.id), req);
+    if (!stay) return res.status(404).json({ error: "not found" });
+    if (stay.status !== "active") return res.status(409).json({ error: "stay is not active" });
+    const { pricingType } = req.body;
+    if (!PRICING_TYPES.includes(pricingType)) {
+      return res.status(400).json({ error: "pricingType phải là hourly, overnight hoặc fullday" });
+    }
+    const updatedStay = await updateRowByBusinessId("stays", stay.id, { pricingType });
+    res.json(await buildStayView(normStay(updatedStay), req));
   })
 );
 

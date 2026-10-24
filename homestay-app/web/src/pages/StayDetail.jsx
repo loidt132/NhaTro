@@ -109,6 +109,8 @@ export default function StayDetail() {
     act(() => homestayApi.addSurcharge(stayId, { surchargeRuleId: ruleId, qty: 1 }), "Đã thêm phụ thu — tạm tính đã cập nhật.");
   const removeCharge = (chargeId) =>
     act(() => homestayApi.removeCharge(stayId, chargeId), "Đã xoá mục — tạm tính đã cập nhật.");
+  const changePricingType = (pricingType) =>
+    act(() => homestayApi.setPricingType(stayId, pricingType), "Đã đổi hình thức thuê — tạm tính đã cập nhật.");
   const transfer = (toRoomId) =>
     act(() => homestayApi.transferRoom(stayId, { toRoomId, reason: "Đổi phòng theo yêu cầu" }), "Đã đổi phòng thành công.");
   const simulateSwipe = (type) =>
@@ -255,6 +257,22 @@ export default function StayDetail() {
 
       {isActive && (
         <>
+          <div className={cardCls}>
+            <h2 className="mb-2 text-[15px] font-semibold text-slate-900 sm:text-base">Hình thức thuê</h2>
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(PRICING_LABEL).map(([type, text]) => (
+                <button
+                  key={type}
+                  className={`${btn} !px-3 !py-1.5 !text-xs ${stay.pricingType === type ? "!border-emerald-600 !bg-emerald-600 !text-white" : ""}`}
+                  disabled={stay.pricingType === type}
+                  onClick={() => changePricingType(type)}
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className={cardCls}>
             <div className="mb-2 flex items-center justify-between gap-2">
               <h2 className="text-[15px] font-semibold text-slate-900 sm:text-base">Tạm tính hiện tại</h2>
