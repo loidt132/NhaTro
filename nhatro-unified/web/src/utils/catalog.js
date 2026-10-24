@@ -58,3 +58,6 @@ export const listOrders = (params) => request(`/api/catalog/orders${toQuery(para
 export const createOrder = (payload) => request('/api/admin/catalog/orders', { method: 'POST', body: JSON.stringify(payload) });
 export const updateOrder = (id, payload) => request(`/api/admin/catalog/orders/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
 export const deleteOrder = (id) => request(`/api/admin/catalog/orders/${id}`, { method: 'DELETE' });
+// Đơn nhiều dịch vụ: cập nhật/xoá cả nhóm dòng cùng orderGroupId.
+export const updateOrderGroup = (groupId, payload) => request(`/api/admin/catalog/orders/group/${groupId}`, { method: 'PUT', body: JSON.stringify(payload) });
+export const deleteOrderGroup = (groupId) => request(`/api/admin/catalog/orders/group/${groupId}`, { method: 'DELETE' });

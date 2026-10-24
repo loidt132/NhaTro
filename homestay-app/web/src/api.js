@@ -54,9 +54,30 @@ function clearRoomTypesCache(result) {
   return result;
 }
 
+// Homestay info and settings almost never change, so each is fetched once per
+// homestay and reused across screens. Saving settings / editing a homestay
+// (or logging in again) clears the cache; `fresh` forces a re-fetch.
+const perHomestayCache = { homestay: null, settings: null }; // { homestayId, promise }
+function cachedPerHomestay(key, path, fresh) {
+  const hit = perHomestayCache[key];
+  if (!fresh && hit && hit.homestayId === currentHomestayId) return hit.promise;
+  const promise = request(HOMESTAY_API, path);
+  const entry = { homestayId: currentHomestayId, promise };
+  perHomestayCache[key] = entry;
+  promise.catch(() => {
+    if (perHomestayCache[key] === entry) perHomestayCache[key] = null;
+  });
+  return promise;
+}
+function clearHomestayCaches(result) {
+  perHomestayCache.homestay = null;
+  perHomestayCache.settings = null;
+  return result;
+}
+
 export const authApi = {
   login: (username, password) =>
-    request(HOMESTAY_API, "/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+    request(HOMESTAY_API, "/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }).then(clearHomestayCaches),
 };
 
 // Owner-only: manage the homestays (tenants) themselves. Doesn't need the
@@ -64,20 +85,20 @@ export const authApi = {
 export const ownerApi = {
   listHomestays: () => request(HOMESTAY_API, "/api/owner/homestays"),
   addHomestay: (name, maxRooms) =>
-    request(HOMESTAY_API, "/api/owner/homestays", { method: "POST", body: JSON.stringify({ name, maxRooms }) }),
+    request(HOMESTAY_API, "/api/owner/homestays", { method: "POST", body: JSON.stringify({ name, maxRooms }) }).then(clearHomestayCaches),
   renameHomestay: (id, name, maxRooms, active) =>
-    request(HOMESTAY_API, `/api/owner/homestays/${id}`, { method: "PUT", body: JSON.stringify({ name, maxRooms, active }) }),
-  removeHomestay: (id) => request(HOMESTAY_API, `/api/owner/homestays/${id}`, { method: "DELETE" }),
+    request(HOMESTAY_API, `/api/owner/homestays/${id}`, { method: "PUT", body: JSON.stringify({ name, maxRooms, active }) }).then(clearHomestayCaches),
+  removeHomestay: (id) => request(HOMESTAY_API, `/api/owner/homestays/${id}`, { method: "DELETE" }).then(clearHomestayCaches),
 };
 
 export const homestayApi = {
-  getCurrentHomestay: () => request(HOMESTAY_API, "/api/homestay"),
+  getCurrentHomestay: () => cachedPerHomestay("homestay", "/api/homestay"),
   // Name shown in the header and on invoices: the owner name from Settings if
   // configured, else the name the system owner gave the homestay.
   getDisplayName: async () => {
     const [homestay, settings] = await Promise.all([
-      request(HOMESTAY_API, "/api/homestay"),
-      request(HOMESTAY_API, "/api/settings").catch(() => ({})),
+      cachedPerHomestay("homestay", "/api/homestay"),
+      cachedPerHomestay("settings", "/api/settings").catch(() => ({})),
     ]);
     return String(settings?.ownerName || "").trim() || homestay?.name || "";
   },
@@ -92,10 +113,12 @@ export const homestayApi = {
   getRatePlans: () => request(HOMESTAY_API, "/api/rate-plans"),
   updateRatePlan: (id, body) =>
     request(HOMESTAY_API, `/api/rate-plans/${id}`, { method: "PUT", body: JSON.stringify(body) }),
-  getStayHistory: (roomId, status) => {
+  getStayHistory: (roomId, status, from, to) => {
     const params = new URLSearchParams();
     if (roomId) params.set("roomId", roomId);
     if (status) params.set("status", status);
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
     return request(HOMESTAY_API, `/api/stay-history?${params.toString()}`);
   },
   getStay: (id) => request(HOMESTAY_API, `/api/stays/${id}`),
@@ -128,8 +151,9 @@ export const homestayApi = {
   deleteRoom: (roomId) => request(HOMESTAY_API, `/api/rooms/${roomId}`, { method: "DELETE" }),
   getGuestReport: (date) => request(HOMESTAY_API, `/api/guest-report?date=${date || ""}`),
   guestReportUrl: (date) => `${HOMESTAY_API}/api/guest-report?date=${date}&format=csv`,
-  getSettings: () => request(HOMESTAY_API, "/api/settings"),
-  updateSettings: (body) => request(HOMESTAY_API, "/api/settings", { method: "PUT", body: JSON.stringify(body) }),
+  getSettings: ({ fresh = false } = {}) => cachedPerHomestay("settings", "/api/settings", fresh),
+  updateSettings: (body) =>
+    request(HOMESTAY_API, "/api/settings", { method: "PUT", body: JSON.stringify(body) }).then(clearHomestayCaches),
   getRevenueReport: (from, to) =>
     request(HOMESTAY_API, `/api/reports/revenue?from=${from || ""}&to=${to || ""}`),
   getOccupancyReport: (from, to) =>
@@ -143,6 +167,18 @@ export const homestayApi = {
 // from the browser — same as every other data store in this app, and the
 // one place a catalog-service error (rate limit, downtime) gets translated
 // into something presentable before it reaches the UI.
+// Đơn dịch vụ (khách đang ở hoặc vãng lai). Mỗi đơn có thể nhiều dịch vụ.
+export const orderApi = {
+  list: (params = {}) => {
+    const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v));
+    return request(HOMESTAY_API, `/api/service-orders?${qs.toString()}`);
+  },
+  create: (body) => request(HOMESTAY_API, "/api/service-orders", { method: "POST", body: JSON.stringify(body) }),
+  update: (groupId, body) =>
+    request(HOMESTAY_API, `/api/service-orders/${groupId}`, { method: "PUT", body: JSON.stringify(body) }),
+  remove: (groupId) => request(HOMESTAY_API, `/api/service-orders/${groupId}`, { method: "DELETE" }),
+};
+
 export const catalogApi = {
   getCategories: () => request(HOMESTAY_API, "/api/catalog/categories"),
   addCategory: (name) => request(HOMESTAY_API, "/api/admin/catalog/categories", { method: "POST", body: JSON.stringify({ name }) }),

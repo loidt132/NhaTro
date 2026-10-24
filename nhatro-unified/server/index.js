@@ -1019,6 +1019,12 @@ app.delete('/api/admin/catalog/items/:id', authMiddleware, (req, res) =>
   proxyToCatalog(req, res, `/api/items/${req.params.id}?businessId=${encodeURIComponent(req.userId)}`, 'DELETE')
 );
 app.post('/api/admin/catalog/orders', authMiddleware, (req, res) => proxyToCatalog(req, res, '/api/orders', 'POST'));
+app.put('/api/admin/catalog/orders/group/:groupId', authMiddleware, (req, res) =>
+  proxyToCatalog(req, res, `/api/orders/group/${req.params.groupId}?businessId=${encodeURIComponent(req.userId)}`, 'PUT')
+);
+app.delete('/api/admin/catalog/orders/group/:groupId', authMiddleware, (req, res) =>
+  proxyToCatalog(req, res, `/api/orders/group/${req.params.groupId}?businessId=${encodeURIComponent(req.userId)}`, 'DELETE')
+);
 app.put('/api/admin/catalog/orders/:id', authMiddleware, (req, res) =>
   proxyToCatalog(req, res, `/api/orders/${req.params.id}?businessId=${encodeURIComponent(req.userId)}`, 'PUT')
 );

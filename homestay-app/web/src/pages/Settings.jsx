@@ -46,7 +46,7 @@ function GeneralSettings({ isAdmin }) {
 
   async function refresh() {
     try {
-      setS(await homestayApi.getSettings());
+      setS(await homestayApi.getSettings({ fresh: true }));
     } catch (err) {
       setError(err.message);
     }

@@ -4,6 +4,7 @@ import dayjs from "dayjs";
 import { homestayApi, formatVnd } from "../api.js";
 import { card, input, label } from "../ui.js";
 import { useHomestay } from "../HomestayContext.js";
+import DateField from "../components/DateField.jsx";
 
 const STATUS_TABS = [
   { key: "checked_out", label: "Đã trả phòng" },
@@ -18,6 +19,8 @@ export default function StayHistory() {
   const [rooms, setRooms] = useState([]);
   const [roomId, setRoomId] = useState("");
   const [status, setStatus] = useState("checked_out");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [rows, setRows] = useState(null);
   const [error, setError] = useState("");
 
@@ -28,10 +31,10 @@ export default function StayHistory() {
   useEffect(() => {
     setRows(null);
     homestayApi
-      .getStayHistory(roomId, status)
+      .getStayHistory(roomId, status, from, to)
       .then(setRows)
       .catch((err) => setError(err.message));
-  }, [roomId, status, currentHomestayId]);
+  }, [roomId, status, from, to, currentHomestayId]);
 
   return (
     <div className="space-y-3">
@@ -49,14 +52,27 @@ export default function StayHistory() {
           </button>
         ))}
       </div>
-      <div className="max-w-xs space-y-1">
-        <label className={label}>Phòng</label>
-        <select className={input} value={roomId} onChange={(e) => setRoomId(e.target.value)}>
-          <option value="">Tất cả phòng</option>
-          {rooms.map((r) => (
-            <option key={r.id} value={r.id}>{r.name}</option>
-          ))}
-        </select>
+      <div className="grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
+        <div className="col-span-2 space-y-1 sm:w-44">
+          <label className={label}>Phòng</label>
+          <select className={input} value={roomId} onChange={(e) => setRoomId(e.target.value)}>
+            <option value="">Tất cả phòng</option>
+            {rooms.map((r) => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
+        </div>
+        <DateField label="Từ ngày" value={from} onChange={setFrom} />
+        <DateField label="Đến ngày" value={to} onChange={setTo} />
+        {(from || to) && (
+          <button
+            type="button"
+            className="col-span-2 h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 sm:col-span-1"
+            onClick={() => { setFrom(""); setTo(""); }}
+          >
+            Xoá lọc ngày
+          </button>
+        )}
       </div>
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>

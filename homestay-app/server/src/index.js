@@ -836,6 +836,142 @@ app.delete("/api/admin/catalog/items/:id", requireAdmin, (req, res) =>
   proxyToCatalog(req, res, `/api/items/${req.params.id}?businessId=${req.homestayId}`, "DELETE")
 );
 
+// ---- Đơn dịch vụ ----
+// Bán dịch vụ cho khách đang ở lẫn khách vãng lai. Đơn lưu ở catalog-service
+// (mỗi dịch vụ một dòng, chung orderGroupId). Khách đang ở có thể "tính vào
+// phòng" (thành mục dịch vụ của lượt thuê, cộng vào hoá đơn trả phòng) hoặc
+// thu tiền ngay; khách vãng lai luôn thu ngay và có hoá đơn riêng.
+
+async function catalogJson(req, path, method = "GET", body) {
+  const r = await fetch(`${SERVICE_CATALOG_URL}${path}`, {
+    method,
+    headers: { "Content-Type": "application/json", "x-api-key": CATALOG_ADMIN_KEY, "x-actor-id": String(req.user?.sub || "system") },
+    body: body === undefined ? undefined : JSON.stringify({ ...body, businessId: req.homestayId }),
+    signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS),
+  });
+  if (r.status === 204) return { status: 204, body: null };
+  return { status: r.status, body: await r.json().catch(() => ({})) };
+}
+
+app.get(
+  "/api/service-orders",
+  asyncRoute(async (req, res) => {
+    const params = new URLSearchParams({ businessId: req.homestayId });
+    for (const key of ["month", "status", "roomId", "groupId"]) if (req.query[key]) params.set(key, req.query[key]);
+    const r = await fetch(`${SERVICE_CATALOG_URL}/api/orders?${params.toString()}`, { signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS) });
+    res.status(r.status).json(await r.json().catch(() => ({})));
+  })
+);
+
+app.post(
+  "/api/service-orders",
+  asyncRoute(async (req, res) => {
+    const { items, stayId, note } = req.body;
+    if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: "Chọn ít nhất một dịch vụ." });
+
+    let stay = null;
+    let room = null;
+    if (stayId) {
+      stay = owned(await findOneByBusinessId("stays", stayId), req);
+      if (!stay) return res.status(404).json({ error: "Không tìm thấy lượt thuê." });
+      if (stay.status !== "active") return res.status(409).json({ error: "Lượt thuê này đã kết thúc." });
+      room = await findOneByBusinessId("rooms", stay.roomId);
+    }
+    const customerName = stay ? room?.name || "" : String(req.body.customerName || "").trim();
+    if (!stay && !customerName) return res.status(400).json({ error: "Nhập tên khách vãng lai." });
+    const settlement = stay && req.body.settlement !== "paid" ? "room" : "paid";
+
+    // Giá lấy từ danh mục phía server, không tin giá do trình duyệt gửi.
+    const lines = [];
+    try {
+      for (const l of items) {
+        const qty = Number(l.quantity);
+        if (!l.itemId || !(qty > 0)) return res.status(400).json({ error: "Dịch vụ hoặc số lượng không hợp lệ." });
+        const item = await fetchCatalogItem(l.itemId, req.homestayId);
+        lines.push({ itemId: item.id, itemName: item.name, unit: item.unit || "", price: Number(item.price), quantity: qty });
+      }
+    } catch (err) {
+      console.error("[catalog] service order failed:", err);
+      if (err.status === 404) return res.status(404).json({ error: err.message });
+      return res.status(502).json({ error: "Danh mục dịch vụ đang phản hồi chậm, vui lòng thử lại sau vài giây." });
+    }
+
+    const created = await catalogJson(req, "/api/orders", "POST", {
+      items: lines,
+      roomId: stay ? stay.roomId : null,
+      stayId: stay ? stay.id : null,
+      customerName,
+      settlement,
+      month: dayjs().format("YYYY-MM"),
+      status: "done",
+      note: note ? String(note).trim() : null,
+    });
+    if (created.status >= 300) return res.status(created.status).json(created.body);
+
+    if (settlement === "room") {
+      for (const l of lines) {
+        await createRow("serviceCharges", {
+          id: uuid(),
+          stayId: stay.id,
+          kind: "service",
+          itemId: l.itemId,
+          name: l.itemName,
+          unitPrice: l.price,
+          qty: l.quantity,
+          amount: Math.round(l.price * l.quantity),
+          addedAt: dayjs().toISOString(),
+        });
+      }
+    }
+    res.status(201).json(created.body);
+  })
+);
+
+// Đơn đã tính vào phòng thì tiền nằm ở "Tạm tính" của lượt thuê — huỷ/xoá ở
+// đó, không huỷ từ đây để hai nơi không lệch nhau.
+async function loadOrderGroup(req, res) {
+  const r = await fetch(
+    `${SERVICE_CATALOG_URL}/api/orders?businessId=${encodeURIComponent(req.homestayId)}&groupId=${encodeURIComponent(req.params.groupId)}`,
+    { signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS) }
+  );
+  const rows = await r.json().catch(() => []);
+  if (!r.ok || !Array.isArray(rows) || !rows.length) {
+    res.status(r.ok ? 404 : r.status).json({ error: "Không tìm thấy đơn." });
+    return null;
+  }
+  return rows;
+}
+
+app.put(
+  "/api/service-orders/:groupId",
+  asyncRoute(async (req, res) => {
+    const rows = await loadOrderGroup(req, res);
+    if (!rows) return;
+    if (rows[0].settlement === "room" && req.body.status === "cancelled") {
+      return res.status(409).json({ error: "Đơn đã tính vào phòng — xoá các mục trong Tạm tính của lượt thuê để huỷ." });
+    }
+    const patch = {};
+    if (req.body.status !== undefined) patch.status = req.body.status;
+    if (req.body.note !== undefined) patch.note = req.body.note;
+    const out = await catalogJson(req, `/api/orders/group/${encodeURIComponent(req.params.groupId)}?businessId=${encodeURIComponent(req.homestayId)}`, "PUT", patch);
+    res.status(out.status).json(out.body);
+  })
+);
+
+app.delete(
+  "/api/service-orders/:groupId",
+  requireAdmin,
+  asyncRoute(async (req, res) => {
+    const rows = await loadOrderGroup(req, res);
+    if (!rows) return;
+    if (rows[0].settlement === "room") {
+      return res.status(409).json({ error: "Đơn đã tính vào phòng — xoá các mục trong Tạm tính của lượt thuê." });
+    }
+    const out = await catalogJson(req, `/api/orders/group/${encodeURIComponent(req.params.groupId)}?businessId=${encodeURIComponent(req.homestayId)}`, "DELETE");
+    res.status(out.status).json(out.body ?? {});
+  })
+);
+
 // ---- Stays (check-in / detail / services / surcharges / transfer / checkout) ----
 
 app.get(
@@ -871,8 +1007,16 @@ app.get(
     const where = withTenant(req, `(status,eq,${status})`);
     const [rows, rooms] = await Promise.all([listRows("stays", { where }), listRows("rooms", { where: withTenant(req) })]);
     const roomById = new Map(rooms.map((r) => [r.id, r]));
+    // Optional from/to (YYYY-MM-DD, inclusive) on the date the stay ended — or
+    // started, for stays still in progress.
+    const from = req.query.from ? dayjs(req.query.from).startOf("day") : null;
+    const to = req.query.to ? dayjs(req.query.to).endOf("day") : null;
     const picked = rows
       .filter((s) => !req.query.roomId || s.roomId === req.query.roomId)
+      .filter((s) => {
+        const at = dayjs(s.checkOutAt || s.checkInAt);
+        return (!from?.isValid() || !at.isBefore(from)) && (!to?.isValid() || !at.isAfter(to));
+      })
       .sort((a, b) => dayjs(b.checkOutAt || b.checkInAt).diff(dayjs(a.checkOutAt || a.checkInAt)))
       .slice(0, 100);
     const out = await Promise.all(

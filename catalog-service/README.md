@@ -98,3 +98,13 @@ npm run dev
 ```
 
 On Vercel, add `DATABASE_URL` and `CATALOG_ADMIN_KEY` as environment variables.
+
+## Đơn nhiều dịch vụ
+
+`POST /api/orders` nhận thêm `items: [{ itemId, itemName, unit, price, quantity }]`
+để tạo một đơn nhiều dịch vụ: mỗi dịch vụ là một dòng `orders` cùng
+`orderGroupId`, trả về mảng các dòng. Có thể gửi kèm `status`, `settlement`
+(`paid` | `room`) và `stayId`. Gửi `itemName`/`price` đơn lẻ như cũ vẫn tạo đơn
+một dịch vụ. `PUT` / `DELETE /api/orders/group/:groupId` đổi trạng thái hoặc xoá
+cả đơn; `GET /api/orders?groupId=` lấy các dòng của một đơn. Cần chạy lại
+`schema.sql` (có thêm các cột `orderGroupId`, `settlement`, `stayId`).

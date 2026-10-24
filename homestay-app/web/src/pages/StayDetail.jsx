@@ -71,13 +71,6 @@ export default function StayDetail() {
   }, [stayId]);
 
   const status = stay?.status;
-  useEffect(() => {
-    if (status !== "active") return undefined;
-    // Keep the stay's totals fresh while it is open.
-    const timer = setInterval(refresh, 15000);
-    return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stayId, status]);
 
   // A finished stay always shows its invoice with the QR already generated.
   useEffect(() => {

@@ -1,7 +1,8 @@
 // src/pages/ServiceOrders.jsx
 // Tạo/theo dõi đơn dịch vụ. Quản lý danh mục & bảng giá đã tách sang
 // ServiceCatalog.jsx — màn này chỉ còn việc đặt đơn. Đơn có thể gắn với một
-// phòng/khách thuê, hoặc để trống (khách vãng lai, ghi tên tự do).
+// phòng/khách thuê, hoặc để trống (khách vãng lai, ghi tên tự do). Một đơn có
+// thể gồm nhiều dịch vụ — mỗi dịch vụ là một dòng cùng orderGroupId.
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { loadState, hydrateState, monthKey, currency } from '../utils/state';
@@ -45,8 +46,7 @@ export default function ServiceOrders() {
     roomId: '',
     tenantId: '',
     customerName: '',
-    itemId: '',
-    quantity: 1,
+    lines: [{ itemId: '', quantity: 1 }],
     note: '',
   });
 
@@ -97,14 +97,29 @@ export default function ServiceOrders() {
 
   const itemMap = useMemo(() => Object.fromEntries(items.map((it) => [it.id, it])), [items]);
 
+  // Gom các dòng cùng orderGroupId thành một đơn (đơn cũ 1 dịch vụ = nhóm 1 dòng).
+  const groupedOrders = useMemo(() => {
+    const map = new Map();
+    for (const o of orders) {
+      const key = o.orderGroupId || o.id;
+      if (!map.has(key)) map.set(key, { id: key, lines: [], first: o });
+      map.get(key).lines.push(o);
+    }
+    return [...map.values()].map((g) => ({
+      ...g,
+      status: g.first.status,
+      total: g.lines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0),
+    }));
+  }, [orders]);
+
   const visibleOrders = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return orders;
-    return orders.filter((o) => {
-      const customerName = customerLabel(o);
-      return [customerName, o.itemName, o.note].some((v) => String(v || '').toLowerCase().includes(q));
+    if (!q) return groupedOrders;
+    return groupedOrders.filter((g) => {
+      const haystack = [customerLabel(g.first), g.first.note, ...g.lines.map((l) => l.itemName)];
+      return haystack.some((v) => String(v || '').toLowerCase().includes(q));
     });
-  }, [orders, query, tenantMap]);
+  }, [groupedOrders, query, tenantMap]);
 
   const totalPages = Math.max(1, Math.ceil(visibleOrders.length / perPage));
   const currentPage = Math.min(page, totalPages);
@@ -120,26 +135,40 @@ export default function ServiceOrders() {
       roomId: rooms[0]?.id || '',
       tenantId: '',
       customerName: '',
-      itemId: items[0]?.id || '',
-      quantity: 1,
+      lines: [{ itemId: items[0]?.id || '', quantity: 1 }],
       note: '',
     });
   }
 
+  function setLine(index, patch) {
+    setOrderForm((f) => ({ ...f, lines: f.lines.map((l, i) => (i === index ? { ...l, ...patch } : l)) }));
+  }
+  function addLine() {
+    setOrderForm((f) => ({ ...f, lines: [...f.lines, { itemId: items[0]?.id || '', quantity: 1 }] }));
+  }
+  function removeLine(index) {
+    setOrderForm((f) => ({ ...f, lines: f.lines.length > 1 ? f.lines.filter((_, i) => i !== index) : f.lines }));
+  }
+  const formTotal = orderForm.lines.reduce((sum, l) => sum + (Number(itemMap[l.itemId]?.price) || 0) * (Number(l.quantity) || 0), 0);
+
   async function submitOrder(e) {
     e.preventDefault();
-    const item = itemMap[orderForm.itemId];
-    if (!item) return alert('Chọn dịch vụ trước.');
+    const lines = orderForm.lines
+      .map((l) => ({ item: itemMap[l.itemId], quantity: Number(l.quantity) || 0 }))
+      .filter((l) => l.item && l.quantity > 0);
+    if (!lines.length) return alert('Chọn ít nhất một dịch vụ với số lượng lớn hơn 0.');
     const walkIn = orderForm.customerType === 'walkin';
     if (walkIn && !orderForm.customerName.trim()) return alert('Nhập tên khách vãng lai.');
     if (!walkIn && !orderForm.roomId) return alert('Chọn phòng trước.');
     try {
       await catalog.createOrder({
-        itemId: item.id,
-        itemName: item.name,
-        unit: item.unit,
-        price: item.price,
-        quantity: Number(orderForm.quantity) || 1,
+        items: lines.map(({ item, quantity }) => ({
+          itemId: item.id,
+          itemName: item.name,
+          unit: item.unit,
+          price: item.price,
+          quantity,
+        })),
         roomId: walkIn ? null : orderForm.roomId,
         tenantId: walkIn ? null : (orderForm.tenantId || null),
         customerName: walkIn ? orderForm.customerName.trim() : (roomMap[orderForm.roomId]?.name || null),
@@ -155,7 +184,7 @@ export default function ServiceOrders() {
 
   async function changeStatus(order, status) {
     try {
-      await catalog.updateOrder(order.id, { status });
+      await catalog.updateOrderGroup(order.id, { status });
       await reloadOrders();
     } catch (err) {
       alert(err.message || 'Không đổi được trạng thái.');
@@ -165,7 +194,7 @@ export default function ServiceOrders() {
   async function removeOrder(id) {
     if (!confirm('Xóa đơn này?')) return;
     try {
-      await catalog.deleteOrder(id);
+      await catalog.deleteOrderGroup(id);
       await reloadOrders();
     } catch (err) {
       alert(err.message || 'Không xóa được đơn.');
@@ -245,15 +274,21 @@ export default function ServiceOrders() {
                 <input className={input} value={orderForm.customerName} onChange={(e) => setOrderForm((f) => ({ ...f, customerName: e.target.value }))} placeholder="Tên khách / SĐT" />
               </div>
             )}
-            <div>
+            <div className="col-span-2 space-y-2 sm:col-span-5">
               <label className="text-xs font-medium text-slate-600">Dịch vụ</label>
-              <select className={input} value={orderForm.itemId} onChange={(e) => setOrderForm((f) => ({ ...f, itemId: e.target.value }))}>
-                {items.map((it) => <option key={it.id} value={it.id}>{it.name} ({currency(it.price)} đ/{it.unit || 'lần'})</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-600">Số lượng</label>
-              <input type="number" min="0" step="any" className={input} value={orderForm.quantity} onChange={(e) => setOrderForm((f) => ({ ...f, quantity: e.target.value }))} />
+              {orderForm.lines.map((l, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <select className={`${input} min-w-0 flex-1`} value={l.itemId} onChange={(e) => setLine(i, { itemId: e.target.value })}>
+                    {items.map((it) => <option key={it.id} value={it.id}>{it.name} ({currency(it.price)} đ/{it.unit || 'lần'})</option>)}
+                  </select>
+                  <input type="number" min="0" step="any" className={`${input} w-20 shrink-0`} aria-label="Số lượng" value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} />
+                  <button type="button" className={`${btn} !px-2.5`} onClick={() => removeLine(i)} disabled={orderForm.lines.length === 1} aria-label="Xoá dòng">✕</button>
+                </div>
+              ))}
+              <div className="flex items-center justify-between gap-2">
+                <button type="button" className={`${btn} !py-1 !text-xs`} onClick={addLine}>+ Thêm dịch vụ</button>
+                <span className="text-sm text-slate-700">Tạm tính: <strong className="tabular-nums">{currency(formTotal)} đ</strong></span>
+              </div>
             </div>
             <div>
               <label className="text-xs font-medium text-slate-600">Ghi chú</label>
@@ -286,7 +321,6 @@ export default function ServiceOrders() {
               <tr>
                 <th className={th}>Khách</th>
                 <th className={th}>Dịch vụ</th>
-                <th className={th}>SL</th>
                 <th className={`${th} text-right`}>Thành tiền</th>
                 <th className={th}>Trạng thái</th>
                 <th className={th}></th>
@@ -295,10 +329,13 @@ export default function ServiceOrders() {
             <tbody>
               {pagedOrders.map((o) => (
                 <tr key={o.id}>
-                  <td className={td}>{customerLabel(o)}</td>
-                  <td className={td}>{o.itemName}</td>
-                  <td className={td}>{o.quantity} {o.unit}</td>
-                  <td className={`${td} text-right tabular-nums`}>{currency(o.amount)} đ</td>
+                  <td className={td}>{customerLabel(o.first)}</td>
+                  <td className={`${td} !whitespace-normal`}>
+                    {o.lines.map((l) => (
+                      <div key={l.id}>{l.itemName} × {l.quantity} {l.unit}</div>
+                    ))}
+                  </td>
+                  <td className={`${td} text-right tabular-nums`}>{currency(o.total)} đ</td>
                   <td className={td}>
                     <select
                       className={`${badgeBase} border-0 ${STATUS_BADGE[o.status] || ''}`}
@@ -316,7 +353,7 @@ export default function ServiceOrders() {
                 </tr>
               ))}
               {!pagedOrders.length ? (
-                <tr><td colSpan={6} className={`${td} text-center text-slate-500`}>{query.trim() ? 'Không tìm thấy đơn phù hợp.' : 'Chưa có đơn dịch vụ nào trong tháng này.'}</td></tr>
+                <tr><td colSpan={5} className={`${td} text-center text-slate-500`}>{query.trim() ? 'Không tìm thấy đơn phù hợp.' : 'Chưa có đơn dịch vụ nào trong tháng này.'}</td></tr>
               ) : null}
             </tbody>
           </table>

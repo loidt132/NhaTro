@@ -114,12 +114,13 @@ export async function deleteItem(id) {
   await query(`DELETE FROM items WHERE id = $1`, [id]);
 }
 
-export function listOrders(businessId, { roomId, month, status } = {}) {
+export function listOrders(businessId, { roomId, month, status, groupId } = {}) {
   const params = [businessId];
   let sql = `SELECT * FROM orders WHERE "businessId" = $1`;
   if (roomId) { params.push(roomId); sql += ` AND "roomId" = $${params.length}`; }
   if (month) { params.push(month); sql += ` AND "month" = $${params.length}`; }
   if (status) { params.push(status); sql += ` AND status = $${params.length}`; }
+  if (groupId) { params.push(groupId); sql += ` AND ("orderGroupId" = $${params.length} OR ("orderGroupId" IS NULL AND id = $${params.length}))`; }
   return query(`${sql} ORDER BY updated_at DESC, created_at DESC, id DESC`, params);
 }
 
@@ -127,12 +128,12 @@ export async function getOrder(id) {
   return (await query(`SELECT * FROM orders WHERE id = $1`, [id]))[0] || null;
 }
 
-export async function createOrder({ id, businessId, itemId, itemName, unit, price, quantity, amount, roomId, tenantId, customerName, month, status, note }, actor = "system") {
+export async function createOrder({ id, businessId, itemId, itemName, unit, price, quantity, amount, roomId, tenantId, customerName, month, status, note, orderGroupId, settlement, stayId }, actor = "system") {
   const now = nowIso();
   await query(
-    `INSERT INTO orders (id, "businessId", "itemId", "itemName", unit, price, quantity, amount, "roomId", "tenantId", "customerName", "month", status, note, "orderedAt", created_by, updated_by, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16,$15,$15)`,
-    [id, businessId, itemId || null, itemName, unit || "", price, quantity, amount, roomId || null, tenantId || null, customerName || null, month || null, status || "pending", note || null, now, actor]
+    `INSERT INTO orders (id, "businessId", "itemId", "itemName", unit, price, quantity, amount, "roomId", "tenantId", "customerName", "month", status, note, "orderedAt", created_by, updated_by, created_at, updated_at, "orderGroupId", settlement, "stayId")
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16,$15,$15,$17,$18,$19)`,
+    [id, businessId, itemId || null, itemName, unit || "", price, quantity, amount, roomId || null, tenantId || null, customerName || null, month || null, status || "pending", note || null, now, actor, orderGroupId || null, settlement || null, stayId || null]
   );
   return getOrder(id);
 }
@@ -140,6 +141,7 @@ export async function createOrder({ id, businessId, itemId, itemName, unit, pric
 const ORDER_PATCH_COLUMNS = {
   itemName: '"itemName"', unit: "unit", price: "price", quantity: "quantity", amount: "amount",
   roomId: '"roomId"', tenantId: '"tenantId"', customerName: '"customerName"', month: '"month"', status: "status", note: "note",
+  settlement: "settlement",
 };
 
 export async function updateOrder(id, patch, actor = "system") {
@@ -164,6 +166,14 @@ export async function updateOrder(id, patch, actor = "system") {
   return getOrder(id);
 }
 
+export function listOrdersInGroup(businessId, groupId) {
+  return query(`SELECT * FROM orders WHERE "businessId" = $1 AND ("orderGroupId" = $2 OR ("orderGroupId" IS NULL AND id = $2)) ORDER BY created_at, id`, [businessId, groupId]);
+}
+
 export async function deleteOrder(id) {
   await query(`DELETE FROM orders WHERE id = $1`, [id]);
+}
+
+export async function deleteOrderGroup(businessId, groupId) {
+  await query(`DELETE FROM orders WHERE "businessId" = $1 AND ("orderGroupId" = $2 OR ("orderGroupId" IS NULL AND id = $2))`, [businessId, groupId]);
 }
