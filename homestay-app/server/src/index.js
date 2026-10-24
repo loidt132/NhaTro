@@ -315,6 +315,34 @@ app.put(
   })
 );
 
+// Deleting is only allowed for a homestay with no stay history and no staff
+// accounts — otherwise invoices/reports and logins would be orphaned. Its
+// rooms, room types, rate plans and settings (all owner-managed setup data)
+// are removed together with it.
+app.delete(
+  "/api/owner/homestays/:id",
+  requireAuth,
+  requireOwner,
+  asyncRoute(async (req, res) => {
+    const homestay = await findOneByBusinessId("homestays", req.params.id);
+    if (!homestay) return res.status(404).json({ error: "not found" });
+    const stays = await listRows("stays", { where: `(homestayId,eq,${homestay.id})`, limit: 1 });
+    if (stays.length) {
+      return res.status(409).json({ error: "Không thể xoá — homestay này đã có lịch sử lưu trú." });
+    }
+    const members = await listRows("users", { where: `(homestayId,eq,${homestay.id})`, limit: 1 });
+    if (members.length) {
+      return res.status(409).json({ error: "Không thể xoá — hãy xoá hết người dùng của homestay này trước." });
+    }
+    for (const key of ["ratePlans", "rooms", "roomTypes", "settings"]) {
+      const rows = await listRows(key, { where: `(homestayId,eq,${homestay.id})` });
+      for (const row of rows) await deleteRowByBusinessId(key, row.id);
+    }
+    await deleteRowByBusinessId("homestays", homestay.id);
+    res.status(204).end();
+  })
+);
+
 // Every route below this line requires a logged-in user AND a resolved
 // homestay context (req.homestayId) — see requireHomestayContext in auth.js.
 app.use("/api", requireAuth, requireHomestayContext);

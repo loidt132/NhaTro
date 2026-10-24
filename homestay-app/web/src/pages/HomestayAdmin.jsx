@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ownerApi } from "../api.js";
-import { btn, btnPrimary, card, input, label, table, tableWrap, td, th } from "../ui.js";
+import { btn, btnDanger, btnPrimary, card, input, label, table, tableWrap, td, th } from "../ui.js";
 import { useHomestay } from "../HomestayContext.js";
 
 export default function HomestayAdmin() {
@@ -11,6 +11,17 @@ export default function HomestayAdmin() {
   async function refresh(preferId) {
     try {
       await refreshHomestays(preferId);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function remove(h) {
+    if (!window.confirm(`Xoá homestay "${h.name}"? Phòng, loại phòng và bảng giá của homestay này sẽ bị xoá.`)) return;
+    try {
+      setError("");
+      await ownerApi.removeHomestay(h.id);
+      await refresh();
     } catch (err) {
       setError(err.message);
     }
@@ -56,6 +67,7 @@ export default function HomestayAdmin() {
                         <button className={`${btn} !py-1.5 !text-xs`} onClick={() => setCurrentHomestayId(h.id)}>Xem</button>
                       )}
                       <button className={`${btn} !py-1.5 !text-xs`} onClick={() => setModal({ mode: "edit", homestay: h })}>Sửa</button>
+                      <button className={btnDanger} onClick={() => remove(h)}>Xoá</button>
                     </div>
                   </td>
                 </tr>
