@@ -3,7 +3,7 @@ import { input, label } from "../ui.js";
 
 // Identity fields shared by the check-in form and the add-guest form.
 // `errors` comes from validateGuest; each field shows its own message.
-export default function GuestFields({ value, onChange, errors = {}, main = false }) {
+export default function GuestFields({ value, onChange, errors = {} }) {
   const set = (field) => (e) => onChange({ ...value, [field]: e.target.value });
   const idIsPassport = value.idType === "passport";
 
@@ -11,10 +11,6 @@ export default function GuestFields({ value, onChange, errors = {}, main = false
     <>
       <Field label="Họ tên" error={errors.name}>
         <input value={value.name} onChange={set("name")} placeholder="Nguyễn Văn A" className={input} autoComplete="off" />
-      </Field>
-
-      <Field label={main ? "Địa chỉ thường trú" : "Địa chỉ (không bắt buộc)"} error={errors.address}>
-        <input value={value.address} onChange={set("address")} placeholder="Số nhà, đường, phường/xã, tỉnh/thành" className={input} />
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
@@ -37,7 +33,7 @@ export default function GuestFields({ value, onChange, errors = {}, main = false
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label={idIsPassport ? "Hết hạn (dd/mm/yyyy)" : "Hết hạn (không bắt buộc)"} error={errors.idExpiryDate}>
+        <Field label="Hết hạn" error={errors.idExpiryDate}>
           <input
             value={value.idExpiryDate}
             onChange={(e) => onChange({ ...value, idExpiryDate: formatDmyInput(e.target.value) })}
@@ -47,10 +43,14 @@ export default function GuestFields({ value, onChange, errors = {}, main = false
             className={input}
           />
         </Field>
-        <Field label={main ? "Số điện thoại" : "Số điện thoại (không bắt buộc)"} error={errors.phone}>
+        <Field label="Số điện thoại" error={errors.phone}>
           <input value={value.phone} onChange={set("phone")} inputMode="tel" placeholder="0912345678" className={input} />
         </Field>
       </div>
+
+      <Field label="Địa chỉ thường trú" error={errors.address}>
+        <input value={value.address} onChange={set("address")} placeholder="Số nhà, đường, phường/xã, tỉnh/thành" className={input} />
+      </Field>
     </>
   );
 }
@@ -58,7 +58,7 @@ export default function GuestFields({ value, onChange, errors = {}, main = false
 function Field({ label: text, error, children }) {
   return (
     <div className="min-w-0 space-y-1">
-      <label className={label}>{text}</label>
+      <label className={label}>{text} <span className="text-rose-600">*</span></label>
       {children}
       {error && <div className="text-xs text-rose-600">{error}</div>}
     </div>

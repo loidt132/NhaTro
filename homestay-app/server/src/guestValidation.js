@@ -18,11 +18,10 @@ export function normalizeIdNumber(value) {
 }
 
 // Returns { field: message } for each invalid field, {} when valid.
-// `main` is the check-in guest: phone and ID are required for them. Companions
-// may leave those empty, but anything they do fill in is still checked.
-// CCCD expiry is stored when given but never validated; a passport must have
-// an expiry date that is still in the future.
-export function validateGuest(guest, { main = false, today = dayjs() } = {}) {
+// Every field is required, for the main guest and companions alike.
+// A CCCD expiry only has to be a valid date; a passport must have an expiry
+// date that is still in the future.
+export function validateGuest(guest, { today = dayjs() } = {}) {
   const errors = {};
 
   const name = String(guest.name || "").trim();
@@ -33,14 +32,14 @@ export function validateGuest(guest, { main = false, today = dayjs() } = {}) {
 
   const phone = normalizePhone(guest.phone);
   if (!phone) {
-    if (main) errors.phone = "Vui lòng nhập số điện thoại";
+    errors.phone = "Vui lòng nhập số điện thoại";
   } else if (!PHONE_RE.test(phone)) {
     errors.phone = "Số điện thoại không hợp lệ (VD: 0912345678)";
   }
 
   const address = String(guest.address || "").trim();
   if (!address) {
-    if (main) errors.address = "Vui lòng nhập địa chỉ thường trú";
+    errors.address = "Vui lòng nhập địa chỉ thường trú";
   } else if (address.length < 5 || address.length > 255) {
     errors.address = "Địa chỉ dài 5–255 ký tự";
   }
@@ -50,21 +49,19 @@ export function validateGuest(guest, { main = false, today = dayjs() } = {}) {
 
   const idNumber = normalizeIdNumber(guest.idNumber);
   if (!idNumber) {
-    if (main) errors.idNumber = "Vui lòng nhập số giấy tờ";
+    errors.idNumber = "Vui lòng nhập số giấy tờ";
   } else if (idType === "cccd" && !CCCD_RE.test(idNumber)) {
     errors.idNumber = "CCCD gồm đúng 12 chữ số";
   } else if (idType === "passport" && !PASSPORT_RE.test(idNumber)) {
     errors.idNumber = "Số hộ chiếu gồm 6–9 chữ hoặc số";
   }
 
-  if (idType === "passport") {
-    if (!guest.idExpiryDate) {
-      errors.idExpiryDate = "Vui lòng nhập ngày hết hạn hộ chiếu";
-    } else {
-      const expiry = dayjs(guest.idExpiryDate);
-      if (!expiry.isValid()) errors.idExpiryDate = "Ngày hết hạn không hợp lệ";
-      else if (!expiry.isAfter(today, "day")) errors.idExpiryDate = "Hộ chiếu đã hết hạn";
-    }
+  if (!guest.idExpiryDate) {
+    errors.idExpiryDate = "Vui lòng nhập ngày hết hạn giấy tờ";
+  } else {
+    const expiry = dayjs(guest.idExpiryDate);
+    if (!expiry.isValid()) errors.idExpiryDate = "Ngày hết hạn không hợp lệ";
+    else if (idType === "passport" && !expiry.isAfter(today, "day")) errors.idExpiryDate = "Hộ chiếu đã hết hạn";
   }
 
   return errors;
