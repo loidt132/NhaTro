@@ -33,7 +33,7 @@ export default function GuestFields({ value, onChange, errors = {} }) {
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="Hết hạn" error={errors.idExpiryDate}>
+        <Field label="Hết hạn" required={idIsPassport} error={errors.idExpiryDate}>
           <input
             value={value.idExpiryDate}
             onChange={(e) => onChange({ ...value, idExpiryDate: formatDmyInput(e.target.value) })}
@@ -55,10 +55,10 @@ export default function GuestFields({ value, onChange, errors = {} }) {
   );
 }
 
-function Field({ label: text, error, children }) {
+function Field({ label: text, error, required = true, children }) {
   return (
     <div className="min-w-0 space-y-1">
-      <label className={label}>{text} <span className="text-rose-600">*</span></label>
+      <label className={label}>{text}{required && <span className="text-rose-600"> *</span>}</label>
       {children}
       {error && <div className="text-xs text-rose-600">{error}</div>}
     </div>

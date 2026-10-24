@@ -76,9 +76,9 @@ export function validateGuest(guest, { today = dayjs() } = {}) {
     errors.idNumber = "Số hộ chiếu gồm 6–9 chữ hoặc số";
   }
 
-  if (!guest.idExpiryDate) {
-    errors.idExpiryDate = "Vui lòng nhập ngày hết hạn giấy tờ";
-  } else {
+  if (idType === "passport" && !guest.idExpiryDate) {
+    errors.idExpiryDate = "Vui lòng nhập ngày hết hạn hộ chiếu";
+  } else if (guest.idExpiryDate) {
     const iso = parseDmy(guest.idExpiryDate);
     if (!iso) errors.idExpiryDate = "Ngày hết hạn dạng dd/mm/yyyy";
     else if (idType === "passport" && !dayjs(iso).isAfter(today, "day")) errors.idExpiryDate = "Hộ chiếu đã hết hạn";
