@@ -27,6 +27,18 @@ export default function HomestayAdmin() {
     }
   }
 
+  async function toggleActive(h) {
+    const next = !h.active;
+    if (!next && !window.confirm(`Tạm ngưng "${h.name}"? Admin/nhân viên của homestay này sẽ không đăng nhập hay thao tác được.`)) return;
+    try {
+      setError("");
+      await ownerApi.renameHomestay(h.id, h.name, h.maxRooms, next);
+      await refresh(currentHomestayId);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -50,6 +62,7 @@ export default function HomestayAdmin() {
               <tr>
                 <th className={th}>Tên homestay</th>
                 <th className={th}>Số phòng tối đa</th>
+                <th className={th}>Trạng thái</th>
                 <th className={th}></th>
               </tr>
             </thead>
@@ -62,11 +75,19 @@ export default function HomestayAdmin() {
                   </td>
                   <td className={td}>{h.maxRooms ?? "Không giới hạn"}</td>
                   <td className={td}>
+                    <span className={h.active ? "text-emerald-600" : "text-slate-400"}>
+                      {h.active ? "Hoạt động" : "Ngưng hoạt động"}
+                    </span>
+                  </td>
+                  <td className={td}>
                     <div className="flex justify-end gap-2">
                       {h.id !== currentHomestayId && (
                         <button className={`${btn} !py-1.5 !text-xs`} onClick={() => setCurrentHomestayId(h.id)}>Xem</button>
                       )}
                       <button className={`${btn} !py-1.5 !text-xs`} onClick={() => setModal({ mode: "edit", homestay: h })}>Sửa</button>
+                      <button className={`${btn} !py-1.5 !text-xs`} onClick={() => toggleActive(h)}>
+                        {h.active ? "Ngưng" : "Kích hoạt"}
+                      </button>
                       <button className={btnDanger} onClick={() => remove(h)}>Xoá</button>
                     </div>
                   </td>
@@ -74,7 +95,7 @@ export default function HomestayAdmin() {
               ))}
               {homestays.length === 0 && (
                 <tr>
-                  <td className={td} colSpan={3}>Chưa có homestay nào.</td>
+                  <td className={td} colSpan={4}>Chưa có homestay nào.</td>
                 </tr>
               )}
             </tbody>

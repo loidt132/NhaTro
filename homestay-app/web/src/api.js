@@ -65,8 +65,8 @@ export const ownerApi = {
   listHomestays: () => request(HOMESTAY_API, "/api/owner/homestays"),
   addHomestay: (name, maxRooms) =>
     request(HOMESTAY_API, "/api/owner/homestays", { method: "POST", body: JSON.stringify({ name, maxRooms }) }),
-  renameHomestay: (id, name, maxRooms) =>
-    request(HOMESTAY_API, `/api/owner/homestays/${id}`, { method: "PUT", body: JSON.stringify({ name, maxRooms }) }),
+  renameHomestay: (id, name, maxRooms, active) =>
+    request(HOMESTAY_API, `/api/owner/homestays/${id}`, { method: "PUT", body: JSON.stringify({ name, maxRooms, active }) }),
   removeHomestay: (id) => request(HOMESTAY_API, `/api/owner/homestays/${id}`, { method: "DELETE" }),
 };
 

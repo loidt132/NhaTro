@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS homestays (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Inactive homestays: admin/staff of it can't log in or call the API; owner still can.
+ALTER TABLE homestays ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE;
+
 -- NULL homestayId on a user means role='owner' (sees every homestay).
 CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(64) PRIMARY KEY,
