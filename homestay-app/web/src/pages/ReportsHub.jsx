@@ -62,13 +62,15 @@ function ExportButtons({ onExcel, disabled }) {
 function RevenueReport() {
   const { currentHomestayId } = useHomestay();
   const [from, setFrom] = useState(dayjs().startOf("month").format("YYYY-MM-DD"));
-  const [to, setTo] = useState(dayjs().format("YYYY-MM-DD"));
+  const [to, setTo] = useState(dayjs().endOf("month").format("YYYY-MM-DD"));
   const [data, setData] = useState({ rows: [], grandTotal: { roomRevenue: 0, serviceRevenue: 0, total: 0, stayCount: 0 }, serviceBreakdown: [] });
   const [error, setError] = useState("");
 
   async function refresh() {
     try {
-      setData(await homestayApi.getRevenueReport(from, to));
+      const report = await homestayApi.getRevenueReport(from, to);
+      setData(report);
+      setError(report.ordersError || "");
     } catch (err) {
       setError(err.message);
     }
@@ -125,7 +127,7 @@ function RevenueReport() {
           <h2 className="font-semibold text-slate-900">Doanh thu theo ngày</h2>
           <ExportButtons onExcel={download} disabled={data.rows.length === 0} />
         </div>
-        <p className="mb-2 text-xs text-slate-500">Tính theo ngày trả phòng (checkout) của các lượt lưu trú đã hoàn tất.</p>
+        <p className="mb-2 text-xs text-slate-500">Tính theo ngày trả phòng (checkout) của các lượt lưu trú đã hoàn tất. Dịch vụ/phụ thu gồm cả đơn dịch vụ đã hoàn thành và thu tiền ngay (theo ngày đặt).</p>
         {data.rows.length === 0 ? (
           <p className="text-sm text-slate-500">Chưa có dữ liệu trong khoảng ngày đã chọn.</p>
         ) : (
@@ -178,7 +180,7 @@ function RevenueReport() {
 function OccupancyReport() {
   const { currentHomestayId } = useHomestay();
   const [from, setFrom] = useState(dayjs().startOf("month").format("YYYY-MM-DD"));
-  const [to, setTo] = useState(dayjs().format("YYYY-MM-DD"));
+  const [to, setTo] = useState(dayjs().endOf("month").format("YYYY-MM-DD"));
   const [data, setData] = useState({ totalRooms: 0, currentOccupied: 0, currentCleaning: 0, currentEmpty: 0, occupancyRate: 0, stays: [] });
   const [error, setError] = useState("");
 
@@ -318,13 +320,15 @@ const KIND_LABEL = { service: "Dịch vụ", surcharge: "Phụ thu" };
 function ServiceRevenueReport() {
   const { currentHomestayId } = useHomestay();
   const [from, setFrom] = useState(dayjs().startOf("month").format("YYYY-MM-DD"));
-  const [to, setTo] = useState(dayjs().format("YYYY-MM-DD"));
+  const [to, setTo] = useState(dayjs().endOf("month").format("YYYY-MM-DD"));
   const [data, setData] = useState({ serviceBreakdown: [], grandTotal: { serviceRevenue: 0 } });
   const [error, setError] = useState("");
 
   async function refresh() {
     try {
-      setData(await homestayApi.getRevenueReport(from, to));
+      const report = await homestayApi.getRevenueReport(from, to);
+      setData(report);
+      setError(report.ordersError || "");
     } catch (err) {
       setError(err.message);
     }
@@ -383,7 +387,7 @@ function ServiceRevenueReport() {
           <h2 className="font-semibold text-slate-900">Doanh thu theo từng loại dịch vụ</h2>
           <ExportButtons onExcel={download} disabled={rows.length === 0} />
         </div>
-        <p className="mb-2 text-xs text-slate-500">Tính theo ngày trả phòng (checkout) của các lượt lưu trú đã hoàn tất, giống báo cáo doanh thu.</p>
+        <p className="mb-2 text-xs text-slate-500">Tính theo ngày trả phòng (checkout) của các lượt lưu trú đã hoàn tất, cộng thêm các đơn dịch vụ đã hoàn thành và thu tiền ngay (theo ngày đặt).</p>
         {rows.length === 0 ? (
           <p className="text-sm text-slate-500">Chưa có dữ liệu trong khoảng ngày đã chọn.</p>
         ) : (

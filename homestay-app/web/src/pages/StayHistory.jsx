@@ -19,8 +19,8 @@ export default function StayHistory() {
   const [rooms, setRooms] = useState([]);
   const [roomId, setRoomId] = useState("");
   const [status, setStatus] = useState("checked_out");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [from, setFrom] = useState(dayjs().startOf("month").format("YYYY-MM-DD"));
+  const [to, setTo] = useState(dayjs().endOf("month").format("YYYY-MM-DD"));
   const [rows, setRows] = useState(null);
   const [error, setError] = useState("");
 
