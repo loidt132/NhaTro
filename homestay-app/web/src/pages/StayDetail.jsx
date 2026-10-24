@@ -34,6 +34,7 @@ export default function StayDetail() {
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [transfersOpen, setTransfersOpen] = useState(false);
   const [pricingOpen, setPricingOpen] = useState(false);
+  const [roomOpen, setRoomOpen] = useState(false);
   const [pricingHistoryOpen, setPricingHistoryOpen] = useState(false);
   const [settings, setSettings] = useState(null);
   const [homestayName, setHomestayName] = useState("");
@@ -360,21 +361,13 @@ export default function StayDetail() {
       {isActive && (
         <>
           <div className={cardCls}>
-            <h2 className="mb-1 text-[15px] font-semibold text-slate-900 sm:text-base">Đổi phòng</h2>
-            <p className="mb-2 text-xs text-slate-500">
-              Không tính lại giá — tiền phòng vẫn tính liên tục từ lúc nhận phòng.
-            </p>
-            {emptyRooms.length === 0 ? (
-              <p className="text-sm text-slate-500">Không có phòng trống để chuyển.</p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {emptyRooms.map((r) => (
-                  <button key={r.id} className={`${btn} !px-2.5 !py-1 !text-xs`} onClick={() => transfer(r.id)}>
-                    Chuyển sang {r.name}
-                  </button>
-                ))}
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h2 className="text-[15px] font-semibold text-slate-900 sm:text-base">Đổi phòng</h2>
+                <p className="text-xs text-slate-500">Không tính lại giá — tiền phòng vẫn tính liên tục từ lúc nhận phòng.</p>
               </div>
-            )}
+              <button className={smallBtn} onClick={() => setRoomOpen(true)}>Đổi phòng</button>
+            </div>
           </div>
 
           {!(stay.swipedIn && stay.swipedOut) && (
@@ -432,6 +425,17 @@ export default function StayDetail() {
             </div>
           </div>
         </div>
+      )}
+
+      {roomOpen && (
+        <RoomModal
+          rooms={emptyRooms}
+          onClose={() => setRoomOpen(false)}
+          onPick={async (room) => {
+            setRoomOpen(false);
+            await transfer(room.id);
+          }}
+        />
       )}
 
       {pricingOpen && (
@@ -529,6 +533,37 @@ function AddChargesModal({ onClose, onAddService, onAddSurcharge }) {
               </div>
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Popup listing the empty rooms the stay can move to. Moving keeps the room charge running.
+function RoomModal({ rooms, onClose, onPick }) {
+  return (
+    <div className="no-print fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onClick={onClose}>
+      <div className="w-full max-w-md space-y-3 rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="text-base font-semibold text-slate-900">Chuyển sang phòng trống</div>
+        <p className="text-xs text-slate-500">Không tính lại giá — tiền phòng vẫn tính liên tục từ lúc nhận phòng.</p>
+        {rooms.length === 0 ? (
+          <p className="text-sm text-slate-500">Không có phòng trống để chuyển.</p>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {rooms.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                className={`${btn} !justify-start !py-2 !text-sm`}
+                onClick={() => onPick(r)}
+              >
+                {r.name}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="flex justify-end pt-1">
+          <button className={btn} onClick={onClose}>Đóng</button>
         </div>
       </div>
     </div>
