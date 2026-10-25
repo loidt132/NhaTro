@@ -41,7 +41,7 @@ export default function ServiceOrders() {
   const [rooms, setRooms] = useState([]);
   const [orders, setOrders] = useState(null);
   const [from, setFrom] = useState(dayjs().startOf("month").format("YYYY-MM-DD"));
-  const [to, setTo] = useState("");
+  const [to, setTo] = useState(dayjs().format("YYYY-MM-DD"));
   const [statusFilter, setStatusFilter] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [invoice, setInvoice] = useState(null);
