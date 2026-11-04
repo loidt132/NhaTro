@@ -7,6 +7,7 @@ import SearchBar from '../components/SearchBar';
 import TotalsBar from '../components/TotalsBar';
 import ViewSwitch from '../components/ViewSwitch';
 import Page from '../components/Page';
+import Masked from '../components/Masked';
 import { getAdminViewUserId, monthKey, currency, uid, calcTotalsWithAdvance } from '../utils/state';
 import { tenantsApi, roomsApi, readingsApi, invoicesApi, paymentsApi, rentPeriodsApi, paymentAllocationsApi, depositsApi, depositTransactionsApi } from '../utils/api/tables';
 import Footer from '../components/Footer';
@@ -399,7 +400,7 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
           {occupants.length? (
             <div className="flex flex-wrap gap-1 mt-0.5">
               {occupants.map(t=> (
-                <span key={t.id} title={t.cccd}
+                <span key={t.id}
                       className={`rounded-full px-2 py-0.5 text-xs border ${t.id===room.primaryTenantId? 'border-emerald-400 bg-emerald-50':'border-slate-200 bg-slate-50'}`}>
                   {t.name}{t.id===room.primaryTenantId? ' ★':''}
                 </span>
@@ -636,11 +637,11 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
                       <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm mb-3">
                         <div>
                           <dt className="text-xs text-slate-500">CCCD</dt>
-                          <dd className="font-mono text-slate-800 break-all">{t.cccd}</dd>
+                          <dd className="font-mono text-slate-800 break-all"><Masked value={t.cccd} /></dd>
                         </div>
                         <div>
                           <dt className="text-xs text-slate-500">SĐT</dt>
-                          <dd className="text-slate-800">{t.phone || '—'}</dd>
+                          <dd className="text-slate-800"><Masked value={t.phone} /></dd>
                         </div>
                         <div>
                           <dt className="text-xs text-slate-500">Từ ngày</dt>
@@ -679,8 +680,8 @@ const totalPages = Math.max(1, Math.ceil(visibleRooms.length / perPage));
                     {(tenantByRoom[tenantModal.roomId]||[]).map(t=> (
                       <tr key={t.id} className="border-t border-slate-100">
                         <td className="p-2 align-top">{t.name}</td>
-                        <td className="p-2 font-mono align-top text-xs sm:text-sm">{t.cccd}</td>
-                        <td className="p-2 align-top">{t.phone||''}</td>
+                        <td className="p-2 font-mono align-top text-xs sm:text-sm"><Masked value={t.cccd} empty="" /></td>
+                        <td className="p-2 align-top"><Masked value={t.phone} empty="" /></td>
                         <td className="p-2 align-top whitespace-nowrap">{t.startDate? (new Date(t.startDate)).toLocaleDateString('vi-VN') : ''}</td>
                         <td className="p-2 align-top whitespace-nowrap">{t.endDate? (new Date(t.endDate)).toLocaleDateString('vi-VN') : ''}</td>
                         <td className="p-2 align-top">{roomMap[tenantModal.roomId]?.primaryTenantId===t.id? '★' : ''}</td>

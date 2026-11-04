@@ -3,6 +3,7 @@ import { hydrateState, loadState, uid } from '../utils/state';
 import { tenantsApi, roomsApi } from '../utils/api/tables';
 import Footer from '../components/Footer';
 import Page from '../components/Page';
+import Masked from '../components/Masked';
 import PaginationControls from '../components/PaginationControls';
 import { badgeBase, btn, btnDanger, btnPrimary, card, input, table, tableWrap, td, th } from '../ui';
 
@@ -199,8 +200,8 @@ export default function Tenants() {
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <div className="font-semibold text-slate-900">{t.name}</div>
-                  <div className="text-sm text-slate-600">CCCD: {t.cccd}</div>
-                  <div className="text-sm text-slate-600">SĐT: {t.phone || '—'}</div>
+                  <div className="text-sm text-slate-600">CCCD: <Masked value={t.cccd} /></div>
+                  <div className="text-sm text-slate-600">SĐT: <Masked value={t.phone} /></div>
                   <div className="text-sm text-slate-600">Phòng: {roomMap[t.roomId]?.name || 'Chưa gán'}</div>
                   <div className="text-xs text-slate-500">
                     {t.startDate || '—'} → {t.endDate || '—'}
@@ -246,8 +247,8 @@ export default function Tenants() {
               {pagedTenants.map((t) => (
                 <tr key={t.id}>
                   <td className={`${td} font-medium text-slate-900`}>{t.name}</td>
-                  <td className={td}>{t.cccd}</td>
-                  <td className={td}>{t.phone || ''}</td>
+                  <td className={td}><Masked value={t.cccd} empty="" /></td>
+                  <td className={td}><Masked value={t.phone} empty="" /></td>
                   <td className={td}>{roomMap[t.roomId]?.name || 'Chưa gán'}</td>
                   <td className={td}>{t.startDate || ''}</td>
                   <td className={td}>{t.endDate || ''}</td>
