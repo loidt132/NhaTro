@@ -29,7 +29,7 @@ function loadEnvFile(filePath) {
 loadEnvFile(path.join(__dirname, '.env'));
 
 const db = require('./db');
-const { decryptField } = require('./cryptoFields');
+const { decryptRow } = require('./cryptoFields');
 
 if (!db.isConfigured()) {
   console.error('Error: Thiếu DATABASE_URL (chuỗi kết nối Neon).');
@@ -50,7 +50,7 @@ function mapUser(row) {
     id: row.id,
     name: row.name || '',
     email: normalizeEmail(row.email || ''),
-    phone: normalizePhone(decryptField(row.phone || '')),
+    phone: normalizePhone(decryptRow('users', row).phone || ''),
     role: row.role || 'user',
     maxRoomLimit: row.maxRoomLimit !== null && row.maxRoomLimit !== undefined && Number.isFinite(parsed) ? parsed : null,
   };

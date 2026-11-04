@@ -9,7 +9,7 @@ const stateStore = require('./stateStore');
 const { registerTableRoutes } = require('./tableRoutes');
 const { registerPaymentWorkflowRoutes } = require('./paymentWorkflowRoutes');
 const db = require('./db');
-const { decryptRow, decryptField, encryptField } = require('./cryptoFields');
+const { decryptRow, encryptRow, blindIndex, encryptionProblem } = require('./cryptoFields');
 const getDbPool = () => db.getPool();
 const fetchApi =
   typeof global.fetch === 'function'
@@ -70,6 +70,10 @@ function firstEnv(...names) {
 }
 
 const HAS_DB = db.isConfigured();
+{
+  const encryptionIssue = encryptionProblem();
+  if (encryptionIssue) console.error(`[encryption] ${encryptionIssue}`);
+}
 
 const CLOUDINARY_CLOUD_NAME = firstEnv('CLOUDINARY_CLOUD_NAME');
 const CLOUDINARY_API_KEY = firstEnv('CLOUDINARY_API_KEY');
@@ -165,6 +169,7 @@ app.get('/health', async (req, res) => {
     dependencies: {
       database,
       cloudinary: HAS_CLOUDINARY_CONFIG ? 'configured' : 'not_configured',
+      encryption: encryptionProblem() ? 'misconfigured' : 'ok',
       tuya: TUYA_API_ENDPOINT && TUYA_ACCESS_ID && TUYA_ACCESS_SECRET ? 'configured' : 'not_configured',
       catalog,
     },
@@ -589,13 +594,20 @@ function ensureDbReady() {
 
 async function findTenantRecordsByPhone(phone) {
   if (!HAS_DB || !phone) return [];
-  // phone is encrypted at rest (AES-GCM, random IV per value), so it can't
-  // be matched with a SQL filter — fetch and compare decrypted values in
-  // memory instead.
-  const rows = await db.query(`SELECT * FROM tenants WHERE COALESCE("isDeleted", false) = false`);
+  // phone is encrypted at rest (random IV per value), so it can't be matched
+  // with a plain SQL filter. Narrow by the HMAC blind index (phone_idx) and
+  // then confirm on the decrypted value. Rows not yet indexed (phone_idx IS
+  // NULL, before encrypt-existing-data.js runs) are still scanned; without the
+  // column at all we fall back to the full scan.
+  const wanted = normalizePhone(phone);
+  const hasIndex = (await db.columnsOf('tenants')).has('phone_idx');
+  const idx = blindIndex(wanted);
+  const rows = hasIndex && idx
+    ? await db.query(`SELECT * FROM tenants WHERE COALESCE("isDeleted", false) = false AND (phone_idx = $1 OR phone_idx IS NULL)`, [idx])
+    : await db.query(`SELECT * FROM tenants WHERE COALESCE("isDeleted", false) = false`);
   return rows
     .map((row) => decryptRow('tenants', row))
-    .filter((row) => normalizePhone(row.phone) === normalizePhone(phone));
+    .filter((row) => normalizePhone(row.phone) === wanted);
 }
 
 async function uploadBufferToCloudinary(buffer, folder) {
@@ -692,7 +704,7 @@ function mapUserRow(row) {
     id: readUserValue(row, ['id']),
     name: readUserValue(row, ['name']),
     email: normalizeEmail(readUserValue(row, ['email'])),
-    phone: normalizePhone(decryptField(readUserValue(row, ['phone']))),
+    phone: normalizePhone(decryptRow('users', row).phone || ''),
     password: '',
     passwordHash: readUserValue(row, ['password_hash']),
     passwordSalt: readUserValue(row, ['password_salt']),
@@ -715,11 +727,11 @@ async function listUsers() {
 async function createUserRecord(user) {
   ensureDbReady();
   const normalizedName = String(user.name || '').trim() || user.email || user.phone || 'User';
-  await db.upsertRow('users', {
+  await db.upsertRow('users', encryptRow('users', {
     id: user.id,
     name: normalizedName,
     email: user.email || '',
-    phone: encryptField(user.phone),
+    phone: user.phone,
     password_hash: user.passwordHash,
     password_salt: user.passwordSalt,
     created_at: user.created_at || new Date().toISOString(),
@@ -732,7 +744,7 @@ async function createUserRecord(user) {
     landlordId: user.landlordId || '',
     linkedTenantId: user.linkedTenantId || '',
     linkedRoomId: user.linkedRoomId || '',
-  }, { onConflict: 'nothing' });
+  }), { onConflict: 'nothing' });
 }
 
 async function findUserRowId(userId) {

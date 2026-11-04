@@ -4,7 +4,10 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "migrate-to-neon": "node migrate-to-neon.js"
+    "migrate-to-neon": "node migrate-to-neon.js",
+    "migrate-encryption": "node add-encryption-columns.js",
+    "encrypt-existing": "node encrypt-existing-data.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "cloudinary": "^2.5.1",

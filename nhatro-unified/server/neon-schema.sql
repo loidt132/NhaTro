@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS tenants (
   updated_by VARCHAR(64),
   "name" TEXT,
   "cccd" TEXT,
-  "phone" TEXT,
+  "phone" TEXT, -- cccd/phone are AES-GCM encrypted at rest (see cryptoFields.js)
+  "phone_idx" TEXT, -- HMAC blind index of the digits of phone, for lookups without decrypting
   "roomId" TEXT,
   "startDate" DATE,
   "endDate" DATE,
@@ -61,6 +62,7 @@ CREATE TABLE IF NOT EXISTS tenants (
 );
 CREATE INDEX IF NOT EXISTS idx_tenants_created_by ON tenants (created_by);
 CREATE INDEX IF NOT EXISTS idx_tenants_roomId ON tenants ("roomId");
+CREATE INDEX IF NOT EXISTS idx_tenants_phone_idx ON tenants (phone_idx);
 
 CREATE TABLE IF NOT EXISTS rental_contracts (
   id VARCHAR(64) PRIMARY KEY,

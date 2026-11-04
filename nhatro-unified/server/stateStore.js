@@ -123,19 +123,19 @@ function settingsRow(row) {
 
 async function loadSettings(userId) {
   const rows = await db.listOwnedRows(db.TABLES.settings, userId);
-  return settingsRow(rows[0]);
+  return settingsRow(decryptRow('settings', rows[0]));
 }
 
 async function saveSettings(userId, settings = {}) {
   const table = db.TABLES.settings;
   const rows = await db.listOwnedRows(table, userId);
-  const row = rows[0];
+  const row = decryptRow('settings', rows[0]);
   const baseId = row?.id || `settings:${userId}`;
   const payload = withOwnership({ id: baseId, ...settings }, userId, row);
 
   await db.withTransaction(async (client) => {
     if (!row || !isSamePayload(settingsRow(row), { id: baseId, ...settings })) {
-      await db.upsertRow(table, payload, { client });
+      await db.upsertRow(table, encryptRow('settings', payload), { client });
     }
     for (const extraRow of rows.slice(1)) {
       await db.softDeleteRow(table, extraRow.id, userId, { client });
